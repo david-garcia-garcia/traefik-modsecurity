@@ -4,8 +4,8 @@ services:
   traefik:
     image: "traefik:v2.11.4"
     ports:
-      - "80:80"
-      - "8080:8080"
+      - "81:80"
+      - "8081:8080"
     command:
       - "--log.level=DEBUG"
       - "--accesslog=true"
@@ -24,7 +24,7 @@ services:
       - traefik.http.middlewares.limit.buffering.maxRequestBodyBytes=1048576
       - traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.modSecurityUrl=http://waf:8080
       - traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.jailEnabled=true
-
+      - traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.unhealthyWafBackOffPeriodSecs=5
 
 
   waf:

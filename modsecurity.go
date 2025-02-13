@@ -22,7 +22,8 @@ type Config struct {
 	JailEnabled                    bool   `json:"jailEnabled,omitempty"`
 	BadRequestsThresholdCount      int    `json:"badRequestsThresholdCount,omitempty"`
 	BadRequestsThresholdPeriodSecs int    `json:"badRequestsThresholdPeriodSecs,omitempty"` // Period in seconds to track attempts
-	JailTimeDurationSecs           int    `json:"jailTimeDurationSecs,omitempty"`                     // How long a client spends in Jail in seconds
+	JailTimeDurationSecs           int    `json:"jailTimeDurationSecs,omitempty"`           // How long a client spends in Jail in seconds
+	UnhealthyWafBackOffPeriodSecs  int    `json:"unhealthyWafBackOffPeriodSecs,omitempty"`  // If the WAF is unhealthy, back off
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -33,6 +34,7 @@ func CreateConfig() *Config {
 		BadRequestsThresholdCount:      25,
 		BadRequestsThresholdPeriodSecs: 600,
 		JailTimeDurationSecs:           600,
+		UnhealthyWafBackOffPeriodSecs:  0, // 0 to NOT backoff (original behaviour)
 	}
 }
 
@@ -46,6 +48,9 @@ type Modsecurity struct {
 	jailEnabled                    bool
 	badRequestsThresholdCount      int
 	badRequestsThresholdPeriodSecs int
+	unhealthyWafBackOffPeriodSecs  int
+	unhealthyWaf                   bool // If the WAF is unhealthy
+	unhealthyWafMutex              sync.Mutex
 	jailTimeDurationSecs           int
 	jail                           map[string][]time.Time
 	jailRelease                    map[string]time.Time
@@ -100,6 +105,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		jailTimeDurationSecs:           config.JailTimeDurationSecs,
 		jail:                           make(map[string][]time.Time),
 		jailRelease:                    make(map[string]time.Time),
+		unhealthyWafBackOffPeriodSecs:  config.UnhealthyWafBackOffPeriodSecs,
 	}, nil
 }
 
@@ -121,6 +127,12 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			return
 		}
 		a.jailMutex.RUnlock()
+	}
+
+	// If the WAF is unhealthy just forward the request early
+	if a.unhealthyWaf {
+		a.next.ServeHTTP(rw, req)
+		return
 	}
 
 	// Buffer the body if we want to read it here and send it in the request.
@@ -150,6 +162,23 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	resp, err := a.httpClient.Do(proxyReq)
 	if err != nil {
+		if a.unhealthyWafBackOffPeriodSecs > 0 {
+			a.unhealthyWafMutex.Lock()
+			if a.unhealthyWaf == false {
+				a.logger.Printf("marking modsec as unhealthy for %ds fail to send HTTP request to modsec: %s", a.unhealthyWafBackOffPeriodSecs, err.Error())
+				a.unhealthyWaf = true
+				time.AfterFunc(time.Duration(a.unhealthyWafBackOffPeriodSecs)*time.Second, func() {
+					a.unhealthyWafMutex.Lock()
+					defer a.unhealthyWafMutex.Unlock()
+					a.unhealthyWaf = false
+					a.logger.Printf("modsec unhealthy backoff expired")
+				})
+			}
+			a.unhealthyWafMutex.Unlock()
+			a.next.ServeHTTP(rw, req)
+			return
+		}
+
 		a.logger.Printf("fail to send HTTP request to modsec: %s", err.Error())
 		http.Error(rw, "", http.StatusBadGateway)
 		return
