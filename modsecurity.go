@@ -129,7 +129,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		a.jailMutex.RUnlock()
 	}
 
-	// If the WAF is unhealthy just forward the request early
+	// If the WAF is unhealthy just forward the request early. No concurrency control here on purpose.
 	if a.unhealthyWaf {
 		a.next.ServeHTTP(rw, req)
 		return
