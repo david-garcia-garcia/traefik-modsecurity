@@ -62,7 +62,7 @@ This plugin supports these configuration:
 * `JailTimeDurationSecs`:  (optional) how long a client will be jailed for, in seconds
 * `badRequestsThresholdCount`: (optional) # of 403s a clientIP can trigger from OWASP before being adding to jail
 * `badRequestsThresholdPeriodSecs` (optional) # the period, in seconds, that the threshold must meet before a client is added to the 429 jail
-* `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to back off if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with crowdsec.
+* `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with modsec.
 
 ## Local development (docker-compose.local.yml)
 
