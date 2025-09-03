@@ -31,52 +31,86 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		request         *http.Request
-		wafResponse     response
-		serviceResponse response
-		expectBody      string
-		expectStatus    int
+		name                      string
+		request                   *http.Request
+		wafResponse               response
+		serviceResponse           response
+		expectBody                string
+		expectStatus              int
+		remediationResponseHeader string
+		expectHeader              string
+		expectHeaderValue         string
 	}{
 		{
-			name:    "Forward request when WAF found no threats",
-			request: req.Clone(req.Context()),
-			wafResponse: response{
-				StatusCode: 200,
-				Body:       "Response from waf",
-			},
-			serviceResponse: serviceResponse,
-			expectBody:      "Response from service",
-			expectStatus:    200,
+			name:                      "Forward request when WAF found no threats",
+			request:                   req.Clone(req.Context()),
+			wafResponse:               response{StatusCode: 200, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from service",
+			expectStatus:              200,
+			remediationResponseHeader: "",
+			expectHeader:              "",
+			expectHeaderValue:         "",
 		},
 		{
-			name:    "Intercepts request when WAF found threats",
-			request: req.Clone(req.Context()),
-			wafResponse: response{
-				StatusCode: 403,
-				Body:       "Response from waf",
-			},
-			serviceResponse: serviceResponse,
-			expectBody:      "Response from waf",
-			expectStatus:    403,
+			name:                      "Intercepts request when WAF found threats",
+			request:                   req.Clone(req.Context()),
+			wafResponse:               response{StatusCode: 403, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from waf",
+			expectStatus:              403,
+			remediationResponseHeader: "",
+			expectHeader:              "",
+			expectHeaderValue:         "",
 		},
 		{
 			name: "Does not forward Websockets",
 			request: &http.Request{
-				Body: http.NoBody,
-				Header: http.Header{
-					"Upgrade": []string{"websocket"},
-				},
+				Body:   http.NoBody,
+				Header: http.Header{"Upgrade": []string{"websocket"}},
 				Method: http.MethodGet,
 				URL:    req.URL,
 			},
-			wafResponse: response{
-				StatusCode: 200,
-				Body:       "Response from waf",
-			},
-			serviceResponse: serviceResponse,
-			expectBody:      "Response from service",
-			expectStatus:    200,
+			wafResponse:               response{StatusCode: 200, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from service",
+			expectStatus:              200,
+			remediationResponseHeader: "",
+			expectHeader:              "",
+			expectHeaderValue:         "",
+		},
+		{
+			name:                      "Adds remediation header when request is blocked",
+			request:                   req.Clone(req.Context()),
+			wafResponse:               response{StatusCode: 403, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from waf",
+			expectStatus:              403,
+			remediationResponseHeader: "X-Waf-Block",
+			expectHeader:              "X-Waf-Block",
+			expectHeaderValue:         "403",
+		},
+		{
+			name:                      "Does not add remediation header when request is allowed",
+			request:                   req.Clone(req.Context()),
+			wafResponse:               response{StatusCode: 200, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from service",
+			expectStatus:              200,
+			remediationResponseHeader: "X-Waf-Block",
+			expectHeader:              "",
+			expectHeaderValue:         "",
+		},
+		{
+			name:                      "Adds remediation header with different status codes",
+			request:                   req.Clone(req.Context()),
+			wafResponse:               response{StatusCode: 406, Body: "Response from waf"},
+			serviceResponse:           serviceResponse,
+			expectBody:                "Response from waf",
+			expectStatus:              406,
+			remediationResponseHeader: "X-Remediation-Info",
+			expectHeader:              "X-Remediation-Info",
+			expectHeaderValue:         "406",
 		},
 	}
 
@@ -104,8 +138,9 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			})
 
 			config := &Config{
-				TimeoutMillis:  2000,
-				ModSecurityUrl: modsecurityMockServer.URL,
+				TimeoutMillis:             2000,
+				ModSecurityUrl:            modsecurityMockServer.URL,
+				RemediationResponseHeader: tt.remediationResponseHeader,
 			}
 
 			middleware, err := New(context.Background(), httpServiceHandler, config, "modsecurity-middleware")
@@ -119,6 +154,16 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			body, _ := io.ReadAll(resp.Body)
 			assert.Equal(t, tt.expectBody, string(body))
 			assert.Equal(t, tt.expectStatus, resp.StatusCode)
+
+			// Check for expected remediation header
+			if tt.expectHeader != "" {
+				assert.Equal(t, tt.expectHeaderValue, resp.Header.Get(tt.expectHeader), "Expected remediation header with correct value")
+			} else {
+				// When no header is expected, ensure no remediation header was added
+				if tt.remediationResponseHeader != "" {
+					assert.Empty(t, resp.Header.Get(tt.remediationResponseHeader), "No remediation header should be present")
+				}
+			}
 		})
 	}
 }

@@ -20,13 +20,15 @@ type Config struct {
 	TimeoutMillis                 int64  `json:"timeoutMillis,omitempty"`
 	ModSecurityUrl                string `json:"modSecurityUrl,omitempty"`
 	UnhealthyWafBackOffPeriodSecs int    `json:"unhealthyWafBackOffPeriodSecs,omitempty"` // If the WAF is unhealthy, back off
+	RemediationResponseHeader     string `json:"remediationResponseHeader,omitempty"`     // Header name to add when request is blocked
 }
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
 		TimeoutMillis:                 2000,
-		UnhealthyWafBackOffPeriodSecs: 0, // 0 to NOT backoff (original behaviour)
+		UnhealthyWafBackOffPeriodSecs: 0,  // 0 to NOT backoff (original behaviour)
+		RemediationResponseHeader:     "", // Empty string means no header will be added
 	}
 }
 
@@ -40,6 +42,7 @@ type Modsecurity struct {
 	unhealthyWafBackOffPeriodSecs int
 	unhealthyWaf                  bool // If the WAF is unhealthy
 	unhealthyWafMutex             sync.Mutex
+	remediationResponseHeader     string // Header name to add when request is blocked
 }
 
 // New creates a new Modsecurity plugin with the given configuration.
@@ -85,6 +88,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		httpClient:                    &http.Client{Timeout: timeout, Transport: transport},
 		logger:                        log.New(os.Stdout, "", log.LstdFlags),
 		unhealthyWafBackOffPeriodSecs: config.UnhealthyWafBackOffPeriodSecs,
+		remediationResponseHeader:     config.RemediationResponseHeader,
 	}, nil
 }
 
@@ -129,7 +133,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if a.unhealthyWafBackOffPeriodSecs > 0 {
 			a.unhealthyWafMutex.Lock()
-			if a.unhealthyWaf == false {
+			if !a.unhealthyWaf {
 				a.logger.Printf("marking modsec as unhealthy for %ds fail to send HTTP request to modsec: %s", a.unhealthyWafBackOffPeriodSecs, err.Error())
 				a.unhealthyWaf = true
 				time.AfterFunc(time.Duration(a.unhealthyWafBackOffPeriodSecs)*time.Second, func() {
@@ -151,6 +155,10 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
+		// Add remediation header if configured
+		if a.remediationResponseHeader != "" {
+			rw.Header().Set(a.remediationResponseHeader, fmt.Sprintf("%d", resp.StatusCode))
+		}
 		forwardResponse(resp, rw)
 		return
 	}

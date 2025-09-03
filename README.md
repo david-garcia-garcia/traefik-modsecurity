@@ -59,6 +59,7 @@ This plugin supports these configuration:
 * `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2
   seconds)
 * `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with modsec.
+* `remediationResponseHeader`: (optional) name of the header to add to the response when requests are blocked by ModSecurity. The header value will contain the HTTP status code returned by ModSecurity. Default is empty (no header added).
 
 ## Local development (docker-compose.local.yml)
 
