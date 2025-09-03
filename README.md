@@ -4,7 +4,7 @@
 
 this is a fork of the original: https://github.com/acouvreur/traefik-modsecurity-plugin
 
-This fork introduces alpine images, CRS 4.x suppport, a custom http.transport, and a 429 jail for repeat offenders
+This fork introduces alpine images, CRS 4.x suppport, and a custom http.transport
 
 see:  https://github.com/traefik/plugindemo#troubleshooting
 
@@ -58,10 +58,6 @@ This plugin supports these configuration:
 * `modSecurityUrl`: (**mandatory**) it's the URL for the owasp/modsecurity container.
 * `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2
   seconds)
-* `jailEnabled`:  (optional) 429 jail for repeat offenders (based on threshold settings)
-* `JailTimeDurationSecs`:  (optional) how long a client will be jailed for, in seconds
-* `badRequestsThresholdCount`: (optional) # of 403s a clientIP can trigger from OWASP before being adding to jail
-* `badRequestsThresholdPeriodSecs` (optional) # the period, in seconds, that the threshold must meet before a client is added to the 429 jail
 * `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with modsec.
 
 ## Local development (docker-compose.local.yml)

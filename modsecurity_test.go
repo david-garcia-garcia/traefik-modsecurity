@@ -3,12 +3,13 @@ package traefik_modsecurity_plugin
 import (
 	"bytes"
 	"context"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestModsecurity_ServeHTTP(t *testing.T) {
@@ -36,8 +37,6 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 		serviceResponse response
 		expectBody      string
 		expectStatus    int
-		jailEnabled     bool
-		jailConfig      *Config
 	}{
 		{
 			name:    "Forward request when WAF found no threats",
@@ -49,7 +48,6 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			serviceResponse: serviceResponse,
 			expectBody:      "Response from service",
 			expectStatus:    200,
-			jailEnabled:     false,
 		},
 		{
 			name:    "Intercepts request when WAF found threats",
@@ -61,7 +59,6 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			serviceResponse: serviceResponse,
 			expectBody:      "Response from waf",
 			expectStatus:    403,
-			jailEnabled:     false,
 		},
 		{
 			name: "Does not forward Websockets",
@@ -80,25 +77,6 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			serviceResponse: serviceResponse,
 			expectBody:      "Response from service",
 			expectStatus:    200,
-			jailEnabled:     false,
-		},
-		{
-			name:    "Jail client after multiple bad requests",
-			request: req.Clone(req.Context()),
-			wafResponse: response{
-				StatusCode: 403,
-				Body:       "Response from waf",
-			},
-			serviceResponse: serviceResponse,
-			expectBody:      "Too Many Requests\n",
-			expectStatus:    http.StatusTooManyRequests,
-			jailEnabled:     true,
-			jailConfig: &Config{
-				JailEnabled:                true,
-				BadRequestsThresholdCount:  3,
-				BadRequestsThresholdPeriodSecs: 10,
-				JailTimeDurationSecs:           10,
-			},
 		},
 	}
 
@@ -126,17 +104,8 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			})
 
 			config := &Config{
-				TimeoutMillis:              2000,
-				ModSecurityUrl:             modsecurityMockServer.URL,
-				JailEnabled:                tt.jailEnabled,
-				BadRequestsThresholdCount:  25,
-				BadRequestsThresholdPeriodSecs: 600,
-				JailTimeDurationSecs:           600,
-			}
-
-			if tt.jailEnabled && tt.jailConfig != nil {
-				config = tt.jailConfig
-				config.ModSecurityUrl = modsecurityMockServer.URL
+				TimeoutMillis:  2000,
+				ModSecurityUrl: modsecurityMockServer.URL,
 			}
 
 			middleware, err := New(context.Background(), httpServiceHandler, config, "modsecurity-middleware")
@@ -145,15 +114,6 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			}
 
 			rw := httptest.NewRecorder()
-
-			for i := 0; i < config.BadRequestsThresholdCount; i++ {
-				middleware.ServeHTTP(rw, tt.request.Clone(tt.request.Context()))
-				if tt.jailEnabled && i < config.BadRequestsThresholdCount-1 {
-					assert.Equal(t, tt.wafResponse.StatusCode, rw.Result().StatusCode)
-				}
-			}
-
-			rw = httptest.NewRecorder()
 			middleware.ServeHTTP(rw, tt.request.Clone(tt.request.Context()))
 			resp := rw.Result()
 			body, _ := io.ReadAll(resp.Body)
