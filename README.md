@@ -1,23 +1,22 @@
-# Traefik Modsecurity Plugin
+# 🛡️ Traefik ModSecurity Plugin
 
-![Banner](./img/banner.png)
+[![Build Status](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/workflows/build.yml/badge.svg)](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/workflows/build.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/david-garcia-garcia/traefik-modsecurity)](https://goreportcard.com/report/github.com/david-garcia-garcia/traefik-modsecurity)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/david-garcia-garcia/traefik-modsecurity)](https://img.shields.io/github/go-mod/go-version/david-garcia-garcia/traefik-modsecurity)
+[![Latest Release](https://img.shields.io/github/v/release/david-garcia-garcia/traefik-modsecurity?sort=semver)](https://github.com/david-garcia-garcia/traefik-modsecurity/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](LICENSE)
 
-this is a fork of the original: https://github.com/acouvreur/traefik-modsecurity-plugin
+A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
-This fork introduces alpine images, CRS 4.x suppport, a custom http.transport, and a 429 jail for repeat offenders
+> [!WARNING] Traefik Security Trifecta
+> 
+> **Traefik Security Trifecta**: the three basic modules you need to secure your Traefik ingress:
+> 
+> - **🌍 Geoblock**: [david-garcia-garcia/traefik-geoblock](https://github.com/david-garcia-garcia/traefik-geoblock) - Block or allow requests based on IP geolocation
+> - **🛡️ CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/main) - Real-time threat intelligence and automated blocking
+> - **🔒 ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set
 
-see:  https://github.com/traefik/plugindemo#troubleshooting
-
-----
-
-Traefik plugin to proxy requests to [owasp/modsecurity-crs](https://hub.docker.com/r/owasp/modsecurity-crs):apache
-
-![Github Actions](https://img.shields.io/github/actions/workflow/status/madebymode/traefik-modsecurity-plugin/build.yml?style=flat-square&branch=main)
-![Go Report](https://goreportcard.com/badge/github.com/madebymode/traefik-modsecurity-plugin?style=flat-square)
-![Go Version](https://img.shields.io/github/go-mod/go-version/madebymode/traefik-modsecurity-plugin?style=flat-square)
-![Latest Release](https://img.shields.io/github/release/madebymode/traefik-modsecurity-plugin/all.svg?style=flat-square)
-
-- [Traefik Modsecurity Plugin](#traefik-modsecurity-plugin)
+- [Traefik ModSecurity Plugin](#-traefik-modsecurity-plugin)
     - [Demo](#demo)
     - [Usage (docker-compose.yml)](#usage-docker-composeyml)
     - [How it works](#how-it-works)
@@ -51,17 +50,86 @@ If it is > 400, then the error page is returned instead.
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
 
-## Configuration
+## ⚙️ Configuration
 
-This plugin supports these configuration:
+```yaml
+http:
+  middlewares:
+    waf-middleware:
+      plugin:
+        modsecurity:
+          #-------------------------------
+          # Basic Configuration
+          #-------------------------------
+          modSecurityUrl: "http://modsecurity:80"
+          # REQUIRED: URL of the ModSecurity container
+          # This is the endpoint where the plugin will forward requests for security analysis
+          # Examples:
+          # - "http://modsecurity:80" (Docker service name)
+          # - "http://localhost:8080" (Local development)
+          # - "https://waf.example.com" (External service)
+          
+          timeoutMillis: 2000
+          # OPTIONAL: Timeout in milliseconds for ModSecurity requests
+          # Default: 2000ms (2 seconds)
+          # This controls how long the plugin waits for ModSecurity to respond
+          # Increase for slow ModSecurity instances or large payloads
+          # Set to 0 for no timeout (not recommended in production)
+          
+          unhealthyWafBackOffPeriodSecs: 30
+          # OPTIONAL: Backoff period in seconds when ModSecurity is unavailable
+          # Default: 0 (return 502 Bad Gateway immediately)
+          # When ModSecurity is down, this plugin can temporarily bypass it
+          # Set to 0 to disable bypass (always return 502 when WAF is down)
+          # Set to 30+ seconds for production environments with automatic failover
+          
+          modSecurityStatusRequestHeader: "X-Waf-Status"
+          # OPTIONAL: Header name to add to requests for logging purposes
+          # Default: empty (no header added)
+          # This header is added to the REQUEST (not response) for Traefik access logs
+          # Header values:
+          # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
+          # - "unhealthy" when ModSecurity is down and backoff is enabled
+          # - "error" when communication with ModSecurity fails
+          # - "cannotforward" when request forwarding fails
+          # Configure Traefik access logs to capture this header:
+          # accesslog.fields.headers.names.X-Waf-Status=keep
+          
+          #-------------------------------
+          # Advanced Transport Configuration
+          #-------------------------------
+          # These parameters fine-tune HTTP client behavior for high-load scenarios
+          # Leave at defaults unless you're experiencing performance issues
+          
+          maxConnsPerHost: 100
+          # OPTIONAL: Maximum concurrent connections per ModSecurity host
+          # Default: 0 (unlimited connections)
+          # Controls connection pool size to prevent overwhelming ModSecurity
+          # Recommended: 50-200 for most environments
+          # Set to 0 for unlimited (original behavior)
+          
+          maxIdleConnsPerHost: 10
+          # OPTIONAL: Maximum idle connections to keep per ModSecurity host
+          # Default: 0 (unlimited idle connections)
+          # Idle connections are kept alive for reuse, reducing connection overhead
+          # Recommended: 5-20 for most environments
+          # Set to 0 for unlimited (original behavior)
+          
+          responseHeaderTimeoutMillis: 5000
+          # OPTIONAL: Timeout for waiting for response headers from ModSecurity
+          # Default: 0 (no timeout)
+          # This is different from timeoutMillis - it only waits for headers, not full response
+          # Useful for detecting slow ModSecurity instances quickly
+          # Set to 0 to disable (original behavior)
+          
+          expectContinueTimeoutMillis: 1000
+          # OPTIONAL: Timeout for Expect: 100-continue handshake
+          # Default: 1000ms (1 second)
+          # Used when sending large payloads - ModSecurity can reject before full upload
+          # Increase for very large files or slow networks
+          # This is the only parameter that has a non-zero default
+```
 
-* `modSecurityUrl`: (**mandatory**) it's the URL for the owasp/modsecurity container.
-* `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2
-  seconds)
-* `jailEnabled`:  (optional) 429 jail for repeat offenders (based on threshold settings)
-* `JailTimeDurationSecs`:  (optional) how long a client will be jailed for, in seconds
-* `badRequestsThresholdCount`: (optional) # of 403s a clientIP can trigger from OWASP before being adding to jail
-* `badRequestsThresholdPeriodSecs` (optional) # the period, in seconds, that the threshold must meet before a client is added to the 429 jail
 
 ## Local development (docker-compose.local.yml)
 
