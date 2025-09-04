@@ -113,8 +113,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	req.Body = io.NopCloser(bytes.NewReader(body))
 
-	// Create a new URL from the raw RequestURI sent by the client
-	url := fmt.Sprintf("%s%s", a.modSecurityUrl, req.RequestURI)
+	url := a.modSecurityUrl + req.RequestURI
 
 	proxyReq, err := http.NewRequest(req.Method, url, bytes.NewReader(body))
 	if err != nil {
@@ -176,11 +175,9 @@ func isWebsocket(req *http.Request) bool {
 }
 
 func forwardResponse(resp *http.Response, rw http.ResponseWriter) {
-	// Copy headers
+	dst := rw.Header()
 	for k, vv := range resp.Header {
-		for _, v := range vv {
-			rw.Header().Add(k, v)
-		}
+		dst[k] = append(dst[k][:0], vv...)
 	}
 	// Copy status
 	rw.WriteHeader(resp.StatusCode)
