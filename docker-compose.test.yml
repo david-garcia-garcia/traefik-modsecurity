@@ -1,0 +1,46 @@
+services:
+  traefik:
+    image: "traefik:v2.11.4"
+    ports:
+      - "8080:8080"  # Traefik API
+      - "8000:80"    # HTTP
+    command:
+      - "--log.level=INFO"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--experimental.localPlugins.traefik-modsecurity-plugin.moduleName=github.com/madebymode/traefik-modsecurity-plugin"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - ".:/plugins-local/src/github.com/madebymode/traefik-modsecurity-plugin"
+
+  waf:
+    image: owasp/modsecurity-crs:4.3.0-apache-alpine-202406090906
+    environment:
+      - PARANOIA=1
+      - ANOMALY_INBOUND=5
+      - ANOMALY_OUTBOUND=4
+      - BACKEND=http://dummy
+      - MODSEC_RULE_ENGINE=On
+
+  dummy:
+    image: traefik/whoami
+
+  # Protected by WAF
+  whoami-protected:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.protected.rule=PathPrefix(`/protected`)"
+      - "traefik.http.routers.protected.middlewares=waf"
+      - "traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf.plugin.traefik-modsecurity-plugin.remediationResponseHeader=X-Waf-Status"
+
+  # No WAF protection
+  whoami-bypass:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bypass.rule=PathPrefix(`/bypass`)"
