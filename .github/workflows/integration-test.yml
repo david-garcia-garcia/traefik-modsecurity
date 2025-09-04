@@ -6,11 +6,13 @@ on:
     - main
     - master
     - develop
+    - backoff
   pull_request:
     branches:
     - main
     - master
     - develop
+    - backoff
 
 permissions:
   contents: read
