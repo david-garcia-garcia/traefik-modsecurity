@@ -23,6 +23,13 @@ BeforeAll {
         throw "Traefik container not found"
     }
     Write-Host "Using Traefik container: $script:traefikContainer" -ForegroundColor Cyan
+    
+    # Find the WAF container name dynamically
+    $script:wafContainer = docker ps --filter "ancestor=owasp/modsecurity-crs:4.3.0-apache-alpine-202406090906" --format "{{.Names}}" | Select-Object -First 1
+    if (-not $script:wafContainer) {
+        throw "WAF container not found"
+    }
+    Write-Host "Using WAF container: $script:wafContainer" -ForegroundColor Cyan
 }
 
 Describe "ModSecurity Plugin Basic Functionality" {
@@ -191,37 +198,22 @@ Describe "Remediation Response Header Tests" {
         
         It "Should log 'unhealthy' header when ModSecurity backend is unavailable" {
             # Stop the ModSecurity WAF container to simulate unhealthy state
-            docker stop traefik-modsecurity-plugin-waf-1
+            docker stop $script:wafContainer
             
             # Wait a moment for the container to stop
             Start-Sleep -Seconds 3
             
             # Make multiple requests to trigger the unhealthy state
-            # The first request will fail and mark WAF as unhealthy
-            # The second request should use the unhealthy path
-            try {
-                $response1 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
-                # If first request succeeds, WAF might not be marked unhealthy yet
-            } catch {
-                # Expected for first request when WAF is down
-            }
+            # The first request will mark WAF as unhealthy and succeed
+            $response1 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
+            $response1.StatusCode | Should -Be 200
             
             # Wait for WAF to be marked as unhealthy
             Start-Sleep -Seconds 2
             
-            # Make another request - this should use the unhealthy path
-            try {
-                $response2 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
-                $response2.StatusCode | Should -Be 200
-            } catch {
-                # If still failing, that's also acceptable - check if it's a 502/503 response
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -BeGreaterOrEqual 500
-                } else {
-                    throw "Unexpected error: $($_.Exception.Message)"
-                }
-            }
+            # Make another request - this should also succeed with unhealthy header
+            $response2 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
+            $response2.StatusCode | Should -Be 200
             
             # Wait a moment for log to be written
             Start-Sleep -Seconds 2
@@ -259,7 +251,7 @@ Describe "Remediation Response Header Tests" {
             $unhealthyHeaderFound | Should -Be $true
             
             # Restart the WAF container for other tests
-            docker start traefik-modsecurity-plugin-waf-1
+            docker start $script:wafContainer
             Start-Sleep -Seconds 5
         }
         
@@ -354,6 +346,8 @@ Describe "Performance Comparison Tests" {
                     $stopwatch.Stop()
                     if ($response.StatusCode -eq 200) {
                         $wafResponseTimes += $stopwatch.ElapsedMilliseconds
+                    } else {
+                        Write-Warning "WAF request $i returned status $($response.StatusCode)"
                     }
                 } catch {
                     $stopwatch.Stop()
