@@ -2,8 +2,8 @@ services:
   traefik:
     image: "traefik:v2.11.4"
     ports:
-      - "8080:8080"  # Traefik API
-      - "8000:80"    # HTTP
+      - "9080:8080"  # Traefik API
+      - "9000:80"    # HTTP
     command:
       - "--log.level=INFO"
       - "--api.dashboard=true"

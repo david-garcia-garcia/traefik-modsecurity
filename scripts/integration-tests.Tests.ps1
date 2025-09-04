@@ -3,8 +3,8 @@ BeforeAll {
     . "$PSScriptRoot/TestHelpers.ps1"
     
     # Test configuration
-    $script:BaseUrl = "http://localhost:8000"
-    $script:TraefikApiUrl = "http://localhost:8080"
+    $script:BaseUrl = "http://localhost:9000"
+    $script:TraefikApiUrl = "http://localhost:9080"
     
     # Ensure all services are ready before running tests
     $services = @(
@@ -85,6 +85,12 @@ Describe "Remediation Response Header Tests" {
     }
     
     Context "Remediation Header Logging" {
+        # Find the Traefik container name dynamically
+        $traefikContainer = docker ps --filter "ancestor=traefik:v2.11.4" --format "{{.Names}}" | Select-Object -First 1
+        if (-not $traefikContainer) {
+            throw "Traefik container not found"
+        }
+        
         It "Should log remediation header as request header in access logs for blocked requests" {
             # Make a blocked request to the remediation test endpoint
             $maliciousUrl = "$BaseUrl/remediation-test?id=1' OR '1'='1"
@@ -105,8 +111,11 @@ Describe "Remediation Response Header Tests" {
             Start-Sleep -Seconds 2
             
             # Read the access.log file from the traefik container
-            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            $accessLogContent = docker exec $traefikContainer cat /var/log/traefik/access.log 2>$null
             if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to read traefik access log from container: $traefikContainer" -ForegroundColor Yellow
+                Write-Host "Available containers:" -ForegroundColor Yellow
+                docker ps --format "table {{.Names}}\t{{.Image}}"
                 throw "Failed to read traefik access log"
             }
             
@@ -143,8 +152,11 @@ Describe "Remediation Response Header Tests" {
             Start-Sleep -Seconds 2
             
             # Read the access.log file from the traefik container
-            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            $accessLogContent = docker exec $traefikContainer cat /var/log/traefik/access.log 2>$null
             if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to read traefik access log from container: $traefikContainer" -ForegroundColor Yellow
+                Write-Host "Available containers:" -ForegroundColor Yellow
+                docker ps --format "table {{.Names}}\t{{.Image}}"
                 throw "Failed to read traefik access log"
             }
             
@@ -214,8 +226,11 @@ Describe "Remediation Response Header Tests" {
             Start-Sleep -Seconds 2
             
             # Read the access.log file from the traefik container
-            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            $accessLogContent = docker exec $traefikContainer cat /var/log/traefik/access.log 2>$null
             if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to read traefik access log from container: $traefikContainer" -ForegroundColor Yellow
+                Write-Host "Available containers:" -ForegroundColor Yellow
+                docker ps --format "table {{.Names}}\t{{.Image}}"
                 throw "Failed to read traefik access log"
             }
             
@@ -256,8 +271,11 @@ Describe "Remediation Response Header Tests" {
             Start-Sleep -Seconds 2
             
             # Read the access.log file from the traefik container
-            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            $accessLogContent = docker exec $traefikContainer cat /var/log/traefik/access.log 2>$null
             if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to read traefik access log from container: $traefikContainer" -ForegroundColor Yellow
+                Write-Host "Available containers:" -ForegroundColor Yellow
+                docker ps --format "table {{.Names}}\t{{.Image}}"
                 throw "Failed to read traefik access log"
             }
             

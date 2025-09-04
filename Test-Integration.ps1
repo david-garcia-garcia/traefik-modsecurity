@@ -157,9 +157,9 @@ function Wait-ForAllServices {
     Write-Step "Waiting for all services to become ready..."
     
     $services = @(
-        @{ Url = "http://localhost:8080/api/rawdata"; Name = "Traefik API" },
-        @{ Url = "http://localhost:8000/bypass"; Name = "Whoami Bypass service" },
-        @{ Url = "http://localhost:8000/protected"; Name = "Whoami Protected service" }
+        @{ Url = "http://localhost:9080/api/rawdata"; Name = "Traefik API" },
+        @{ Url = "http://localhost:9000/bypass"; Name = "Whoami Bypass service" },
+        @{ Url = "http://localhost:9000/protected"; Name = "Whoami Protected service" }
     )
     
     $servicesReady = @()
