@@ -21,14 +21,22 @@ type Config struct {
 	ModSecurityUrl                string `json:"modSecurityUrl,omitempty"`
 	UnhealthyWafBackOffPeriodSecs int    `json:"unhealthyWafBackOffPeriodSecs,omitempty"` // If the WAF is unhealthy, back off
 	RemediationResponseHeader     string `json:"remediationResponseHeader,omitempty"`     // Header name to add when request is blocked
+	MaxConnsPerHost               int    `json:"maxConnsPerHost,omitempty"`               // Maximum connections per host (0 = unlimited, original default)
+	MaxIdleConnsPerHost           int    `json:"maxIdleConnsPerHost,omitempty"`           // Maximum idle connections per host (0 = unlimited, original default)
+	ResponseHeaderTimeoutMillis   int64  `json:"responseHeaderTimeoutMillis,omitempty"`   // Timeout for response headers (0 = no timeout, original default)
+	ExpectContinueTimeoutMillis   int64  `json:"expectContinueTimeoutMillis,omitempty"`   // Timeout for Expect: 100-continue (default 1000ms)
 }
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		TimeoutMillis:                 2000,
-		UnhealthyWafBackOffPeriodSecs: 0,  // 0 to NOT backoff (original behaviour)
-		RemediationResponseHeader:     "", // Empty string means no header will be added
+		TimeoutMillis:                 2000, // Original default: 2 seconds
+		UnhealthyWafBackOffPeriodSecs: 0,    // 0 to NOT backoff (original behaviour)
+		RemediationResponseHeader:     "",   // Empty string means no header will be added
+		MaxConnsPerHost:               0,    // 0 = unlimited connections per host (original default)
+		MaxIdleConnsPerHost:           0,    // 0 = unlimited idle connections per host (original default)
+		ResponseHeaderTimeoutMillis:   0,    // 0 = no response header timeout (original default)
+		ExpectContinueTimeoutMillis:   1000, // 1 second (original default)
 	}
 }
 
@@ -52,10 +60,10 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		return nil, fmt.Errorf("modSecurityUrl cannot be empty")
 	}
 
-	// Use a custom client with predefined timeout of 2 seconds
+	// Use a custom client with configurable timeout
 	var timeout time.Duration
 	if config.TimeoutMillis == 0 {
-		timeout = 2 * time.Second
+		timeout = 2 * time.Second // Original default: 2 seconds
 	} else {
 		timeout = time.Duration(config.TimeoutMillis) * time.Millisecond
 	}
@@ -66,7 +74,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		KeepAlive: 30 * time.Second,
 	}
 
-	// transport is a custom http.Transport with various timeouts and configurations for optimal performance.
+	// transport is a custom http.Transport with configurable timeouts and connection limits
 	transport := &http.Transport{
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -79,6 +87,24 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return dialer.DialContext(ctx, network, addr)
 		},
+	}
+
+	// Configure connection limits (0 = unlimited, original behavior)
+	if config.MaxConnsPerHost > 0 {
+		transport.MaxConnsPerHost = config.MaxConnsPerHost
+	}
+	if config.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = config.MaxIdleConnsPerHost
+	}
+
+	// Configure response header timeout (0 = no timeout, original behavior)
+	if config.ResponseHeaderTimeoutMillis > 0 {
+		transport.ResponseHeaderTimeout = time.Duration(config.ResponseHeaderTimeoutMillis) * time.Millisecond
+	}
+
+	// Configure Expect: 100-continue timeout
+	if config.ExpectContinueTimeoutMillis > 0 {
+		transport.ExpectContinueTimeout = time.Duration(config.ExpectContinueTimeoutMillis) * time.Millisecond
 	}
 
 	return &Modsecurity{

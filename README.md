@@ -55,11 +55,22 @@ time.
 
 This plugin supports these configuration:
 
+### Basic Configuration
+
 * `modSecurityUrl`: (**mandatory**) it's the URL for the owasp/modsecurity container.
-* `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2
-  seconds)
+* `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2000ms)
 * `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with modsec.
 * `remediationResponseHeader`: (optional) name of the header to add to the response when requests are blocked by ModSecurity. The header value will contain the HTTP status code returned by ModSecurity. Default is empty (no header added).
+
+### Advanced Transport Configuration
+
+These parameters allow fine-tuning of the HTTP client behavior for high-load scenarios:
+
+* `maxConnsPerHost`: (optional) maximum number of concurrent connections allowed per ModSecurity host. Set to 0 for unlimited connections (default: 0 - unlimited, original behavior).
+* `maxIdleConnsPerHost`: (optional) maximum number of idle connections to keep per ModSecurity host. Set to 0 for unlimited idle connections (default: 0 - unlimited, original behavior).
+* `responseHeaderTimeoutMillis`: (optional) timeout in milliseconds for waiting for response headers from ModSecurity. Set to 0 for no timeout (default: 0 - no timeout, original behavior).
+* `expectContinueTimeoutMillis`: (optional) timeout in milliseconds for Expect: 100-continue handshake. Used for large payload uploads (default: 1000ms).
+
 
 ## Local development (docker-compose.local.yml)
 
