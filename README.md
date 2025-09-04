@@ -1,21 +1,20 @@
-# Traefik Modsecurity Plugin
+# 🛡️ Traefik ModSecurity Plugin
 
-![Banner](./img/banner.png)
+[![Build Status](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/workflows/build.yml/badge.svg)](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/workflows/build.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/david-garcia-garcia/traefik-modsecurity)](https://goreportcard.com/report/github.com/david-garcia-garcia/traefik-modsecurity)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/david-garcia-garcia/traefik-modsecurity)](https://img.shields.io/github/go-mod/go-version/david-garcia-garcia/traefik-modsecurity)
+[![Latest Release](https://img.shields.io/github/v/release/david-garcia-garcia/traefik-modsecurity?sort=semver)](https://github.com/david-garcia-garcia/traefik-modsecurity/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](LICENSE)
 
-this is a fork of the original: https://github.com/acouvreur/traefik-modsecurity-plugin
+A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
-This fork introduces alpine images, CRS 4.x suppport, and a custom http.transport
-
-see:  https://github.com/traefik/plugindemo#troubleshooting
-
-----
-
-Traefik plugin to proxy requests to [owasp/modsecurity-crs](https://hub.docker.com/r/owasp/modsecurity-crs):apache
-
-![Github Actions](https://img.shields.io/github/actions/workflow/status/madebymode/traefik-modsecurity-plugin/build.yml?style=flat-square&branch=main)
-![Go Report](https://goreportcard.com/badge/github.com/madebymode/traefik-modsecurity-plugin?style=flat-square)
-![Go Version](https://img.shields.io/github/go-mod/go-version/madebymode/traefik-modsecurity-plugin?style=flat-square)
-![Latest Release](https://img.shields.io/github/release/madebymode/traefik-modsecurity-plugin/all.svg?style=flat-square)
+> [!WARNING] ** Traefik Security Trifecta**
+> 
+> **Traefik Security Trifecta**: the three basic modules you need to secure your Traefik ingress:
+> 
+> - **🌍 Geoblock**: [david-garcia-garcia/traefik-geoblock](https://github.com/david-garcia-garcia/traefik-geoblock) - Block or allow requests based on IP geolocation
+> - **🛡️ CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/main) - Real-time threat intelligence and automated blocking
+> - **🔒 ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set
 
 - [Traefik Modsecurity Plugin](#traefik-modsecurity-plugin)
     - [Demo](#demo)
