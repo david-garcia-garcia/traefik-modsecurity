@@ -1,18 +1,11 @@
 name: Integration Tests
 
 on:
-  push:
-    branches:
-    - main
-    - master
-    - develop
-    - backoff
   pull_request:
     branches:
     - main
     - master
     - develop
-    - backoff
 
 permissions:
   contents: read
