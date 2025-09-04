@@ -3,8 +3,8 @@ BeforeAll {
     . "$PSScriptRoot/TestHelpers.ps1"
     
     # Test configuration
-    $script:BaseUrl = "http://localhost:9000"
-    $script:TraefikApiUrl = "http://localhost:9080"
+    $script:BaseUrl = "http://localhost:8000"
+    $script:TraefikApiUrl = "http://localhost:8080"
     
     # Ensure all services are ready before running tests
     $services = @(
