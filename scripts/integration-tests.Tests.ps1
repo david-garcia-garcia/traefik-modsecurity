@@ -317,6 +317,95 @@ Describe "Performance and Health Tests" {
     }
 }
 
+Describe "Performance Comparison Tests" {
+    Context "WAF vs Bypass Performance Analysis" {
+        It "Should measure performance difference between WAF-protected and bypass requests" {
+            $testIterations = 20
+            $wafResponseTimes = @()
+            $bypassResponseTimes = @()
+            
+            Write-Host "🔄 Running performance comparison test with $testIterations iterations..."
+            
+            # Test WAF-protected endpoint
+            Write-Host "📊 Testing WAF-protected endpoint..."
+            for ($i = 1; $i -le $testIterations; $i++) {
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -TimeoutSec 10
+                    $stopwatch.Stop()
+                    if ($response.StatusCode -eq 200) {
+                        $wafResponseTimes += $stopwatch.ElapsedMilliseconds
+                    }
+                } catch {
+                    $stopwatch.Stop()
+                    Write-Warning "WAF request $i failed: $($_.Exception.Message)"
+                }
+                Start-Sleep -Milliseconds 50  # Small delay between requests
+            }
+            
+            # Test bypass endpoint
+            Write-Host "📊 Testing bypass endpoint..."
+            for ($i = 1; $i -le $testIterations; $i++) {
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                try {
+                    $response = Invoke-SafeWebRequest -Uri "$BaseUrl/bypass" -TimeoutSec 10
+                    $stopwatch.Stop()
+                    if ($response.StatusCode -eq 200) {
+                        $bypassResponseTimes += $stopwatch.ElapsedMilliseconds
+                    }
+                } catch {
+                    $stopwatch.Stop()
+                    Write-Warning "Bypass request $i failed: $($_.Exception.Message)"
+                }
+                Start-Sleep -Milliseconds 50  # Small delay between requests
+            }
+            
+            # Calculate statistics
+            if ($wafResponseTimes.Count -gt 0 -and $bypassResponseTimes.Count -gt 0) {
+                $wafAvg = ($wafResponseTimes | Measure-Object -Average).Average
+                $wafMin = ($wafResponseTimes | Measure-Object -Minimum).Minimum
+                $wafMax = ($wafResponseTimes | Measure-Object -Maximum).Maximum
+                
+                $bypassAvg = ($bypassResponseTimes | Measure-Object -Average).Average
+                $bypassMin = ($bypassResponseTimes | Measure-Object -Minimum).Minimum
+                $bypassMax = ($bypassResponseTimes | Measure-Object -Maximum).Maximum
+                
+                $overhead = $wafAvg - $bypassAvg
+                
+                # Display results
+                Write-Host "`n📈 Performance Comparison Results:"
+                Write-Host "┌─────────────────┬─────────────┬─────────────┬─────────────┐"
+                Write-Host "│ Endpoint        │ Average (ms)│ Min (ms)    │ Max (ms)    │"
+                Write-Host "├─────────────────┼─────────────┼─────────────┼─────────────┤"
+                Write-Host "│ WAF Protected   │ $($wafAvg.ToString('F1').PadLeft(11)) │ $($wafMin.ToString('F1').PadLeft(11)) │ $($wafMax.ToString('F1').PadLeft(11)) │"
+                Write-Host "│ Bypass          │ $($bypassAvg.ToString('F1').PadLeft(11)) │ $($bypassMin.ToString('F1').PadLeft(11)) │ $($bypassMax.ToString('F1').PadLeft(11)) │"
+                Write-Host "└─────────────────┴─────────────┴─────────────┴─────────────┘"
+                Write-Host "`n⚡ WAF Overhead: $($overhead.ToString('F1')) ms"
+                
+                # Store results for validation
+                $script:PerformanceResults = @{
+                    WafAverage = $wafAvg
+                    BypassAverage = $bypassAvg
+                    Overhead = $overhead
+                    WafSamples = $wafResponseTimes.Count
+                    BypassSamples = $bypassResponseTimes.Count
+                }
+                
+                # Validate that we have enough samples
+                $wafResponseTimes.Count | Should -BeGreaterOrEqual 15 -Because "We need at least 15 successful WAF requests for reliable measurement"
+                $bypassResponseTimes.Count | Should -BeGreaterOrEqual 15 -Because "We need at least 15 successful bypass requests for reliable measurement"
+                
+                # Validate that WAF adds some overhead (but not too much)
+                $overhead | Should -BeGreaterOrEqual 0 -Because "WAF should add some processing overhead"
+                $overhead | Should -BeLessThan 1000 -Because "WAF overhead should be reasonable (less than 1000ms)"
+                
+            } else {
+                throw "Insufficient successful requests for performance comparison"
+            }
+        }
+    }
+}
+
 Describe "Error Handling and Edge Cases" {
     Context "Large Request Handling" {
         It "Should handle moderately large POST requests" {
