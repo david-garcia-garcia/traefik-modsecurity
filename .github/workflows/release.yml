@@ -5,6 +5,9 @@ on:
       - 'v*.*.*'  # Trigger on version tags like v1.7.1
   workflow_dispatch:  # Keep manual trigger option
 
+permissions:
+  contents: write  # Required for creating releases
+  
 jobs:
   release:
     name: Release from Tag
