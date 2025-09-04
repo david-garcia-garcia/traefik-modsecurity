@@ -17,40 +17,40 @@ import (
 
 // Config the plugin configuration.
 type Config struct {
-	TimeoutMillis                 int64  `json:"timeoutMillis,omitempty"`
-	ModSecurityUrl                string `json:"modSecurityUrl,omitempty"`
-	UnhealthyWafBackOffPeriodSecs int    `json:"unhealthyWafBackOffPeriodSecs,omitempty"` // If the WAF is unhealthy, back off
-	RemediationResponseHeader     string `json:"remediationResponseHeader,omitempty"`     // Header name to add when request is blocked
-	MaxConnsPerHost               int    `json:"maxConnsPerHost,omitempty"`               // Maximum connections per host (0 = unlimited, original default)
-	MaxIdleConnsPerHost           int    `json:"maxIdleConnsPerHost,omitempty"`           // Maximum idle connections per host (0 = unlimited, original default)
-	ResponseHeaderTimeoutMillis   int64  `json:"responseHeaderTimeoutMillis,omitempty"`   // Timeout for response headers (0 = no timeout, original default)
-	ExpectContinueTimeoutMillis   int64  `json:"expectContinueTimeoutMillis,omitempty"`   // Timeout for Expect: 100-continue (default 1000ms)
+	TimeoutMillis                  int64  `json:"timeoutMillis,omitempty"`
+	ModSecurityUrl                 string `json:"modSecurityUrl,omitempty"`
+	UnhealthyWafBackOffPeriodSecs  int    `json:"unhealthyWafBackOffPeriodSecs,omitempty"`  // If the WAF is unhealthy, back off
+	ModSecurityStatusRequestHeader string `json:"modSecurityStatusRequestHeader,omitempty"` // Header name to add to request when blocked (for logging)
+	MaxConnsPerHost                int    `json:"maxConnsPerHost,omitempty"`                // Maximum connections per host (0 = unlimited, original default)
+	MaxIdleConnsPerHost            int    `json:"maxIdleConnsPerHost,omitempty"`            // Maximum idle connections per host (0 = unlimited, original default)
+	ResponseHeaderTimeoutMillis    int64  `json:"responseHeaderTimeoutMillis,omitempty"`    // Timeout for response headers (0 = no timeout, original default)
+	ExpectContinueTimeoutMillis    int64  `json:"expectContinueTimeoutMillis,omitempty"`    // Timeout for Expect: 100-continue (default 1000ms)
 }
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		TimeoutMillis:                 2000, // Original default: 2 seconds
-		UnhealthyWafBackOffPeriodSecs: 0,    // 0 to NOT backoff (original behaviour)
-		RemediationResponseHeader:     "",   // Empty string means no header will be added
-		MaxConnsPerHost:               0,    // 0 = unlimited connections per host (original default)
-		MaxIdleConnsPerHost:           0,    // 0 = unlimited idle connections per host (original default)
-		ResponseHeaderTimeoutMillis:   0,    // 0 = no response header timeout (original default)
-		ExpectContinueTimeoutMillis:   1000, // 1 second (original default)
+		TimeoutMillis:                  2000, // Original default: 2 seconds
+		UnhealthyWafBackOffPeriodSecs:  0,    // 0 to NOT backoff (original behaviour)
+		ModSecurityStatusRequestHeader: "",   // Empty string means no header will be added
+		MaxConnsPerHost:                0,    // 0 = unlimited connections per host (original default)
+		MaxIdleConnsPerHost:            0,    // 0 = unlimited idle connections per host (original default)
+		ResponseHeaderTimeoutMillis:    0,    // 0 = no response header timeout (original default)
+		ExpectContinueTimeoutMillis:    1000, // 1 second (original default)
 	}
 }
 
 // Modsecurity a Modsecurity plugin.
 type Modsecurity struct {
-	next                          http.Handler
-	modSecurityUrl                string
-	name                          string
-	httpClient                    *http.Client
-	logger                        *log.Logger
-	unhealthyWafBackOffPeriodSecs int
-	unhealthyWaf                  bool // If the WAF is unhealthy
-	unhealthyWafMutex             sync.Mutex
-	remediationResponseHeader     string // Header name to add when request is blocked
+	next                           http.Handler
+	modSecurityUrl                 string
+	name                           string
+	httpClient                     *http.Client
+	logger                         *log.Logger
+	unhealthyWafBackOffPeriodSecs  int
+	unhealthyWaf                   bool // If the WAF is unhealthy
+	unhealthyWafMutex              sync.Mutex
+	modSecurityStatusRequestHeader string // Header name to add to request when blocked (for logging)
 }
 
 // New creates a new Modsecurity plugin with the given configuration.
@@ -108,13 +108,13 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	}
 
 	return &Modsecurity{
-		modSecurityUrl:                config.ModSecurityUrl,
-		next:                          next,
-		name:                          name,
-		httpClient:                    &http.Client{Timeout: timeout, Transport: transport},
-		logger:                        log.New(os.Stdout, "", log.LstdFlags),
-		unhealthyWafBackOffPeriodSecs: config.UnhealthyWafBackOffPeriodSecs,
-		remediationResponseHeader:     config.RemediationResponseHeader,
+		modSecurityUrl:                 config.ModSecurityUrl,
+		next:                           next,
+		name:                           name,
+		httpClient:                     &http.Client{Timeout: timeout, Transport: transport},
+		logger:                         log.New(os.Stdout, "", log.LstdFlags),
+		unhealthyWafBackOffPeriodSecs:  config.UnhealthyWafBackOffPeriodSecs,
+		modSecurityStatusRequestHeader: config.ModSecurityStatusRequestHeader,
 	}, nil
 }
 
@@ -126,6 +126,9 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// If the WAF is unhealthy just forward the request early. No concurrency control here on purpose.
 	if a.unhealthyWaf {
+		if a.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(a.modSecurityStatusRequestHeader, "unhealthy")
+		}
 		a.next.ServeHTTP(rw, req)
 		return
 	}
@@ -143,6 +146,9 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	proxyReq, err := http.NewRequest(req.Method, url, bytes.NewReader(body))
 	if err != nil {
+		if a.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(a.modSecurityStatusRequestHeader, "cannotforward")
+		}
 		a.logger.Printf("fail to prepare forwarded request: %s", err.Error())
 		http.Error(rw, "", http.StatusBadGateway)
 		return
@@ -161,6 +167,9 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			if !a.unhealthyWaf {
 				a.logger.Printf("marking modsec as unhealthy for %ds fail to send HTTP request to modsec: %s", a.unhealthyWafBackOffPeriodSecs, err.Error())
 				a.unhealthyWaf = true
+				if a.modSecurityStatusRequestHeader != "" {
+					req.Header.Set(a.modSecurityStatusRequestHeader, "error")
+				}
 				time.AfterFunc(time.Duration(a.unhealthyWafBackOffPeriodSecs)*time.Second, func() {
 					a.unhealthyWafMutex.Lock()
 					defer a.unhealthyWafMutex.Unlock()
@@ -180,9 +189,9 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		// Add remediation header if configured
-		if a.remediationResponseHeader != "" {
-			rw.Header().Set(a.remediationResponseHeader, fmt.Sprintf("%d", resp.StatusCode))
+		// Add remediation header to request if configured (for logging purposes)
+		if a.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(a.modSecurityStatusRequestHeader, fmt.Sprintf("%d", resp.StatusCode))
 		}
 		forwardResponse(resp, rw)
 		return

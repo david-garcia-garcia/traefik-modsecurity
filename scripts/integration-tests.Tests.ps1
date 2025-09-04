@@ -10,7 +10,9 @@ BeforeAll {
     $services = @(
         @{ Url = "$TraefikApiUrl/api/rawdata"; Name = "Traefik API" },
         @{ Url = "$BaseUrl/bypass"; Name = "Bypass service" },
-        @{ Url = "$BaseUrl/protected"; Name = "Protected service" }
+        @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
+        @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
+        @{ Url = "$BaseUrl/error-test"; Name = "Error test service" }
     )
     
     Wait-ForAllServices -Services $services
@@ -79,6 +81,208 @@ Describe "Remediation Response Header Tests" {
         It "Should not add remediation header for legitimate requests" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected"
             $response.Headers["X-Waf-Status"] | Should -BeNullOrEmpty
+        }
+    }
+    
+    Context "Remediation Header Logging" {
+        It "Should log remediation header as request header in access logs for blocked requests" {
+            # Make a blocked request to the remediation test endpoint
+            $maliciousUrl = "$BaseUrl/remediation-test?id=1' OR '1'='1"
+            try {
+                $response = Invoke-SafeWebRequest -Uri $maliciousUrl
+                $response.StatusCode | Should -BeGreaterOrEqual 400
+            } catch {
+                # Expected for blocked requests - check if it's a 403/blocked response
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusCode | Should -BeGreaterOrEqual 400
+                } else {
+                    throw "Unexpected error: $($_.Exception.Message)"
+                }
+            }
+            
+            # Wait a moment for log to be written
+            Start-Sleep -Seconds 2
+            
+            # Read the access.log file from the traefik container
+            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to read traefik access log"
+            }
+            
+            # Parse the log lines and check for any entries related to the remediation test
+            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+            
+            # Validate that ALL log lines are properly formatted JSON (no malformed lines should exist)
+            $allLogEntries = @()
+            foreach ($line in $logLines) {
+                try {
+                    $logEntry = $line | ConvertFrom-Json
+                    $allLogEntries += $logEntry
+                } catch {
+                    throw "Malformed JSON line found in log file: '$line'."
+                }
+            }
+            
+            # Look for log entries where the X-Waf-Status request header is present for blocked requests
+            $remediationHeaderLogFound = ($allLogEntries | Where-Object { 
+                $_.'request_X-Waf-Status' -and 
+                $_.RequestPath -like "/remediation-test*"
+            }).Count -gt 0
+            
+            # Verify that the remediation header was added to the request
+            $remediationHeaderLogFound | Should -Be $true
+        }
+        
+        It "Should NOT log remediation header as request header for allowed requests" {
+            # Make an allowed request to the remediation test endpoint
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test"
+            $response.StatusCode | Should -Be 200
+            
+            # Wait a moment for any potential log to be written
+            Start-Sleep -Seconds 2
+            
+            # Read the access.log file from the traefik container
+            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to read traefik access log"
+            }
+            
+            # Parse the log lines and check for any entries related to the remediation test
+            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+            
+            # Validate that ALL log lines are properly formatted JSON (no malformed lines should exist)
+            $allLogEntries = @()
+            foreach ($line in $logLines) {
+                try {
+                    $logEntry = $line | ConvertFrom-Json
+                    $allLogEntries += $logEntry
+                } catch {
+                    throw "Malformed JSON line found in log file: '$line'."
+                }
+            }
+            
+            # Look for any request headers in successful requests to remediation-test
+            # Exclude requests that have error or unhealthy headers (these are not "allowed" requests)
+            $remediationHeaderInAllowedRequest = ($allLogEntries | Where-Object { 
+                $_.'request_X-Waf-Status' -and 
+                $_.RequestPath -eq "/remediation-test" -and
+                $_.DownstreamStatus -eq 200 -and
+                $_.'request_X-Waf-Status' -ne "error" -and
+                $_.'request_X-Waf-Status' -ne "unhealthy"
+            }).Count -gt 0
+            
+            # Verify that remediation header is NOT added to allowed requests
+            $remediationHeaderInAllowedRequest | Should -Be $false
+        }
+        
+        It "Should log 'unhealthy' header when ModSecurity backend is unavailable" {
+            # Stop the ModSecurity WAF container to simulate unhealthy state
+            docker stop traefik-modsecurity-plugin-waf-1
+            
+            # Wait a moment for the container to stop
+            Start-Sleep -Seconds 3
+            
+            # Make multiple requests to trigger the unhealthy state
+            # The first request will fail and mark WAF as unhealthy
+            # The second request should use the unhealthy path
+            try {
+                $response1 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
+                # If first request succeeds, WAF might not be marked unhealthy yet
+            } catch {
+                # Expected for first request when WAF is down
+            }
+            
+            # Wait for WAF to be marked as unhealthy
+            Start-Sleep -Seconds 2
+            
+            # Make another request - this should use the unhealthy path
+            try {
+                $response2 = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test" -TimeoutSec 5
+                $response2.StatusCode | Should -Be 200
+            } catch {
+                # If still failing, that's also acceptable - check if it's a 502/503 response
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusCode | Should -BeGreaterOrEqual 500
+                } else {
+                    throw "Unexpected error: $($_.Exception.Message)"
+                }
+            }
+            
+            # Wait a moment for log to be written
+            Start-Sleep -Seconds 2
+            
+            # Read the access.log file from the traefik container
+            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to read traefik access log"
+            }
+            
+            # Parse the log lines
+            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+            
+            # Validate that ALL log lines are properly formatted JSON
+            $allLogEntries = @()
+            foreach ($line in $logLines) {
+                try {
+                    $logEntry = $line | ConvertFrom-Json
+                    $allLogEntries += $logEntry
+                } catch {
+                    throw "Malformed JSON line found in log file: '$line'."
+                }
+            }
+            
+            # Look for log entries with 'unhealthy' header value
+            $unhealthyHeaderFound = ($allLogEntries | Where-Object { 
+                $_.'request_X-Waf-Status' -eq "unhealthy" -and 
+                $_.RequestPath -like "/remediation-test*"
+            }).Count -gt 0
+            
+            # Verify that the unhealthy header was logged
+            $unhealthyHeaderFound | Should -Be $true
+            
+            # Restart the WAF container for other tests
+            docker start traefik-modsecurity-plugin-waf-1
+            Start-Sleep -Seconds 5
+        }
+        
+        It "Should log 'error' header when ModSecurity communication fails" {
+            # Make a request to the error test service (with invalid ModSecurity URL)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/error-test"
+            $response.StatusCode | Should -Be 200
+            
+            # Wait a moment for log to be written
+            Start-Sleep -Seconds 2
+            
+            # Read the access.log file from the traefik container
+            $accessLogContent = docker exec traefik-modsecurity-plugin-traefik-1 cat /var/log/traefik/access.log 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to read traefik access log"
+            }
+            
+            # Parse the log lines
+            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+            
+            # Validate that ALL log lines are properly formatted JSON
+            $allLogEntries = @()
+            foreach ($line in $logLines) {
+                try {
+                    $logEntry = $line | ConvertFrom-Json
+                    $allLogEntries += $logEntry
+                } catch {
+                    throw "Malformed JSON line found in log file: '$line'."
+                }
+            }
+            
+            # Look for log entries with 'error' header value
+            $errorHeaderFound = ($allLogEntries | Where-Object { 
+                $_.'request_X-Waf-Status' -eq "error" -and 
+                $_.RequestPath -like "/error-test*"
+            }).Count -gt 0
+            
+            # Verify that the error header was logged
+            $errorHeaderFound | Should -Be $true
         }
     }
 }
