@@ -1,7 +1,7 @@
 displayName: MxM OWASP CRS Modsecurity Plugin
 type: middleware
 
-import: github.com/madebymode/traefik-modsecurity-plugin
+import: github.com/david-garcia-garcia/traefik-modsecurity
 
 summary: 'Traefik plugin to proxy requests through owasp/modsecurity-crs'
 

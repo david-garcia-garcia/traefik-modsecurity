@@ -1,5 +1,5 @@
-// Package traefik_modsecurity_plugin a modsecurity plugin.
-package traefik_modsecurity_plugin
+// Package traefik_modsecurity a modsecurity plugin.
+package traefik_modsecurity
 
 import (
 	"bytes"
@@ -191,7 +191,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if resp.StatusCode >= 400 {
 		// Add remediation header to request if configured (for logging purposes)
 		if a.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(a.modSecurityStatusRequestHeader, fmt.Sprintf("%d", resp.StatusCode))
+			req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
 		}
 		forwardResponse(resp, rw)
 		return

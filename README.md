@@ -16,7 +16,7 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
 > - **🛡️ CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/main) - Real-time threat intelligence and automated blocking
 > - **🔒 ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set
 
-- [Traefik Modsecurity Plugin](#traefik-modsecurity-plugin)
+- [Traefik ModSecurity Plugin](#-traefik-modsecurity-plugin)
     - [Demo](#demo)
     - [Usage (docker-compose.yml)](#usage-docker-composeyml)
     - [How it works](#how-it-works)

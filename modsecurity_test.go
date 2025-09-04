@@ -1,4 +1,4 @@
-package traefik_modsecurity_plugin
+package traefik_modsecurity
 
 import (
 	"bytes"
@@ -81,14 +81,14 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:                           "Adds remediation header when request is blocked",
-			request:                        req.Clone(req.Context()),
+			request:                        req,
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from waf",
 			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
 			expectHeader:                   "X-Waf-Block",
-			expectHeaderValue:              "403",
+			expectHeaderValue:              "blocked",
 		},
 		{
 			name:                           "Does not add remediation header when request is allowed",
@@ -103,14 +103,14 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:                           "Adds remediation header with different status codes",
-			request:                        req.Clone(req.Context()),
+			request:                        req,
 			wafResponse:                    response{StatusCode: 406, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from waf",
 			expectStatus:                   406,
 			modSecurityStatusRequestHeader: "X-Remediation-Info",
 			expectHeader:                   "X-Remediation-Info",
-			expectHeaderValue:              "406",
+			expectHeaderValue:              "blocked",
 		},
 	}
 
@@ -127,7 +127,9 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			}))
 			defer modsecurityMockServer.Close()
 
+			var capturedRequest *http.Request
 			httpServiceHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturedRequest = r
 				resp := http.Response{
 					Body:       io.NopCloser(bytes.NewReader([]byte(tt.serviceResponse.Body))),
 					StatusCode: tt.serviceResponse.StatusCode,
@@ -149,7 +151,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			}
 
 			rw := httptest.NewRecorder()
-			middleware.ServeHTTP(rw, tt.request.Clone(tt.request.Context()))
+			middleware.ServeHTTP(rw, tt.request)
 			resp := rw.Result()
 			body, _ := io.ReadAll(resp.Body)
 			assert.Equal(t, tt.expectBody, string(body))
@@ -157,11 +159,18 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 
 			// Check for expected status header in request (not response)
 			if tt.expectHeader != "" {
+				// For blocked requests, the header is set on the request but the service handler is not called
+				// So we need to check the original request that was passed to the middleware
 				assert.Equal(t, tt.expectHeaderValue, tt.request.Header.Get(tt.expectHeader), "Expected status header in request with correct value")
 			} else {
 				// When no header is expected, ensure no status header was added to request
 				if tt.modSecurityStatusRequestHeader != "" {
-					assert.Empty(t, tt.request.Header.Get(tt.modSecurityStatusRequestHeader), "No status header should be present in request")
+					if capturedRequest != nil {
+						assert.Empty(t, capturedRequest.Header.Get(tt.modSecurityStatusRequestHeader), "No status header should be present in request")
+					} else {
+						// If service handler wasn't called (blocked request), check original request
+						assert.Empty(t, tt.request.Header.Get(tt.modSecurityStatusRequestHeader), "No status header should be present in request")
+					}
 				}
 			}
 		})
