@@ -8,7 +8,7 @@
 
 A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
-> [!WARNING] ** Traefik Security Trifecta**
+> [!WARNING] Traefik Security Trifecta
 > 
 > **Traefik Security Trifecta**: the three basic modules you need to secure your Traefik ingress:
 > 
@@ -50,25 +50,85 @@ If it is > 400, then the error page is returned instead.
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
 
-## Configuration
+## ⚙️ Configuration
 
-This plugin supports these configuration:
-
-### Basic Configuration
-
-* `modSecurityUrl`: (**mandatory**) it's the URL for the owasp/modsecurity container.
-* `timeoutMillis`: (optional) timeout in milliseconds for the http client to talk with modsecurity container. (default 2000ms)
-* `unhealthyWafBackOffPeriodSecs` (optional) the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behaviour is to send a 502 Bad Gateway when there are problems communicating with modsec.
-* `modSecurityStatusRequestHeader`: (optional) name of the header to add to the request when requests are blocked by ModSecurity (for logging purposes). The header value will contain the HTTP status code returned by ModSecurity. Default is empty (no header added).
-
-### Advanced Transport Configuration
-
-These parameters allow fine-tuning of the HTTP client behavior for high-load scenarios:
-
-* `maxConnsPerHost`: (optional) maximum number of concurrent connections allowed per ModSecurity host. Set to 0 for unlimited connections (default: 0 - unlimited, original behavior).
-* `maxIdleConnsPerHost`: (optional) maximum number of idle connections to keep per ModSecurity host. Set to 0 for unlimited idle connections (default: 0 - unlimited, original behavior).
-* `responseHeaderTimeoutMillis`: (optional) timeout in milliseconds for waiting for response headers from ModSecurity. Set to 0 for no timeout (default: 0 - no timeout, original behavior).
-* `expectContinueTimeoutMillis`: (optional) timeout in milliseconds for Expect: 100-continue handshake. Used for large payload uploads (default: 1000ms).
+```yaml
+http:
+  middlewares:
+    waf-middleware:
+      plugin:
+        modsecurity:
+          #-------------------------------
+          # Basic Configuration
+          #-------------------------------
+          modSecurityUrl: "http://modsecurity:80"
+          # REQUIRED: URL of the ModSecurity container
+          # This is the endpoint where the plugin will forward requests for security analysis
+          # Examples:
+          # - "http://modsecurity:80" (Docker service name)
+          # - "http://localhost:8080" (Local development)
+          # - "https://waf.example.com" (External service)
+          
+          timeoutMillis: 2000
+          # OPTIONAL: Timeout in milliseconds for ModSecurity requests
+          # Default: 2000ms (2 seconds)
+          # This controls how long the plugin waits for ModSecurity to respond
+          # Increase for slow ModSecurity instances or large payloads
+          # Set to 0 for no timeout (not recommended in production)
+          
+          unhealthyWafBackOffPeriodSecs: 30
+          # OPTIONAL: Backoff period in seconds when ModSecurity is unavailable
+          # Default: 0 (return 502 Bad Gateway immediately)
+          # When ModSecurity is down, this plugin can temporarily bypass it
+          # Set to 0 to disable bypass (always return 502 when WAF is down)
+          # Set to 30+ seconds for production environments with automatic failover
+          
+          modSecurityStatusRequestHeader: "X-Waf-Status"
+          # OPTIONAL: Header name to add to requests for logging purposes
+          # Default: empty (no header added)
+          # This header is added to the REQUEST (not response) for Traefik access logs
+          # Header values:
+          # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
+          # - "unhealthy" when ModSecurity is down and backoff is enabled
+          # - "error" when communication with ModSecurity fails
+          # - "cannotforward" when request forwarding fails
+          # Configure Traefik access logs to capture this header:
+          # accesslog.fields.headers.names.X-Waf-Status=keep
+          
+          #-------------------------------
+          # Advanced Transport Configuration
+          #-------------------------------
+          # These parameters fine-tune HTTP client behavior for high-load scenarios
+          # Leave at defaults unless you're experiencing performance issues
+          
+          maxConnsPerHost: 100
+          # OPTIONAL: Maximum concurrent connections per ModSecurity host
+          # Default: 0 (unlimited connections)
+          # Controls connection pool size to prevent overwhelming ModSecurity
+          # Recommended: 50-200 for most environments
+          # Set to 0 for unlimited (original behavior)
+          
+          maxIdleConnsPerHost: 10
+          # OPTIONAL: Maximum idle connections to keep per ModSecurity host
+          # Default: 0 (unlimited idle connections)
+          # Idle connections are kept alive for reuse, reducing connection overhead
+          # Recommended: 5-20 for most environments
+          # Set to 0 for unlimited (original behavior)
+          
+          responseHeaderTimeoutMillis: 5000
+          # OPTIONAL: Timeout for waiting for response headers from ModSecurity
+          # Default: 0 (no timeout)
+          # This is different from timeoutMillis - it only waits for headers, not full response
+          # Useful for detecting slow ModSecurity instances quickly
+          # Set to 0 to disable (original behavior)
+          
+          expectContinueTimeoutMillis: 1000
+          # OPTIONAL: Timeout for Expect: 100-continue handshake
+          # Default: 1000ms (1 second)
+          # Used when sending large payloads - ModSecurity can reject before full upload
+          # Increase for very large files or slow networks
+          # This is the only parameter that has a non-zero default
+```
 
 
 ## Local development (docker-compose.local.yml)

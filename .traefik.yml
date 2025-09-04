@@ -8,10 +8,6 @@ summary: 'Traefik plugin to proxy requests through owasp/modsecurity-crs'
 testData:
   ModsecurityUrl: http://waf:8080
   TimeoutMillis: 2000
-  JailEnabled: false
-  JailTimeDurationSecs: 600
-  BadRequestsThresholdCount: 25
-  BadRequestsThresholdPeriodSecs: 600
 
 iconPath: ./img/icon.png
 bannerPath: ./img/banner.png
