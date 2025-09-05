@@ -9,13 +9,14 @@
 A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
 > [!TIP]
-> Traefik Security Trifecta
+> **Traefik Security**
 > 
-> **Traefik Security Trifecta**: the three basic modules you need to secure your Traefik ingress:
+> The basic middlewares you need to secure your Traefik ingress:
 > 
 > - **🌍 Geoblock**: [david-garcia-garcia/traefik-geoblock](https://github.com/david-garcia-garcia/traefik-geoblock) - Block or allow requests based on IP geolocation
 > - **🛡️ CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/main) - Real-time threat intelligence and automated blocking
 > - **🔒 ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set
+> - **🚦 Ratelimit**: https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/ratelimit/ - Control request rates and prevent abuse
 
 - [Traefik ModSecurity Plugin](#-traefik-modsecurity-plugin)
     - [Demo](#demo)
