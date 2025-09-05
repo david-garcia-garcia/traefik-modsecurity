@@ -8,7 +8,8 @@
 
 A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
-> [!WARNING] Traefik Security Trifecta
+> [!TIP]
+> Traefik Security Trifecta
 > 
 > **Traefik Security Trifecta**: the three basic modules you need to secure your Traefik ingress:
 > 
@@ -20,7 +21,9 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
     - [Demo](#demo)
     - [Usage (docker-compose.yml)](#usage-docker-composeyml)
     - [How it works](#how-it-works)
-    - [Local development (docker-compose.local.yml)](#local-development-docker-composelocalyml)
+    - [Testing](#-testing)
+    - [Configuration](#️-configuration)
+    - [Local development](#local-development-docker-composelocalyml)
 
 ## Demo
 
@@ -49,6 +52,43 @@ If it is > 400, then the error page is returned instead.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
+
+## Testing
+
+### Integration Tests
+
+Run the complete test suite against real Docker services:
+
+```bash
+# Run all tests
+./Test-Integration.ps1
+
+# Keep services running for debugging
+./Test-Integration.ps1 -SkipDockerCleanup
+```
+
+**Prerequisites:** Docker, Docker Compose, PowerShell 7+
+
+### Unit Tests
+
+```bash
+# Run unit tests
+go test -v
+
+# Run with coverage
+go test -v -cover
+```
+
+### Performance Benchmarks
+
+```bash
+# Local benchmarks
+go test -bench=. -benchmem
+
+# Integration performance testing
+docker compose -f docker-compose.test.yml up -d
+go test -bench=BenchmarkProtectedEndpoint -benchmem
+```
 
 ## ⚙️ Configuration
 
@@ -131,8 +171,14 @@ http:
 ```
 
 
-## Local development (docker-compose.local.yml)
+## Local Development
 
-See [docker-compose.local.yml](docker-compose.local.yml)
+See [docker-compose.local.yml](docker-compose.local.yml) for local development setup.
 
-`docker-compose -f docker-compose.local.yml up` to load the local plugin
+```bash
+# Start development environment
+docker-compose -f docker-compose.local.yml up
+
+# Run tests before committing
+go test -v && ./Test-Integration.ps1
+```
