@@ -44,6 +44,7 @@ services:
       - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
       - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
       - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
       # Optional: Configure transport parameters for high-load scenarios
       # - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.maxConnsPerHost=20"
       # - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.maxIdleConnsPerHost=10"  
