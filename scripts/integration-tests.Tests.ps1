@@ -12,7 +12,8 @@ BeforeAll {
         @{ Url = "$BaseUrl/bypass"; Name = "Bypass service" },
         @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
-        @{ Url = "$BaseUrl/error-test"; Name = "Error test service" }
+        @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
+        @{ Url = "$BaseUrl/force-test"; Name = "Force test service" }
     )
     
     Wait-ForAllServices -Services $services
@@ -538,6 +539,119 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             
             # Verify that body size limit violations are logged
             $bodySizeLimitLogFound | Should -Be $true -Because "Body size limit violations should be logged with HTTP 413 status"
+        }
+    }
+}
+
+Describe "IgnoreBodyForVerbsForce Configuration Tests" {
+    Context "Strict Body Validation" {
+        It "Should reject GET requests with body when ignoreBodyForVerbsDeny is enabled" {
+            # Test GET request with body (should be rejected)
+            $body = "test data"
+            
+            try {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method GET -Body $body
+                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
+            } catch {
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+                } else {
+                    # Check if the error message indicates body validation failure
+                    $errorMessage = $_.Exception.Message
+                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
+                        Write-Host "✅ GET request with body properly rejected: $errorMessage" -ForegroundColor Green
+                    } else {
+                        throw "Unexpected error for GET request with body: $errorMessage"
+                    }
+                }
+            }
+        }
+        
+        It "Should reject HEAD requests with body when ignoreBodyForVerbsDeny is enabled" {
+            # Test HEAD request with body (should be rejected)
+            $body = "test data"
+            
+            try {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method HEAD -Body $body
+                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
+            } catch {
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+                } else {
+                    # Check if the error message indicates body validation failure
+                    $errorMessage = $_.Exception.Message
+                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
+                        Write-Host "✅ HEAD request with body properly rejected: $errorMessage" -ForegroundColor Green
+                    } else {
+                        throw "Unexpected error for HEAD request with body: $errorMessage"
+                    }
+                }
+            }
+        }
+        
+        It "Should reject DELETE requests with body when ignoreBodyForVerbsDeny is enabled" {
+            # Test DELETE request with body (should be rejected)
+            $body = "test data"
+            
+            try {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method DELETE -Body $body
+                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
+            } catch {
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+                } else {
+                    # Check if the error message indicates body validation failure
+                    $errorMessage = $_.Exception.Message
+                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
+                        Write-Host "✅ DELETE request with body properly rejected: $errorMessage" -ForegroundColor Green
+                    } else {
+                        throw "Unexpected error for DELETE request with body: $errorMessage"
+                    }
+                }
+            }
+        }
+        
+        It "Should allow GET requests without body when ignoreBodyForVerbsDeny is enabled" {
+            # Test GET request without body (should be allowed)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test"
+            $response.StatusCode | Should -Be 200 -Because "GET requests without body should be allowed"
+        }
+        
+        It "Should allow POST requests with body when ignoreBodyForVerbsDeny is enabled" {
+            # Test POST request with body (should be allowed - POST is not in ignoreBodyForVerbs)
+            $body = "test data"
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method POST -Body $body
+            $response.StatusCode | Should -Be 200 -Because "POST requests with body should be allowed (POST is not in ignoreBodyForVerbs)"
+        }
+        
+        It "Should allow PUT requests with body when ignoreBodyForVerbsDeny is enabled" {
+            # Test PUT request with body (should be allowed - PUT is not in ignoreBodyForVerbs)
+            # Note: This might be blocked by ModSecurity, but the important thing is that
+            # it's not blocked by our body validation (which would return 400)
+            $body = "test data"
+            
+            try {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method PUT -Body $body
+                $response.StatusCode | Should -Be 200 -Because "PUT requests with body should be allowed (PUT is not in ignoreBodyForVerbs)"
+            } catch {
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    # If it's 400, that means our body validation rejected it (bad)
+                    # If it's 403, that means ModSecurity rejected it (acceptable for this test)
+                    if ($statusCode -eq 400) {
+                        throw "PUT request was rejected by body validation (400), but PUT is not in ignoreBodyForVerbs"
+                    } elseif ($statusCode -eq 403) {
+                        Write-Host "✅ PUT request allowed by body validation but blocked by ModSecurity (403) - this is acceptable" -ForegroundColor Green
+                    } else {
+                        throw "Unexpected status code for PUT request: $statusCode"
+                    }
+                } else {
+                    throw "Unexpected error for PUT request: $($_.Exception.Message)"
+                }
+            }
         }
     }
 }

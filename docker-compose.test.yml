@@ -82,5 +82,18 @@ services:
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
 
+  # Test service for ignoreBodyForVerbsDeny testing
+  whoami-force-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.force-test.rule=PathPrefix(`/force-test`)"
+      - "traefik.http.routers.force-test.middlewares=waf-force-middleware"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.ignoreBodyForVerbsDeny=true"
+
 volumes:
   logs-local:
