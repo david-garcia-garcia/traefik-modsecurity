@@ -170,16 +170,33 @@ http:
           # Increase for very large files or slow networks
           # This is the only parameter that has a non-zero default
           
-          maxBodySizeBytes: 26214400
+          maxBodySizeBytes: 5242880
           # OPTIONAL: Maximum request body size in bytes
-          # Default: 26214400 (25 MB)
+          # Default: 5242880 (5 MB)
           # Security feature to prevent DoS attacks via large request bodies
           # Requests exceeding this limit will return HTTP 413 Request Entity Too Large
           # Set to 0 for unlimited (not recommended in production)
           # Common values:
-          # - 10485760 (10 MB) for APIs
-          # - 26214400 (25 MB) for file uploads
+          # - 1048576 (1 MB) for APIs
+          # - 5242880 (5 MB) for general use
+          # - 10485760 (10 MB) for file uploads
           # - 52428800 (50 MB) for large file processing
+          
+          ignoreBodyForVerbs: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
+          # OPTIONAL: HTTP methods for which request body should not be read
+          # Default: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
+          # Performance optimization: skips body reading for methods that don't use it
+          # These methods either never have a body or ignore it per HTTP specification
+          # 
+          # ⚠️  IMPORTANT: When a method is in this list, the request body is COMPLETELY IGNORED
+          # and will NOT reach the backend service or next middleware. The body is consumed
+          # but not processed, making it unavailable for downstream handlers.
+          # 
+          # Benefits:
+          # - Significant memory savings for GET-heavy traffic (~80% of web requests)
+          # - Faster processing for methods that don't need body inspection
+          # - Reduced allocations and GC pressure
+          # - Body is consumed but not forwarded (saves bandwidth to backend)
 ```
 
 
