@@ -169,6 +169,17 @@ http:
           # Used when sending large payloads - ModSecurity can reject before full upload
           # Increase for very large files or slow networks
           # This is the only parameter that has a non-zero default
+          
+          maxBodySizeBytes: 26214400
+          # OPTIONAL: Maximum request body size in bytes
+          # Default: 26214400 (25 MB)
+          # Security feature to prevent DoS attacks via large request bodies
+          # Requests exceeding this limit will return HTTP 413 Request Entity Too Large
+          # Set to 0 for unlimited (not recommended in production)
+          # Common values:
+          # - 10485760 (10 MB) for APIs
+          # - 26214400 (25 MB) for file uploads
+          # - 52428800 (50 MB) for large file processing
 ```
 
 
