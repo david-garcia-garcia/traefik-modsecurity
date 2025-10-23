@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,8 +35,9 @@ type Config struct {
 	ResponseHeaderTimeoutMillis    int64    `json:"responseHeaderTimeoutMillis,omitempty"`    // Timeout for response headers (0 = no timeout, original default)
 	ExpectContinueTimeoutMillis    int64    `json:"expectContinueTimeoutMillis,omitempty"`    // Timeout for Expect: 100-continue (default 1000ms)
 	MaxBodySizeBytes               int64    `json:"maxBodySizeBytes,omitempty"`               // Maximum request body size in bytes (0 = unlimited, default 5MB)
+	MaxBodySizeBytesForPool        int64    `json:"maxBodySizeBytesForPool,omitempty"`        // Threshold above which to use ad-hoc allocation instead of pool (default 4MB)
 	IgnoreBodyForVerbs             []string `json:"ignoreBodyForVerbs,omitempty"`             // HTTP verbs for which body should not be read (default: HEAD, GET, DELETE)
-	IgnoreBodyForVerbsForce        bool     `json:"ignoreBodyForVerbsForce,omitempty"`        // If true, reject requests with body for verbs in IgnoreBodyForVerbs
+	IgnoreBodyForVerbsDeny         bool     `json:"ignoreBodyForVerbsDeny,omitempty"`         // If true, reject requests with body for verbs in IgnoreBodyForVerbs
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -48,9 +50,10 @@ func CreateConfig() *Config {
 		MaxIdleConnsPerHost:            10,                                                               // Limit idle connections per host (was 0 = unlimited)
 		ResponseHeaderTimeoutMillis:    0,                                                                // 0 = no response header timeout (original default)
 		ExpectContinueTimeoutMillis:    1000,                                                             // 1 second (original default)
-		MaxBodySizeBytes:               5 * 1024 * 1024,                                                  // 5 MB default (was 25MB)
+		MaxBodySizeBytes:               8 * 1024 * 1024,                                                  // 8 MB default
+		MaxBodySizeBytesForPool:        5 * 1024 * 1024,                                                  // 5 MB default for pool threshold
 		IgnoreBodyForVerbs:             []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"}, // Default verbs to ignore body
-		IgnoreBodyForVerbsForce:        true,                                                             // Default: enforce strict body validation
+		IgnoreBodyForVerbsDeny:         false,                                                            // Default: permissive body validation
 	}
 }
 
@@ -66,8 +69,9 @@ type Modsecurity struct {
 	unhealthyWafMutex              sync.Mutex
 	modSecurityStatusRequestHeader string          // Header name to add to request when blocked (for logging)
 	maxBodySizeBytes               int64           // Maximum request body size in bytes
+	maxBodySizeBytesForPool        int64           // Threshold above which to use ad-hoc allocation instead of pool
 	ignoreBodyForVerbs             map[string]bool // HTTP verbs for which body should not be read
-	ignoreBodyForVerbsForce        bool            // If true, reject requests with body for verbs in ignoreBodyForVerbs
+	ignoreBodyForVerbsDeny         bool            // If true, reject requests with body for verbs in ignoreBodyForVerbs
 }
 
 // New creates a new Modsecurity plugin with the given configuration.
@@ -133,8 +137,9 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		unhealthyWafBackOffPeriodSecs:  config.UnhealthyWafBackOffPeriodSecs,
 		modSecurityStatusRequestHeader: config.ModSecurityStatusRequestHeader,
 		maxBodySizeBytes:               config.MaxBodySizeBytes,
+		maxBodySizeBytesForPool:        config.MaxBodySizeBytesForPool,
 		ignoreBodyForVerbs:             createIgnoreBodyMap(config.IgnoreBodyForVerbs),
-		ignoreBodyForVerbsForce:        config.IgnoreBodyForVerbsForce,
+		ignoreBodyForVerbsDeny:         config.IgnoreBodyForVerbsDeny,
 	}, nil
 }
 
@@ -163,7 +168,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Check if we should enforce strict body validation for this HTTP method
-	if a.ignoreBodyForVerbsForce && a.ignoreBodyForVerbs[req.Method] {
+	if a.ignoreBodyForVerbsDeny && a.ignoreBodyForVerbs[req.Method] {
 		// Check if request has a body by trying to read 1 byte
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
@@ -184,25 +189,50 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			req.Body = http.MaxBytesReader(rw, req.Body, a.maxBodySizeBytes)
 		}
 
-		// Buffer the body if we want to read it here and send it in the request.
-		// Use pooled buffer to reduce allocations
-		buf := bodyBufferPool.Get().(*bytes.Buffer)
-		buf.Reset()
-		defer bodyBufferPool.Put(buf)
+		// Check Content-Length to decide whether to use pool or ad-hoc allocation
+		contentLengthStr := req.Header.Get("Content-Length")
+		usePool := true
+		if contentLengthStr != "" {
+			if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
+				usePool = contentLength <= a.maxBodySizeBytesForPool
+			}
+		}
 
-		// Read body into pooled buffer
-		if _, err := io.Copy(buf, req.Body); err != nil {
-			// Check if this is a MaxBytesError (body too large)
-			if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-				a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
-				http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge) // 413
+		if usePool {
+			// Use pooled buffer for smaller requests
+			buf := bodyBufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			defer bodyBufferPool.Put(buf)
+
+			// Read body into pooled buffer
+			if _, err := io.Copy(buf, req.Body); err != nil {
+				// Check if this is a MaxBytesError (body too large)
+				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
+					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
+					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge) // 413
+					return
+				}
+				a.logger.Printf("fail to read incoming request: %s", err.Error())
+				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
-			a.logger.Printf("fail to read incoming request: %s", err.Error())
-			http.Error(rw, "", http.StatusBadGateway)
-			return
+			body = buf.Bytes()
+		} else {
+			// Use ad-hoc allocation for larger requests to avoid pool pollution
+			if _, err := io.ReadAll(req.Body); err != nil {
+				// Check if this is a MaxBytesError (body too large)
+				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
+					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
+					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge) // 413
+					return
+				}
+				a.logger.Printf("fail to read incoming request: %s", err.Error())
+				http.Error(rw, "", http.StatusBadGateway)
+				return
+			}
+			// For large requests, we don't store the body to avoid memory issues
+			// The body has been consumed and will be empty for the proxy request
 		}
-		body = buf.Bytes()
 		// Don't restore req.Body yet - only create reader when needed
 	}
 

@@ -545,7 +545,7 @@ Describe "MaxBodySizeBytes Configuration Tests" {
 
 Describe "IgnoreBodyForVerbsForce Configuration Tests" {
     Context "Strict Body Validation" {
-        It "Should reject GET requests with body when ignoreBodyForVerbsForce is enabled" {
+        It "Should reject GET requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test GET request with body (should be rejected)
             $body = "test data"
             
@@ -555,7 +555,7 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             } catch {
                 if ($_.Exception.Response) {
                     $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsForce is enabled"
+                    $statusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
                 } else {
                     # Check if the error message indicates body validation failure
                     $errorMessage = $_.Exception.Message
@@ -568,7 +568,7 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             }
         }
         
-        It "Should reject HEAD requests with body when ignoreBodyForVerbsForce is enabled" {
+        It "Should reject HEAD requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test HEAD request with body (should be rejected)
             $body = "test data"
             
@@ -578,7 +578,7 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             } catch {
                 if ($_.Exception.Response) {
                     $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsForce is enabled"
+                    $statusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
                 } else {
                     # Check if the error message indicates body validation failure
                     $errorMessage = $_.Exception.Message
@@ -591,7 +591,7 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             }
         }
         
-        It "Should reject DELETE requests with body when ignoreBodyForVerbsForce is enabled" {
+        It "Should reject DELETE requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test DELETE request with body (should be rejected)
             $body = "test data"
             
@@ -601,7 +601,7 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             } catch {
                 if ($_.Exception.Response) {
                     $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsForce is enabled"
+                    $statusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
                 } else {
                     # Check if the error message indicates body validation failure
                     $errorMessage = $_.Exception.Message
@@ -614,20 +614,20 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             }
         }
         
-        It "Should allow GET requests without body when ignoreBodyForVerbsForce is enabled" {
+        It "Should allow GET requests without body when ignoreBodyForVerbsDeny is enabled" {
             # Test GET request without body (should be allowed)
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test"
             $response.StatusCode | Should -Be 200 -Because "GET requests without body should be allowed"
         }
         
-        It "Should allow POST requests with body when ignoreBodyForVerbsForce is enabled" {
+        It "Should allow POST requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test POST request with body (should be allowed - POST is not in ignoreBodyForVerbs)
             $body = "test data"
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method POST -Body $body
             $response.StatusCode | Should -Be 200 -Because "POST requests with body should be allowed (POST is not in ignoreBodyForVerbs)"
         }
         
-        It "Should allow PUT requests with body when ignoreBodyForVerbsForce is enabled" {
+        It "Should allow PUT requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test PUT request with body (should be allowed - PUT is not in ignoreBodyForVerbs)
             # Note: This might be blocked by ModSecurity, but the important thing is that
             # it's not blocked by our body validation (which would return 400)

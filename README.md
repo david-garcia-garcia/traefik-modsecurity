@@ -193,10 +193,44 @@ http:
           # but not processed, making it unavailable for downstream handlers.
           # 
           # Benefits:
-          # - Significant memory savings for GET-heavy traffic (~80% of web requests)
           # - Faster processing for methods that don't need body inspection
           # - Reduced allocations and GC pressure
           # - Body is consumed but not forwarded (saves bandwidth to backend)
+          
+          ignoreBodyForVerbsDeny: false
+          # OPTIONAL: Whether to reject requests with body for verbs in ignoreBodyForVerbs
+          # Default: false
+          # Security feature: enforces HTTP compliance by rejecting requests that have a body
+          # when the HTTP method should not have one according to the specification. It will attempt to 
+          # read the first byte of the request body stream to decide.
+          # 
+          # When enabled (true):
+          # - Attempts to read 1 byte from the request body
+          # - If any data is found, returns HTTP 400 Bad Request
+          # - Prevents malformed requests from reaching the backend
+          # - Helps detect potential attacks or misconfigured clients
+          # 
+          # When disabled (false):
+          # - Simply ignores the body without validation
+          # - More permissive but less secure
+          # - May allow non-compliant requests to pass through
+          
+          maxBodySizeBytesForPool: 4194304
+          # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
+          # Default: 4194304 (4 MB)
+          # Memory optimization: prevents pool pollution with large buffers
+          # 
+          # How it works:
+          # - Checks Content-Length header before reading body
+          # - If Content-Length <= threshold: uses pooled bytes.Buffer
+          # - If Content-Length > threshold: uses io.ReadAll with ad-hoc allocation
+          # - Large requests don't store body to avoid memory issues
+          # 
+          # Benefits:
+          # - Keeps pool efficient for common small requests
+          # - Prevents large buffers from staying in pool
+          # - Reduces GC pressure from oversized pooled objects
+          # - Optimizes memory usage patterns
 ```
 
 
