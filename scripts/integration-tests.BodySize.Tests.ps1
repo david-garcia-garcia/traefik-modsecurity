@@ -70,6 +70,32 @@ Describe "MaxBodySizeBytes Configuration Tests (Large Bodies)" {
     }
 }
 
+Describe "MaxBodySizeBytes Status Header Tests" {
+    Context "Pooled path body size enforcement (/protected)" {
+        It "Should mark 413 body-too-large responses as blocked in access logs (usePool=true)" {
+            # First, send a small request that should pass to verify the happy path.
+            $smallBody = New-RequestBodyOfSizeBytes -TargetSizeBytes 512  # Below 1KB limit
+            $smallResponse = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $smallBody -TimeoutSec 10
+            $smallResponse.StatusCode | Should -Be 200 -Because "Requests within maxBodySizeBytes should be accepted"
+
+            # Now send an oversized body that exceeds the 1KB limit but still uses the pooled path.
+            $body = New-RequestBodyOfSizeBytes -TargetSizeBytes 2000
+
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $body -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Requests exceeding maxBodySizeBytes should be rejected with HTTP 413"
+
+            Start-Sleep -Seconds 2
+
+            $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $latestEntry = Get-LastAccessLogEntryForPath -Entries $entries -PathPrefix "/protected"
+
+            $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /protected entry in access logs"
+            $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "blocked" -Because "Middleware body size enforcement should be logged as blocked (pooled path)"
+        }
+    }
+}
+
 Describe "Body Size Limit Tests - usePool=false Path" {
     # The pool-test service has maxBodySizeBytesForPool=1024 (1KB) and maxBodySizeBytes=5120 (5KB)
     # This means requests with Content-Length > 1KB will use the usePool=false path
@@ -157,6 +183,7 @@ Describe "Body Size Limit Tests - usePool=false Path" {
             
             $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /pool-test entry in access logs"
             $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "blocked" -Because "MaxBodySizeBytes enforcement in middleware should be logged as blocked"
         }
     }
 }

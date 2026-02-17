@@ -209,6 +209,10 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 				// Check if this is a MaxBytesError (body too large)
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
 					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
+					// Mark the request as blocked by the middleware itself (for access-log correlation)
+					if a.modSecurityStatusRequestHeader != "" {
+						req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
+					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge) // 413
 					return
 				}
@@ -228,6 +232,10 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 				// Check if this is a MaxBytesError (body too large)
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
 					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
+					// Mark the request as blocked by the middleware itself (for access-log correlation)
+					if a.modSecurityStatusRequestHeader != "" {
+						req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
+					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge) // 413
 					return
 				}
