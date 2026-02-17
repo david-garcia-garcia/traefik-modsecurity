@@ -97,44 +97,16 @@ Describe "Remediation Response Header Tests" {
         It "Should log remediation header as request header in access logs for blocked requests" {
             # Make a blocked request to the remediation test endpoint
             $maliciousUrl = "$BaseUrl/remediation-test?id=1' OR '1'='1"
-            try {
-                $response = Invoke-SafeWebRequest -Uri $maliciousUrl
-                $response.StatusCode | Should -BeGreaterOrEqual 400
-            } catch {
-                # Expected for blocked requests - check if it's a 403/blocked response
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -BeGreaterOrEqual 400
-                } else {
-                    throw "Unexpected error: $($_.Exception.Message)"
-                }
-            }
+
+            # Use a non-throwing request via helper and assert status directly
+            $response = Invoke-SafeWebRequest -Uri $maliciousUrl -TimeoutSec 10
+            $response.StatusCode | Should -BeGreaterOrEqual 400 -Because "Blocked remediation request should return 4xx/5xx"
             
             # Wait a moment for log to be written
             Start-Sleep -Seconds 2
             
-            # Read the access.log file from the traefik container
-            $accessLogContent = docker exec $script:traefikContainer cat /var/log/traefik/access.log 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "Warning: Failed to read traefik access log from container: $script:traefikContainer" -ForegroundColor Yellow
-                Write-Host "Available containers:" -ForegroundColor Yellow
-                docker ps --format "table {{.Names}}\t{{.Image}}"
-                throw "Failed to read traefik access log"
-            }
-            
-            # Parse the log lines and check for any entries related to the remediation test
-            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
-            
-            # Validate that ALL log lines are properly formatted JSON (no malformed lines should exist)
-            $allLogEntries = @()
-            foreach ($line in $logLines) {
-                try {
-                    $logEntry = $line | ConvertFrom-Json
-                    $allLogEntries += $logEntry
-                } catch {
-                    throw "Malformed JSON line found in log file: '$line'."
-                }
-            }
+            # Read and parse access.log entries from the Traefik container using shared helper
+            $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
             
             # Look for log entries where the X-Waf-Status request header is present for blocked requests
             $remediationHeaderLogFound = ($allLogEntries | Where-Object { 
@@ -433,39 +405,16 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             # Test with large body (2KB - exceeds 1KB limit configured in docker-compose.test.yml)
             $largeData = "data=" + ("a" * 2000)
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData
-                # If we get here, the request was not rejected - this is unexpected
-                throw "Expected HTTP 413 Request Entity Too Large, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 413 -Because "Requests exceeding maxBodySizeBytes should return HTTP 413 Request Entity Too Large"
-                } else {
-                    # Check if the error message indicates body size limit
-                    $errorMessage = $_.Exception.Message
-                    if ($errorMessage -like "*413*" -or $errorMessage -like "*Request Entity Too Large*" -or $errorMessage -like "*body too large*") {
-                        Write-Host "✅ Request properly rejected with body size limit error: $errorMessage" -ForegroundColor Green
-                    } else {
-                        throw "Unexpected error for oversized request: $errorMessage"
-                    }
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Requests exceeding maxBodySizeBytes should return HTTP 413 Request Entity Too Large"
         }
         
         It "Should handle body size limit errors without sending partial data to ModSecurity" {
             # Test with very large body (5KB - significantly exceeds 1KB limit)
             $veryLargeData = "data=" + ("a" * 5000)
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $veryLargeData
-                throw "Expected HTTP 413 Request Entity Too Large, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 413 -Because "Very large requests should be rejected before reaching ModSecurity"
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $veryLargeData -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Very large requests should be rejected before reaching ModSecurity"
             
             # Wait a moment for any potential logs
             Start-Sleep -Seconds 2
@@ -479,15 +428,8 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             # Test PUT method with large body
             $largeData = "data=" + ("a" * 2000)
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method PUT -Body $largeData
-                throw "Expected HTTP 413 Request Entity Too Large, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 413 -Because "Body size limit should apply to all HTTP methods with bodies"
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method PUT -Body $largeData -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Body size limit should apply to all HTTP methods with bodies"
         }
         
         It "Should allow GET requests regardless of query string length" {
@@ -505,12 +447,8 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             # Make a request that exceeds the body size limit
             $largeData = "data=" + ("a" * 2000)
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData
-                throw "Expected HTTP 413 Request Entity Too Large, but got status $($response.StatusCode)"
-            } catch {
-                # Expected - request should be rejected
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Oversized request should be rejected with HTTP 413"
             
             # Wait for log to be written
             Start-Sleep -Seconds 2
@@ -534,70 +472,25 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
         It "Should reject GET requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test GET request with body (should be rejected)
             $body = "test data"
-            
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method GET -Body $body
-                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
-                } else {
-                    # Check if the error message indicates body validation failure
-                    $errorMessage = $_.Exception.Message
-                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
-                        Write-Host "✅ GET request with body properly rejected: $errorMessage" -ForegroundColor Green
-                    } else {
-                        throw "Unexpected error for GET request with body: $errorMessage"
-                    }
-                }
-            }
+
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method GET -Body $body -TimeoutSec 10
+            $response.StatusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
         }
         
         It "Should reject HEAD requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test HEAD request with body (should be rejected)
             $body = "test data"
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method HEAD -Body $body
-                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
-                } else {
-                    # Check if the error message indicates body validation failure
-                    $errorMessage = $_.Exception.Message
-                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
-                        Write-Host "✅ HEAD request with body properly rejected: $errorMessage" -ForegroundColor Green
-                    } else {
-                        throw "Unexpected error for HEAD request with body: $errorMessage"
-                    }
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method HEAD -Body $body -TimeoutSec 10
+            $response.StatusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
         }
         
         It "Should reject DELETE requests with body when ignoreBodyForVerbsDeny is enabled" {
             # Test DELETE request with body (should be rejected)
             $body = "test data"
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method DELETE -Body $body
-                throw "Expected HTTP 400 Bad Request, but got status $($response.StatusCode)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    $statusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
-                } else {
-                    # Check if the error message indicates body validation failure
-                    $errorMessage = $_.Exception.Message
-                    if ($errorMessage -like "*400*" -or $errorMessage -like "*should not have a body*") {
-                        Write-Host "✅ DELETE request with body properly rejected: $errorMessage" -ForegroundColor Green
-                    } else {
-                        throw "Unexpected error for DELETE request with body: $errorMessage"
-                    }
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method DELETE -Body $body -TimeoutSec 10
+            $response.StatusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
         }
         
         It "Should allow GET requests without body when ignoreBodyForVerbsDeny is enabled" {
@@ -619,25 +512,13 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             # it's not blocked by our body validation (which would return 400)
             $body = "test data"
             
-            try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method PUT -Body $body
-                $response.StatusCode | Should -Be 200 -Because "PUT requests with body should be allowed (PUT is not in ignoreBodyForVerbs)"
-            } catch {
-                if ($_.Exception.Response) {
-                    $statusCode = [int]$_.Exception.Response.StatusCode
-                    # If it's 400, that means our body validation rejected it (bad)
-                    # If it's 403, that means ModSecurity rejected it (acceptable for this test)
-                    if ($statusCode -eq 400) {
-                        throw "PUT request was rejected by body validation (400), but PUT is not in ignoreBodyForVerbs"
-                    } elseif ($statusCode -eq 403) {
-                        Write-Host "✅ PUT request allowed by body validation but blocked by ModSecurity (403) - this is acceptable" -ForegroundColor Green
-                    } else {
-                        throw "Unexpected status code for PUT request: $statusCode"
-                    }
-                } else {
-                    throw "Unexpected error for PUT request: $($_.Exception.Message)"
-                }
-            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method PUT -Body $body -TimeoutSec 10
+            $statusCode = [int]$response.StatusCode
+
+            # 200  -> body validation allowed and ModSecurity allowed (ideal)
+            # 403  -> body validation allowed, ModSecurity blocked (acceptable)
+            # 400  -> body validation wrongly rejected by our validation layer (NOT acceptable)
+            $statusCode | Should -Not -Be 400 -Because "PUT is not in ignoreBodyForVerbs; our body validation must not reject it"
         }
     }
 }

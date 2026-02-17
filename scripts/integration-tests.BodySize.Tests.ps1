@@ -32,9 +32,7 @@ Describe "MaxBodySizeBytes Configuration Tests (Large Bodies)" {
             # The purpose of this integration test is to ensure that large bodies near the limit
             # do not trigger the historical Content-Length/body mismatch bug that produced 5xx
             # transport errors from Traefik. Exact allow/deny semantics are covered by Go unit tests.
-            $bodySizeMB = 16
-            $bodySizeBytes = $bodySizeMB * 1024 * 1024
-            $largeData = "data=" + ("a" * ($bodySizeBytes - 5))  # 16MB - 5 bytes to stay under limit
+            $largeData = New-RequestBodyOfSizeBytes -TargetSizeBytes (16 * 1024 * 1024)
             
             try {
                 $response = Invoke-SafeWebRequest -Uri "$BaseUrl/large-body-test" -Method POST -Body $largeData -TimeoutSec 60
@@ -51,9 +49,8 @@ Describe "MaxBodySizeBytes Configuration Tests (Large Bodies)" {
         }
         
         It "Should reject requests exceeding body size limit (large body)" {
-            $bodySizeMB = 21  # Exceeds 20MB limit
-            $bodySizeBytes = $bodySizeMB * 1024 * 1024
-            $largeData = "data=" + ("a" * ($bodySizeBytes - 5))  # 21MB - 5 bytes
+            # 21MB body - exceeds 20MB limit
+            $largeData = New-RequestBodyOfSizeBytes -TargetSizeBytes (21 * 1024 * 1024)
             
             try {
                 $null = Invoke-SafeWebRequest -Uri "$BaseUrl/large-body-test" -Method POST -Body $largeData -TimeoutSec 60
@@ -124,7 +121,7 @@ Describe "Body Size Limit Tests - usePool=false Path" {
                 $size = [int]$case.Size
                 if ($size -lt 1) { continue }
 
-                $body = "data=" + ("a" * ([Math]::Max($size - 5, 1)))
+                $body = New-RequestBodyOfSizeBytes -TargetSizeBytes $size
                 $status = $null
 
                 try {
@@ -145,14 +142,13 @@ Describe "Body Size Limit Tests - usePool=false Path" {
     
     Context "Backend call verification" {
         It "Should verify backend is NOT called when request exceeds limit (usePool=false)" {
-            $bodySize = 6 * 1024  # 6KB - exceeds 5KB limit
-            $bodyData = "data=" + ("a" * ($bodySize - 5))
-            
-            try {
-                $null = Invoke-SafeWebRequest -Uri "$BaseUrl/pool-test" -Method POST -Body $bodyData -TimeoutSec 10
-            } catch {
-                # expected
-            }
+            $bodyData = New-RequestBodyOfSizeBytes -TargetSizeBytes (6 * 1024)  # 6KB - exceeds 5KB limit
+
+            # Send request and capture HTTP status without treating non-2xx as an exception.
+            # Invoke-SafeWebRequest is configured to skip HTTP error checks and only throw on
+            # real transport errors.
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/pool-test" -Method POST -Body $bodyData -TimeoutSec 10
+            $response.StatusCode | Should -Be 413 -Because "Oversized request should be rejected with HTTP 413"
             
             Start-Sleep -Seconds 2
             

@@ -91,6 +91,7 @@ function Invoke-SafeWebRequest {
             Headers = $Headers
             TimeoutSec = $TimeoutSec
             UseBasicParsing = $true
+            SkipHttpErrorCheck = $true
         }
         
         if ($Body) {
@@ -223,6 +224,28 @@ function Get-TraefikAccessLogEntries {
     }
 
     return $entries
+}
+
+function New-RequestBodyOfSizeBytes {
+    param(
+        [Parameter(Mandatory)]
+        [int]$TargetSizeBytes,
+        [string]$Prefix = "data="
+    )
+
+    if ($TargetSizeBytes -le 0) {
+        throw "TargetSizeBytes must be positive, got $TargetSizeBytes."
+    }
+
+    $encoding = [System.Text.Encoding]::UTF8
+    $prefixLength = $encoding.GetByteCount($Prefix)
+
+    if ($TargetSizeBytes -lt $prefixLength) {
+        throw "TargetSizeBytes ($TargetSizeBytes) is smaller than prefix byte length ($prefixLength)."
+    }
+
+    $payloadLength = $TargetSizeBytes - $prefixLength
+    return $Prefix + ("a" * $payloadLength)
 }
 
 function Get-LastAccessLogEntryForPath {
