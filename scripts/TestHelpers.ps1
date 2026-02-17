@@ -284,22 +284,15 @@ function Test-WafBlocking {
         [string]$Url,
         [int]$ExpectedMinStatus = 400
     )
-    
-    try {
-        $response = Invoke-SafeWebRequest -Uri $Url
-        # If we get here, the request wasn't blocked
-        throw "Expected request to be blocked but got status: $($response.StatusCode)"
-    }
-    catch [Microsoft.PowerShell.Commands.HttpResponseException] {
-        # Expected - request was blocked
-        $response = $_.Exception.Response
-        if ($response) {
-            $statusCode = [int]$response.StatusCode
-            $statusCode | Should -BeGreaterOrEqual $ExpectedMinStatus
-            Write-Host "✅ WAF blocked request with status: $statusCode" -ForegroundColor Green
-            return $statusCode
-        }
-    }
+
+    # Invoke-SafeWebRequest is configured to skip HTTP error checks, so it will return
+    # a response object even for 4xx/5xx statuses. We can assert directly on the status code.
+    $response = Invoke-SafeWebRequest -Uri $Url
+    $statusCode = [int]$response.StatusCode
+
+    $statusCode | Should -BeGreaterOrEqual $ExpectedMinStatus -Because "Malicious requests should be blocked by WAF"
+    Write-Host "✅ WAF blocked request with status: $statusCode" -ForegroundColor Green
+    return $statusCode
 }
 
 <#
