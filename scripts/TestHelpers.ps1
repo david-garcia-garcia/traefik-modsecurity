@@ -5,6 +5,48 @@
 $script:DefaultTimeout = 15
 $script:DefaultRetryInterval = 2
 
+function Get-TraefikContainerName {
+    $name = docker ps --filter "name=traefik-modsecurity-plugin-traefik" --format "{{.Names}}" | Select-Object -First 1
+    if (-not $name) {
+        throw "Traefik container not found"
+    }
+    return $name
+}
+
+function Get-WafContainerName {
+    $name = docker ps --filter "name=traefik-modsecurity-plugin-waf" --format "{{.Names}}" | Select-Object -First 1
+    if (-not $name) {
+        throw "WAF container not found"
+    }
+    return $name
+}
+
+function Wait-ForWafHealthy {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ContainerName,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollSeconds = 3
+    )
+
+    Write-Host "Waiting for WAF container '$ContainerName' health..." -ForegroundColor Cyan
+    $elapsed = 0
+    $health = $null
+
+    do {
+        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        if ($health -eq "healthy") {
+            Write-Host "✅ WAF container is healthy" -ForegroundColor Green
+            return $true
+        }
+
+        Start-Sleep -Seconds $PollSeconds
+        $elapsed += $PollSeconds
+    } while ($elapsed -lt $TimeoutSeconds)
+
+    throw "WAF container '$ContainerName' did not become healthy within ${TimeoutSeconds}s (status='$health')"
+}
+
 <#
 .SYNOPSIS
     Makes HTTP requests with comprehensive error handling
@@ -157,6 +199,48 @@ function Wait-ForAllServices {
     return $true
 }
 
+function Get-TraefikAccessLogEntries {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName
+    )
+
+    $accessLogContent = docker exec $TraefikContainerName cat /var/log/traefik/access.log 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read traefik access log from container: $TraefikContainerName"
+    }
+
+    $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+
+    $entries = @()
+    foreach ($line in $logLines) {
+        try {
+            $entry = $line | ConvertFrom-Json
+            $entries += $entry
+        } catch {
+            # Skip malformed JSON lines
+        }
+    }
+
+    return $entries
+}
+
+function Get-LastAccessLogEntryForPath {
+    param(
+        [Parameter(Mandatory)]
+        [array]$Entries,
+        [Parameter(Mandatory)]
+        [string]$PathPrefix
+    )
+
+    $matches = $Entries | Where-Object { $_.RequestPath -like "$PathPrefix*" }
+    if (-not $matches -or $matches.Count -eq 0) {
+        return $null
+    }
+
+    return $matches[-1]
+}
+
 <#
 .SYNOPSIS
     Tests if a request is blocked by WAF
@@ -274,50 +358,7 @@ function Test-ResponseTime {
     return $stopwatch.ElapsedMilliseconds
 }
 
-<#
-.SYNOPSIS
-    Tests concurrent request handling
 
-.PARAMETER Url
-    URL to test with concurrent requests
-
-.PARAMETER RequestCount
-    Number of concurrent requests to make
-
-.PARAMETER MinSuccessCount
-    Minimum number of requests that should succeed
-#>
-function Test-ConcurrentRequests {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Url,
-        [int]$RequestCount = 5,
-        [int]$MinSuccessCount = 3
-    )
-    
-    $jobs = @()
-    1..$RequestCount | ForEach-Object {
-        $jobs += Start-Job -ScriptBlock {
-            param($TestUrl)
-            try {
-                $response = Invoke-WebRequest -Uri $TestUrl -UseBasicParsing -TimeoutSec 10
-                return @{ StatusCode = $response.StatusCode; Success = $true }
-            }
-            catch {
-                return @{ StatusCode = 0; Success = $false; Error = $_.Exception.Message }
-            }
-        } -ArgumentList $Url
-    }
-    
-    $results = $jobs | Wait-Job | Receive-Job
-    $jobs | Remove-Job
-    
-    $successfulRequests = ($results | Where-Object { $_.Success }).Count
-    $successfulRequests | Should -BeGreaterOrEqual $MinSuccessCount
-    
-    Write-Host "Successful concurrent requests: $successfulRequests/$RequestCount" -ForegroundColor Cyan
-    return $successfulRequests
-}
 
 # Helper functions are available when dot-sourced
 # No Export-ModuleMember needed for dot-sourcing

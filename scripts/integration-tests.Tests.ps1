@@ -19,19 +19,11 @@ BeforeAll {
     
     Wait-ForAllServices -Services $services
     
-    # Find the Traefik container name dynamically after services are ready.
-    # Don't pin to a specific Traefik version/tag; integration tests may upgrade Traefik.
-    $script:traefikContainer = docker ps --filter "name=traefik-modsecurity-plugin-traefik" --format "{{.Names}}" | Select-Object -First 1
-    if (-not $script:traefikContainer) {
-        throw "Traefik container not found"
-    }
+    # Find the Traefik and WAF containers using helpers
+    $script:traefikContainer = Get-TraefikContainerName
     Write-Host "Using Traefik container: $script:traefikContainer" -ForegroundColor Cyan
     
-    # Find the WAF container name dynamically
-    $script:wafContainer = docker ps --filter "ancestor=owasp/modsecurity-crs:4.3.0-apache-alpine-202406090906" --format "{{.Names}}" | Select-Object -First 1
-    if (-not $script:wafContainer) {
-        throw "WAF container not found"
-    }
+    $script:wafContainer = Get-WafContainerName
     Write-Host "Using WAF container: $script:wafContainer" -ForegroundColor Cyan
 }
 
@@ -322,7 +314,31 @@ Describe "Performance and Health Tests" {
         }
         
         It "Should handle concurrent requests" {
-            Test-ConcurrentRequests -Url "$BaseUrl/protected" -RequestCount 5 -MinSuccessCount 3
+            $url = "$BaseUrl/protected"
+            $requestCount = 5
+            $minSuccessCount = 3
+
+            $jobs = @()
+            1..$requestCount | ForEach-Object {
+                $jobs += Start-Job -ScriptBlock {
+                    param($TestUrl)
+                    try {
+                        $response = Invoke-WebRequest -Uri $TestUrl -UseBasicParsing -TimeoutSec 10
+                        return @{ StatusCode = $response.StatusCode; Success = $true }
+                    }
+                    catch {
+                        return @{ StatusCode = 0; Success = $false; Error = $_.Exception.Message }
+                    }
+                } -ArgumentList $url
+            }
+            
+            $results = $jobs | Wait-Job | Receive-Job
+            $jobs | Remove-Job
+            
+            $successfulRequests = ($results | Where-Object { $_.Success }).Count
+            $successfulRequests | Should -BeGreaterOrEqual $minSuccessCount
+            
+            Write-Host "Successful concurrent requests: $successfulRequests/$requestCount" -ForegroundColor Cyan
         }
     }
     
@@ -517,32 +533,14 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             # Wait for log to be written
             Start-Sleep -Seconds 2
             
-            # Read the access.log file from the traefik container
-            $accessLogContent = docker exec $script:traefikContainer cat /var/log/traefik/access.log 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "Warning: Failed to read traefik access log from container: $script:traefikContainer" -ForegroundColor Yellow
-                throw "Failed to read traefik access log"
-            }
-            
-            # Parse the log lines
-            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
-            
-            # Look for log entries with 413 status code
-            $bodySizeLimitLogFound = $false
-            foreach ($line in $logLines) {
-                try {
-                    $logEntry = $line | ConvertFrom-Json
-                    if ($logEntry.DownstreamStatus -eq 413 -and $logEntry.RequestPath -like "/protected*") {
-                        $bodySizeLimitLogFound = $true
-                        break
-                    }
-                } catch {
-                    # Skip malformed JSON lines
-                }
-            }
+            # Read and parse access.log from Traefik using helper
+            $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+
+            # Look for at least one 413 entry on /protected
+            $has413 = $entries | Where-Object { $_.DownstreamStatus -eq 413 -and $_.RequestPath -like "/protected*" } | Select-Object -First 1
             
             # Verify that body size limit violations are logged
-            $bodySizeLimitLogFound | Should -Be $true -Because "Body size limit violations should be logged with HTTP 413 status"
+            $has413 | Should -Not -BeNullOrEmpty -Because "Body size limit violations should be logged with HTTP 413 status"
         }
     }
 }

@@ -6,35 +6,14 @@ BeforeAll {
     $script:BaseUrl = "http://localhost:8000"
     $script:TraefikApiUrl = "http://localhost:8080"
     
-    # Find the Traefik container name dynamically after services are ready.
-    $script:traefikContainer = docker ps --filter "name=traefik-modsecurity-plugin-traefik" --format "{{.Names}}" | Select-Object -First 1
-    if (-not $script:traefikContainer) {
-        throw "Traefik container not found"
-    }
+    # Find containers and wait for WAF health using helpers.
+    $script:traefikContainer = Get-TraefikContainerName
     Write-Host "Using Traefik container: $script:traefikContainer" -ForegroundColor Cyan
 
-    # Find the WAF container and wait for it to become healthy.
-    $script:wafContainer = docker ps --filter "name=traefik-modsecurity-plugin-waf" --format "{{.Names}}" | Select-Object -First 1
-    if (-not $script:wafContainer) {
-        throw "WAF container not found"
-    }
+    $script:wafContainer = Get-WafContainerName
     Write-Host "Using WAF container: $script:wafContainer" -ForegroundColor Cyan
 
-    Write-Host "Waiting for WAF container health..." -ForegroundColor Cyan
-    $maxWaitSeconds = 90
-    $elapsed = 0
-    do {
-        $health = docker inspect --format "{{.State.Health.Status}}" $script:wafContainer 2>$null
-        if ($health -eq "healthy") {
-            Write-Host "✅ WAF container is healthy" -ForegroundColor Green
-            break
-        }
-        Start-Sleep -Seconds 3
-        $elapsed += 3
-    } while ($elapsed -lt $maxWaitSeconds)
-    if ($health -ne "healthy") {
-        throw "WAF container did not become healthy within ${maxWaitSeconds}s (status='$health')"
-    }
+    Wait-ForWafHealthy -ContainerName $script:wafContainer
 
     # Ensure all services are ready before running tests
     $services = @(
@@ -74,7 +53,7 @@ Describe "MaxBodySizeBytes Configuration Tests (Large Bodies)" {
             $largeData = "data=" + ("a" * ($bodySizeBytes - 5))  # 21MB - 5 bytes
             
             try {
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData -TimeoutSec 60
+                $null = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $largeData -TimeoutSec 60
                 throw "Expected HTTP 413 Request Entity Too Large for 21MB request with 20MB limit"
             } catch {
                 if ($_.Exception.Response) {
@@ -140,12 +119,11 @@ Describe "Body Size Limit Tests - usePool=false Path" {
 
             foreach ($case in $cases) {
                 $size = [int]$case.Size
-                if ($size -lt 1) {
-                    continue
-                }
+                if ($size -lt 1) { continue }
 
                 $body = "data=" + ("a" * ([Math]::Max($size - 5, 1)))
                 $status = $null
+
                 try {
                     $resp = Invoke-SafeWebRequest -Uri "$BaseUrl/pool-test" -Method POST -Body $body -TimeoutSec 10
                     $status = [int]$resp.StatusCode
@@ -175,24 +153,10 @@ Describe "Body Size Limit Tests - usePool=false Path" {
             
             Start-Sleep -Seconds 2
             
-            $accessLogContent = docker exec $script:traefikContainer cat /var/log/traefik/access.log 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Failed to read traefik access log"
-            }
+            $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $latestEntry = Get-LastAccessLogEntryForPath -Entries $entries -PathPrefix "/pool-test"
             
-            $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
-            $poolTestEntries = @()
-            foreach ($line in $logLines) {
-                try {
-                    $logEntry = $line | ConvertFrom-Json
-                    if ($logEntry.RequestPath -like "/pool-test*") {
-                        $poolTestEntries += $logEntry
-                    }
-                } catch { }
-            }
-            
-            $poolTestEntries.Count | Should -BeGreaterThan 0 -Because "We should have at least one /pool-test entry in access logs"
-            $latestEntry = $poolTestEntries[-1]
+            $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /pool-test entry in access logs"
             $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
         }
     }
