@@ -218,8 +218,13 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			}
 			body = buf.Bytes()
 		} else {
-			// Use ad-hoc allocation for larger requests to avoid pool pollution
-			if _, err := io.ReadAll(req.Body); err != nil {
+			// Use ad-hoc allocation for larger requests to avoid pool pollution.
+			// We still need to keep the body in memory so that we can:
+			// - send it to ModSecurity, and
+			// - restore it for the downstream handler (Traefik backend),
+			// otherwise Traefik will see a Content-Length with an empty body and return 500.
+			largeBody, err := io.ReadAll(req.Body)
+			if err != nil {
 				// Check if this is a MaxBytesError (body too large)
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
 					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
@@ -230,8 +235,9 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
-			// For large requests, we don't store the body to avoid memory issues
-			// The body has been consumed and will be empty for the proxy request
+			// For large requests, we keep the body as a separate slice (not in the shared pool)
+			// to avoid polluting the buffer pool with very large allocations.
+			body = largeBody
 		}
 		// Don't restore req.Body yet - only create reader when needed
 	}
