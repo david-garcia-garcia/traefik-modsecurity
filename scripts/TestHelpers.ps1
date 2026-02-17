@@ -102,7 +102,7 @@ function Wait-ForService {
     
     do {
         try {
-            $response = Invoke-SafeWebRequest -Uri $Url -TimeoutSec 5
+            $response = Invoke-SafeWebRequest -Uri $Url -TimeoutSec 10
             if ($response.StatusCode -eq 200) {
                 Write-Host "✅ $ServiceName is ready!" -ForegroundColor Green
                 return $true

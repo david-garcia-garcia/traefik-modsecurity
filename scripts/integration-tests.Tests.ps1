@@ -13,13 +13,15 @@ BeforeAll {
         @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
-        @{ Url = "$BaseUrl/force-test"; Name = "Force test service" }
+        @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
+        @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" }
     )
     
     Wait-ForAllServices -Services $services
     
-    # Find the Traefik container name dynamically after services are ready
-    $script:traefikContainer = docker ps --filter "ancestor=traefik:v2.11.4" --format "{{.Names}}" | Select-Object -First 1
+    # Find the Traefik container name dynamically after services are ready.
+    # Don't pin to a specific Traefik version/tag; integration tests may upgrade Traefik.
+    $script:traefikContainer = docker ps --filter "name=traefik-modsecurity-plugin-traefik" --format "{{.Names}}" | Select-Object -First 1
     if (-not $script:traefikContainer) {
         throw "Traefik container not found"
     }
@@ -496,6 +498,8 @@ Describe "MaxBodySizeBytes Configuration Tests" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected$longQuery"
             $response.StatusCode | Should -Be 200 -Because "Query strings are not subject to body size limits"
         }
+        
+        # Large-body tests moved to scripts/integration-tests.BodySize.Tests.ps1
     }
     
     Context "Body Size Limit Logging" {
@@ -542,6 +546,8 @@ Describe "MaxBodySizeBytes Configuration Tests" {
         }
     }
 }
+
+# Body Size Limit Tests moved to scripts/integration-tests.BodySize.Tests.ps1
 
 Describe "IgnoreBodyForVerbsForce Configuration Tests" {
     Context "Strict Body Validation" {
