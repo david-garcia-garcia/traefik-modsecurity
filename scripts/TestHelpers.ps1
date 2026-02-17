@@ -6,17 +6,21 @@ $script:DefaultTimeout = 15
 $script:DefaultRetryInterval = 2
 
 function Get-TraefikContainerName {
-    $name = docker ps --filter "name=traefik-modsecurity-plugin-traefik" --format "{{.Names}}" | Select-Object -First 1
+    # Discover by service suffix so it works across different
+    # docker-compose project names (local vs CI).
+    $name = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-traefik-1" } | Select-Object -First 1
     if (-not $name) {
-        throw "Traefik container not found"
+        throw "Traefik container not found (searched for '*-traefik-1'; optionally set TRAEFIK_CONTAINER_NAME env var)"
     }
     return $name
 }
 
 function Get-WafContainerName {
-    $name = docker ps --filter "name=traefik-modsecurity-plugin-waf" --format "{{.Names}}" | Select-Object -First 1
+    # Discover by service suffix so it works across different
+    # docker-compose project names (local vs CI).
+    $name = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-waf-1" } | Select-Object -First 1
     if (-not $name) {
-        throw "WAF container not found"
+        throw "WAF container not found (searched for '*-waf-1'; optionally set WAF_CONTAINER_NAME env var)"
     }
     return $name
 }
