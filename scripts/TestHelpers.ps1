@@ -5,6 +5,52 @@
 $script:DefaultTimeout = 15
 $script:DefaultRetryInterval = 2
 
+function Get-TraefikContainerName {
+    # Discover by service suffix so it works across different
+    # docker-compose project names (local vs CI).
+    $name = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-traefik-1" } | Select-Object -First 1
+    if (-not $name) {
+        throw "Traefik container not found (searched for '*-traefik-1'; optionally set TRAEFIK_CONTAINER_NAME env var)"
+    }
+    return $name
+}
+
+function Get-WafContainerName {
+    # Discover by service suffix so it works across different
+    # docker-compose project names (local vs CI).
+    $name = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-waf-1" } | Select-Object -First 1
+    if (-not $name) {
+        throw "WAF container not found (searched for '*-waf-1'; optionally set WAF_CONTAINER_NAME env var)"
+    }
+    return $name
+}
+
+function Wait-ForWafHealthy {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ContainerName,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollSeconds = 3
+    )
+
+    Write-Host "Waiting for WAF container '$ContainerName' health..." -ForegroundColor Cyan
+    $elapsed = 0
+    $health = $null
+
+    do {
+        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        if ($health -eq "healthy") {
+            Write-Host "✅ WAF container is healthy" -ForegroundColor Green
+            return $true
+        }
+
+        Start-Sleep -Seconds $PollSeconds
+        $elapsed += $PollSeconds
+    } while ($elapsed -lt $TimeoutSeconds)
+
+    throw "WAF container '$ContainerName' did not become healthy within ${TimeoutSeconds}s (status='$health')"
+}
+
 <#
 .SYNOPSIS
     Makes HTTP requests with comprehensive error handling
@@ -49,6 +95,7 @@ function Invoke-SafeWebRequest {
             Headers = $Headers
             TimeoutSec = $TimeoutSec
             UseBasicParsing = $true
+            SkipHttpErrorCheck = $true
         }
         
         if ($Body) {
@@ -102,7 +149,7 @@ function Wait-ForService {
     
     do {
         try {
-            $response = Invoke-SafeWebRequest -Uri $Url -TimeoutSec 5
+            $response = Invoke-SafeWebRequest -Uri $Url -TimeoutSec 10
             if ($response.StatusCode -eq 200) {
                 Write-Host "✅ $ServiceName is ready!" -ForegroundColor Green
                 return $true
@@ -157,6 +204,70 @@ function Wait-ForAllServices {
     return $true
 }
 
+function Get-TraefikAccessLogEntries {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName
+    )
+
+    $accessLogContent = docker exec $TraefikContainerName cat /var/log/traefik/access.log 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read traefik access log from container: $TraefikContainerName"
+    }
+
+    $logLines = $accessLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+
+    $entries = @()
+    foreach ($line in $logLines) {
+        try {
+            $entry = $line | ConvertFrom-Json
+            $entries += $entry
+        } catch {
+            # Skip malformed JSON lines
+        }
+    }
+
+    return $entries
+}
+
+function New-RequestBodyOfSizeBytes {
+    param(
+        [Parameter(Mandatory)]
+        [int]$TargetSizeBytes,
+        [string]$Prefix = "data="
+    )
+
+    if ($TargetSizeBytes -le 0) {
+        throw "TargetSizeBytes must be positive, got $TargetSizeBytes."
+    }
+
+    $encoding = [System.Text.Encoding]::UTF8
+    $prefixLength = $encoding.GetByteCount($Prefix)
+
+    if ($TargetSizeBytes -lt $prefixLength) {
+        throw "TargetSizeBytes ($TargetSizeBytes) is smaller than prefix byte length ($prefixLength)."
+    }
+
+    $payloadLength = $TargetSizeBytes - $prefixLength
+    return $Prefix + ("a" * $payloadLength)
+}
+
+function Get-LastAccessLogEntryForPath {
+    param(
+        [Parameter(Mandatory)]
+        [array]$Entries,
+        [Parameter(Mandatory)]
+        [string]$PathPrefix
+    )
+
+    $matches = $Entries | Where-Object { $_.RequestPath -like "$PathPrefix*" }
+    if (-not $matches -or $matches.Count -eq 0) {
+        return $null
+    }
+
+    return $matches[-1]
+}
+
 <#
 .SYNOPSIS
     Tests if a request is blocked by WAF
@@ -177,22 +288,15 @@ function Test-WafBlocking {
         [string]$Url,
         [int]$ExpectedMinStatus = 400
     )
-    
-    try {
-        $response = Invoke-SafeWebRequest -Uri $Url
-        # If we get here, the request wasn't blocked
-        throw "Expected request to be blocked but got status: $($response.StatusCode)"
-    }
-    catch [Microsoft.PowerShell.Commands.HttpResponseException] {
-        # Expected - request was blocked
-        $response = $_.Exception.Response
-        if ($response) {
-            $statusCode = [int]$response.StatusCode
-            $statusCode | Should -BeGreaterOrEqual $ExpectedMinStatus
-            Write-Host "✅ WAF blocked request with status: $statusCode" -ForegroundColor Green
-            return $statusCode
-        }
-    }
+
+    # Invoke-SafeWebRequest is configured to skip HTTP error checks, so it will return
+    # a response object even for 4xx/5xx statuses. We can assert directly on the status code.
+    $response = Invoke-SafeWebRequest -Uri $Url
+    $statusCode = [int]$response.StatusCode
+
+    $statusCode | Should -BeGreaterOrEqual $ExpectedMinStatus -Because "Malicious requests should be blocked by WAF"
+    Write-Host "✅ WAF blocked request with status: $statusCode" -ForegroundColor Green
+    return $statusCode
 }
 
 <#
@@ -274,50 +378,7 @@ function Test-ResponseTime {
     return $stopwatch.ElapsedMilliseconds
 }
 
-<#
-.SYNOPSIS
-    Tests concurrent request handling
 
-.PARAMETER Url
-    URL to test with concurrent requests
-
-.PARAMETER RequestCount
-    Number of concurrent requests to make
-
-.PARAMETER MinSuccessCount
-    Minimum number of requests that should succeed
-#>
-function Test-ConcurrentRequests {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Url,
-        [int]$RequestCount = 5,
-        [int]$MinSuccessCount = 3
-    )
-    
-    $jobs = @()
-    1..$RequestCount | ForEach-Object {
-        $jobs += Start-Job -ScriptBlock {
-            param($TestUrl)
-            try {
-                $response = Invoke-WebRequest -Uri $TestUrl -UseBasicParsing -TimeoutSec 10
-                return @{ StatusCode = $response.StatusCode; Success = $true }
-            }
-            catch {
-                return @{ StatusCode = 0; Success = $false; Error = $_.Exception.Message }
-            }
-        } -ArgumentList $Url
-    }
-    
-    $results = $jobs | Wait-Job | Receive-Job
-    $jobs | Remove-Job
-    
-    $successfulRequests = ($results | Where-Object { $_.Success }).Count
-    $successfulRequests | Should -BeGreaterOrEqual $MinSuccessCount
-    
-    Write-Host "Successful concurrent requests: $successfulRequests/$RequestCount" -ForegroundColor Cyan
-    return $successfulRequests
-}
 
 # Helper functions are available when dot-sourced
 # No Export-ModuleMember needed for dot-sourcing

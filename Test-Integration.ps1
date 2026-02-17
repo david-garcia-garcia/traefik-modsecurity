@@ -37,8 +37,13 @@
 param(
     [switch]$SkipDockerCleanup,
     [switch]$SkipWait,
-    [string]$TestPath = "./scripts/integration-tests.Tests.ps1",
-    [string]$ComposeFile = "./docker-compose.test.yml"
+    [string]$TestPath = "./scripts/*.Tests.ps1",
+    [string]$ComposeFile = "./docker-compose.test.yml",
+    # Pester filter options (Pester v5)
+    # - FullName supports wildcards and matches Describe/Context/It names
+    [string]$PesterFullNameFilter,
+    # Tags: tests can be tagged in Pester, filter supports multiple tags
+    [string[]]$PesterTagFilter
 )
 
 $ErrorActionPreference = "Stop"
@@ -225,10 +230,15 @@ try {
     # Start Docker services
     Start-TestServices -ComposeFile $ComposeFile
 
+    $hasPesterFilters = [bool]$PesterFullNameFilter -or ($PesterTagFilter -and $PesterTagFilter.Count -gt 0)
     if (-not $SkipWait) {
-        # Wait for services to be ready
-        if (-not (Wait-ForAllServices)) {
-            exit 1
+        if ($hasPesterFilters) {
+            Write-Warning "Pester filters detected; skipping runner-level readiness checks (tests will wait for their own required services)"
+        } else {
+            # Wait for services to be ready (legacy pre-flight)
+            if (-not (Wait-ForAllServices)) {
+                exit 1
+            }
         }
     } else {
         Write-Warning "Skipping service readiness check (assuming services are already running)"
@@ -244,6 +254,13 @@ try {
         $pesterConfig.Output.Verbosity = 'Detailed'
         $pesterConfig.Run.Exit = $false
         $pesterConfig.Run.PassThru = $true
+
+        if ($PesterFullNameFilter) {
+            $pesterConfig.Filter.FullName = $PesterFullNameFilter
+        }
+        if ($PesterTagFilter -and $PesterTagFilter.Count -gt 0) {
+            $pesterConfig.Filter.Tag = $PesterTagFilter
+        }
         
         # Run tests with timeout protection
         $result = Invoke-Pester -Configuration $pesterConfig

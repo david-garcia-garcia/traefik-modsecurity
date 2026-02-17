@@ -1,11 +1,11 @@
 services:
   traefik:
-    image: "traefik:v2.11.4"
+    image: "traefik:v3.6.4"
     ports:
       - "8080:8080"  # Traefik API
       - "8000:80"    # HTTP
     command:
-      - "--log.level=INFO"
+      - "--log.level=DEBUG"
       - "--api.dashboard=true"
       - "--api.insecure=true"
       - "--accesslog"
@@ -94,6 +94,33 @@ services:
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.ignoreBodyForVerbsDeny=true"
+
+  # Test service for large body size limit testing (20MB limit)
+  whoami-large-body-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.large-body-test.rule=PathPrefix(`/large-body-test`)"
+      - "traefik.http.routers.large-body-test.middlewares=waf-large-body-middleware"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.timeoutMillis=30000"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=20971520"
+      # 20MB = 20 * 1024 * 1024 = 20971520 bytes
+
+  # Test service for usePool=false path testing (small pool threshold, larger body limit)
+  whoami-pool-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pool-test.rule=PathPrefix(`/pool-test`)"
+      - "traefik.http.routers.pool-test.middlewares=waf-pool-middleware"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.timeoutMillis=10000"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=5120"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
+      # 5KB max body size, 1KB pool threshold - requests > 1KB will use usePool=false path
 
 volumes:
   logs-local:
