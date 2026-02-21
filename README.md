@@ -9,22 +9,34 @@
 A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](https://github.com/coreruleset/coreruleset) to provide Web Application Firewall (WAF) protection for your applications.
 
 > [!TIP]
+> 
 > **Traefik Security**
 > 
 > The basic middlewares you need to secure your Traefik ingress:
 > 
-> - **🌍 Geoblock**: [david-garcia-garcia/traefik-geoblock](https://github.com/david-garcia-garcia/traefik-geoblock) - Block or allow requests based on IP geolocation
-> - **🛡️ CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin/tree/main) - Real-time threat intelligence and automated blocking
-> - **🔒 ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set
-> - **🚦 Ratelimit**: https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/ratelimit/ - Control request rates and prevent abuse
+> 🌍 **Geoblock**: [david-garcia-garcia/traefik-geoblock](https://github.com/david-garcia-garcia/traefik-geoblock) - Block or allow requests based on IP geolocation  
+> 🛡️ **CrowdSec**: [maxlerebourg/crowdsec-bouncer-traefik-plugin](https://github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin) - Real-time threat intelligence and automated blocking  
+> 🔒 **ModSecurity CRS**: [david-garcia-garcia/traefik-modsecurity](https://github.com/david-garcia-garcia/traefik-modsecurity) - Web Application Firewall with OWASP Core Rule Set  
+> 🚦 **Ratelimit**: [Traefik Rate Limit](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/ratelimit/) - Control request rates and prevent abuse
 
-- [Traefik ModSecurity Plugin](#-traefik-modsecurity-plugin)
-    - [Demo](#demo)
-    - [Usage (docker-compose.yml)](#usage-docker-composeyml)
-    - [How it works](#how-it-works)
-    - [Testing](#-testing)
-    - [Configuration](#️-configuration)
-    - [Local development](#local-development-docker-composelocalyml)
+> [!WARNING]
+>
+> **You should not run middlewares as Yaegi plugins in production.**
+>
+> Traefik's default plugin system runs plugins via [Yaegi](https://github.com/traefik/yaegi) (a Go interpreter) at runtime. Middlewares run on every request, so they sit on the hot path. Using an interpreter for that workload has concrete drawbacks related to memory management, CPU usage and observability (see [feat: improve pprof experience by adding wrappers to interpreted functions by david-garcia-garcia · Pull Request #1712 · traefik/yaegi](https://github.com/traefik/yaegi/pull/1712))
+>
+> For production deployments where middlewares handle substantial traffic, use a Traefik build that **compiles those middlewares into the binary** instead of loading them as Yaegi plugins such as in [david-garcia-garcia/traefik-with-plugins: Traefik container with preloaded plugins in it](https://github.com/david-garcia-garcia/traefik-with-plugins)
+>
+> **For more details and discussion, read [Traefik issue #12213](https://github.com/traefik/traefik/issues/12213) in the Traefik issue queue.**
+
+[Traefik ModSecurity Plugin](#-traefik-modsecurity-plugin)
+
+- [Demo](#demo)
+- [Usage (docker-compose.yml)](#usage-docker-composeyml)
+- [How it works](#how-it-works)
+- [Testing](#-testing)
+- [Configuration](#️-configuration)
+- [Local development](#local-development-docker-composelocalyml)
 
 ## Demo
 
