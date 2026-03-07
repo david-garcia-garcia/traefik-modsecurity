@@ -9,10 +9,7 @@ context: |
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  tasks:
+    - If the change is a bug fix, the first task group MUST be "Write failing test" — add a test that reproduces the bug and confirm it fails before any implementation task. Only after the failing test is in place should implementation tasks follow.
+    - Break tasks into small, independently verifiable steps.

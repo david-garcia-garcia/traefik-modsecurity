@@ -137,33 +137,11 @@ From the title, derive a kebab-case change name:
 - Examples: `issue-33-add-retry-logic`, `pr-47-fix-body-size-413`
 - Keep under 40 characters
 
-### 8. Run the OpenSpec propose workflow
+### 8. Hand off to the propose workflow
 
-Follow the full `/opsx-propose` workflow, using the synthesized content as the description of what to build.
+Read and follow the instructions in `.cursor/commands/opsx-propose.md` exactly, as if the user had typed `/opsx-propose <change-name>`.
 
-1. Create the change:
-   ```bash
-   openspec new change "<change-name>"
-   ```
-
-2. Get artifact build order:
-   ```bash
-   openspec status --change "<change-name>" --json
-   ```
-
-3. Create artifacts in dependency order until all `applyRequires` are done:
-   - For each ready artifact:
-     ```bash
-     openspec instructions <artifact-id> --change "<change-name>" --json
-     ```
-   - Use the issue/PR content as the primary source of requirements for `proposal.md`
-   - Use `openspec/project.md` and `openspec/knowledge/` for technical grounding
-   - Read dependency artifacts before writing each new one
-
-4. Show final status:
-   ```bash
-   openspec status --change "<change-name>"
-   ```
+Pass the derived `<change-name>` as the input so the propose command does not need to ask for it. Use the synthesized issue/PR content (from Step 6) as the primary source of requirements when writing `proposal.md` — treat it as the user's description of what to build.
 
 ### 9. Report
 
