@@ -30,6 +30,10 @@ The `local` field is a direct path to the file (not a folder).
 
 ## Sources
 
+- **Integration Test Conventions**
+  - local: knowledge/internal/testing-conventions.md
+  - description: Rules for writing Pester integration tests — use existing helpers, keep It blocks linear, extract complexity to TestHelpers.ps1.
+
 - **Middleware Design Knowledge**
   - local: knowledge/internal/middleware-design.md
   - description: Traefik middleware lifecycle — one instance per route, blocking init, when and how to use global shared state.

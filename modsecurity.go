@@ -250,7 +250,7 @@ func (a *Modsecurity) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		// Don't restore req.Body yet - only create reader when needed
 	}
 
-	url := a.modSecurityUrl + req.RequestURI
+	url := a.modSecurityUrl + req.URL.RequestURI()
 
 	// Create request body reader (nil for methods that ignore body)
 	var bodyReader io.Reader

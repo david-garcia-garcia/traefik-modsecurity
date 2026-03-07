@@ -15,6 +15,8 @@ services:
       - "--experimental.localPlugins.traefik-modsecurity.moduleName=github.com/david-garcia-garcia/traefik-modsecurity"
       - "--providers.docker=true"
       - "--entrypoints.web.address=:80"
+      # Disable path sanitization so absolute-form Request-URI reaches the plugin (for integration test reproduction)
+      - "--entrypoints.web.http.sanitizePath=false"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - ".:/plugins-local/src/github.com/david-garcia-garcia/traefik-modsecurity"

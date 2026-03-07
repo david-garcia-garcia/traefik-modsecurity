@@ -116,6 +116,66 @@ function Invoke-SafeWebRequest {
 
 <#
 .SYNOPSIS
+    Sends a raw HTTP request over TCP and returns the response as text.
+
+.DESCRIPTION
+    Used when the request line must be controlled exactly (e.g. absolute-form
+    Request-URI for testing). Connects to Host:Port, sends the request line
+    plus headers, then reads the response until the connection closes.
+
+.PARAMETER TargetHost
+    Target host (e.g. localhost).
+
+.PARAMETER Port
+    Target port (e.g. 8000).
+
+.PARAMETER RequestLine
+    Full HTTP request line (e.g. "GET http://traefik/protected/ HTTP/1.1").
+
+.PARAMETER Headers
+    Optional hashtable of headers. If not provided, Host and Connection: close are added.
+#>
+function Invoke-TcpHttpRequest {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TargetHost,
+        [Parameter(Mandatory)]
+        [int]$Port,
+        [Parameter(Mandatory)]
+        [string]$RequestLine,
+        [hashtable]$Headers = @{}
+    )
+
+    $defaultHeaders = @{
+        "Host" = "${TargetHost}:${Port}"
+        "Connection" = "close"
+    }
+    $merged = @{}
+    foreach ($k in $defaultHeaders.Keys) { $merged[$k] = $defaultHeaders[$k] }
+    foreach ($k in $Headers.Keys) { $merged[$k] = $Headers[$k] }
+
+    $headerLines = ($merged.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join "`r`n"
+    $request = "$RequestLine`r`n${headerLines}`r`n`r`n"
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($request)
+
+    $tcp = New-Object System.Net.Sockets.TcpClient($TargetHost, $Port)
+    try {
+        $stream = $tcp.GetStream()
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        $reader = New-Object System.IO.StreamReader($stream)
+        $responseText = $reader.ReadToEnd()
+        $reader.Close()
+        $stream.Close()
+        return $responseText
+    }
+    finally {
+        $tcp.Close()
+    }
+}
+
+<#
+.SYNOPSIS
     Waits for a service to become ready by checking its health endpoint
 
 .DESCRIPTION
