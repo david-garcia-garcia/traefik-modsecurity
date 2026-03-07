@@ -1,0 +1,18 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  When creating or refining artifacts, read project-level knowledge from openspec/project.md and capability-level requirements from openspec/specs/<capability>/spec.md when relevant.
+  Brief default: Go, Traefik v3 HTTP plugin, WAF proxy to ModSecurityUrl; single package traefik_modsecurity; Config + Modsecurity; CreateConfig/New; JSON config, sync.Pool, body/verb/timeout conventions. See project.md for full context.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

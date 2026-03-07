@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: "traefik:v3.6.8"
+    image: "traefik:v3.6.9"
     ports:
       - "80:80"
       - "8080:8080"

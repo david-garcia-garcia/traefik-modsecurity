@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: "traefik:v3.6.4"
+    image: "traefik:v3.6.9"
     ports:
       - "8080:8080"  # Traefik API
       - "8000:80"    # HTTP
