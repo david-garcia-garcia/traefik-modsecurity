@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -207,6 +209,54 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestModsecurity_AbsoluteFormRequestURI reproduces the bug where absolute-form Request-URI
+// (e.g. "http://traefik/protected/") is concatenated as-is, producing an invalid WAF URL.
+// The plugin must use origin-form (e.g. "/protected/") when building the WAF request URL.
+func TestModsecurity_AbsoluteFormRequestURI(t *testing.T) {
+	parsedURL, err := url.Parse("http://traefik/protected/")
+	assert.NoError(t, err)
+
+	// Simulate a request as received by a server: absolute-form Request-URI on the wire.
+	req := &http.Request{
+		Method:     http.MethodGet,
+		URL:        parsedURL,
+		RequestURI: "http://traefik/protected/",
+		Header:     http.Header{},
+		Body:       http.NoBody,
+	}
+
+	var wafRequestURL string
+	wafMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wafRequestURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("WAF OK"))
+	}))
+	defer wafMock.Close()
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("backend"))
+	})
+
+	config := &Config{
+		TimeoutMillis: 2000,
+		ModSecurityUrl: wafMock.URL,
+	}
+	middleware, err := New(context.Background(), next, config, "modsecurity")
+	assert.NoError(t, err)
+
+	rw := httptest.NewRecorder()
+	middleware.ServeHTTP(rw, req)
+
+	// Plugin must forward with origin-form path. With the bug, the plugin builds base + "http://traefik/protected/",
+	// the request fails (invalid host), and the WAF mock is never called (wafRequestURL empty).
+	assert.NotEmpty(t, wafRequestURL, "WAF must be called (empty means request failed due to invalid URL from absolute-form bug)")
+	assert.True(t, strings.HasSuffix(wafRequestURL, "/protected/") || wafRequestURL == "/protected/",
+		"WAF must receive origin-form path; got %q", wafRequestURL)
+	assert.False(t, strings.Contains(wafRequestURL, "http://traefik"),
+		"absolute-form RequestURI must be normalised; WAF URL must not contain original scheme+host")
 }
 
 func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {

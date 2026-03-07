@@ -77,6 +77,20 @@ Describe "WAF Protection Tests" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected?page=1&limit=10&sort=name"
             $response.StatusCode | Should -Be 200
         }
+
+        It "Should handle origin-form RequestURI correctly" {
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine "GET /protected/ HTTP/1.1"
+            $responseText | Should -Match 'HTTP/1\.\d 2\d\d' -Because "origin-form RequestURI must be forwarded successfully"
+            $responseText | Should -Match "Hostname" -Because "response should be from the protected backend"
+        }
+
+        It "Should handle absolute-form RequestURI correctly (not DNS/connection error)" {
+            # Without the fix, the plugin concatenates absolute-form into an invalid URL and fails.
+            # Traefik test stack uses entrypoints.web.http.sanitizePath=false so absolute-form reaches the plugin.
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine "GET http://traefik/protected/ HTTP/1.1"
+            $responseText | Should -Match 'HTTP/1\.\d 2\d\d' -Because "absolute-form RequestURI must be normalised and forwarded; we must not get 5xx or connection error"
+            $responseText | Should -Match "Hostname" -Because "response should be from the protected backend"
+        }
     }
 }
 

@@ -1,1 +1,4 @@
 .idea
+
+# OpenSpec external knowledge — fetched on demand, not committed
+openspec/knowledge/external/

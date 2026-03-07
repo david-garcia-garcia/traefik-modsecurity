@@ -1,0 +1,19 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  When creating or refining artifacts, read project-level knowledge from openspec/project.md and capability-level requirements from openspec/specs/<capability>/spec.md when relevant.
+  Brief default: Go, Traefik v3 HTTP plugin, WAF proxy to ModSecurityUrl; single package traefik_modsecurity; Config + Modsecurity; CreateConfig/New; JSON config, sync.Pool, body/verb/timeout conventions. See project.md for full context.
+
+  Knowledge base: before designing or implementing, check openspec/knowledge.external.md (external repos/articles, gitignored content) and openspec/knowledge.user.md (committed project docs and learned knowledge) for relevant context. Local knowledge files live under openspec/knowledge/internal/.
+  Knowledge agents: use `knowledge-research` to find or add external knowledge, `knowledge-add-user` to store decisions/docs/learnings, `knowledge-init` to populate missing external sources after cloning, `knowledge-add-external` to add a single external source directly.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+rules:
+  tasks:
+    - If the change is a bug fix, the first task group MUST be "Write failing test" — add a test that reproduces the bug and confirm it fails before any implementation task. Only after the failing test is in place should implementation tasks follow.
+    - Before writing any integration test task, read openspec/knowledge/internal/testing-conventions.md and scripts/TestHelpers.ps1. Tasks involving tests must reference existing helpers or specify that a new helper should be added to TestHelpers.ps1 when the logic is non-trivial.
+    - Break tasks into small, independently verifiable steps.
