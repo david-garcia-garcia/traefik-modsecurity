@@ -52,7 +52,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 
 ## Gotchas
 
-- Websocket upgrades (`Upgrade: websocket`) skip the WAF and go straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`).
+- A GET WebSocket handshake (`Connection` contains the token `upgrade`, `Upgrade` matches `websocket` case-insensitively) skips the WAF and goes straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`). A request that only adds `Upgrade: websocket` is inspected.
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
