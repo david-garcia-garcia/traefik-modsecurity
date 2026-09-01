@@ -61,6 +61,7 @@ func TestPlugin_AllowPathReusesSidecarConnection(t *testing.T) {
 	}
 }
 
+// TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor checks the mock WAF sees incoming Host and appended X-Forwarded-For.
 func TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor(t *testing.T) {
 	tests := []struct {
 		name             string
