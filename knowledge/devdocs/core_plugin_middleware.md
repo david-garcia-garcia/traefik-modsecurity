@@ -10,6 +10,10 @@ _Avoid_: singleton, instance (ambiguous with Traefik `New`)
 The thin `http.Handler` returned by one Traefik `New`. It holds `next` and a pointer to the Plugin core.
 _Avoid_: middleware instance
 
+**WebSocket handshake**:
+An HTTP/1.1 GET whose `Connection` list includes the token `upgrade` and whose `Upgrade` value matches `websocket` (case-insensitive).
+_Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
