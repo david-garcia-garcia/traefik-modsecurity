@@ -10,4 +10,4 @@
 
 ## 3. Usage
 
-- [ ] 3.1 After code review, update `knowledge/devdocs/core_plugin_middleware.md` if the allow-path contract is still silent on drain (devdocs-impact owns the produce).
+- [x] 3.1 After code review, update `knowledge/devdocs/core_plugin_middleware.md` if the allow-path contract is still silent on drain (devdocs-impact owns the produce).
