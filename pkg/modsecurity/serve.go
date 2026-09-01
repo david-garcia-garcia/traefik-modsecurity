@@ -48,8 +48,11 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}
 
 	// Read the body when this method is not on the ignore list.
+	// Ignored verbs still consume framing so next cannot read an uninspected payload.
 	var body []byte
-	if !p.ignoreBodyForVerbs[req.Method] {
+	if p.ignoreBodyForVerbs[req.Method] {
+		discardIgnoredVerbBody(req)
+	} else {
 		if p.maxBodySizeBytes > 0 {
 			req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
 		}
@@ -165,6 +168,17 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	// Discard leftover sidecar bytes so the shared client can reuse the connection.
 	drainSidecarBody(resp.Body)
 	next.ServeHTTP(rw, req)
+}
+
+// discardIgnoredVerbBody consumes req.Body and leaves next an empty request body.
+func discardIgnoredVerbBody(req *http.Request) {
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
+	}
+	req.Body = http.NoBody
+	req.ContentLength = 0
+	req.Header.Del("Content-Length")
 }
 
 // drainSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit.
