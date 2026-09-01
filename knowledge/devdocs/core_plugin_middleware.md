@@ -18,6 +18,14 @@ _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
 
+**Allow**:
+A sidecar HTTP status below 300.
+_Avoid_: pass
+
+**Block**:
+A sidecar HTTP status of 300 or higher.
+_Avoid_: deny (ModSecurity action name; the plugin only sees the HTTP status)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
