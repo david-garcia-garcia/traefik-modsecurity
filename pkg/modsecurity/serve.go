@@ -122,6 +122,9 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	for h, val := range req.Header {
 		proxyReq.Header[h] = val
 	}
+	// Incoming Host is on req.Host, not in the header map. The peer is not in X-Forwarded-For yet.
+	proxyReq.Host = req.Host
+	appendPeerToXForwardedFor(proxyReq.Header, req.RemoteAddr)
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
