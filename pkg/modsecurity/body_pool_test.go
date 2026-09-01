@@ -23,7 +23,7 @@ func isolateBodyBufferPool(t *testing.T) {
 	})
 }
 
-// newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that records the body.
+// newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that sets nextCalled and drains the body.
 func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (http.Handler, *bool) {
 	t.Helper()
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -60,6 +60,7 @@ func pooledBufferCap() int {
 	return buf.Cap()
 }
 
+// TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer checks a ContentLength -1 read does not Put a grown buffer.
 func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	isolateBodyBufferPool(t)
 	const poolCap int64 = 1024
@@ -84,6 +85,7 @@ func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	}
 }
 
+// TestPlugin_ParsedLengthAbovePoolCapSkipsPool checks a large parsed length is not kept in the pool even if the header is small.
 func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
 	isolateBodyBufferPool(t)
 	const poolCap int64 = 1024
