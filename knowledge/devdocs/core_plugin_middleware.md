@@ -32,7 +32,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		return nil, err
 	}
 	stored, err := reclaim.Open(ctx, pluginKey(name, config), reclaimLog, func() (any, error) {
-		return modsecurity.NewCore(name, config)
+		return modsecurity.New(name, config)
 	})
 	if err != nil {
 		return nil, err

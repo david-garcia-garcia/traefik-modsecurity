@@ -27,8 +27,8 @@ type Plugin struct {
 	ignoreBodyForVerbsDeny         bool
 }
 
-// NewCore builds the Plugin. cfg must already be Prepare'd.
-func NewCore(name string, cfg *Config) (*Plugin, error) {
+// New builds the Plugin. cfg must already be Prepare'd.
+func New(name string, cfg *Config) (*Plugin, error) {
 	if err := Prepare(cfg, name); err != nil {
 		return nil, err
 	}

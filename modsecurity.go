@@ -39,10 +39,10 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	return bindPlugin(ctx, next, name, config)
 }
 
-// bindPlugin stores or reclaims the NewCore Plugin, then ForRoute this next.
+// bindPlugin stores or reclaims the Plugin, then ForRoute this next.
 func bindPlugin(ctx context.Context, next http.Handler, name string, cfg *Config) (http.Handler, error) {
 	stored, err := reclaim.Open(ctx, pluginKey(name, cfg), slog.New(slog.NewTextHandler(io.Discard, nil)), func() (any, error) {
-		return modsecurity.NewCore(name, cfg)
+		return modsecurity.New(name, cfg)
 	})
 	if err != nil {
 		return nil, err
