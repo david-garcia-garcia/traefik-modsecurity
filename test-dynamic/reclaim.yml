@@ -1,0 +1,29 @@
+# File-provider middleware shared by two routers. Tests rewrite timeoutMillis to force a new reclaim key.
+http:
+  routers:
+    reclaim-a:
+      rule: "PathPrefix(`/reclaim-a`)"
+      entryPoints:
+        - web
+      service: reclaim-whoami
+      middlewares:
+        - waf-reclaim
+    reclaim-b:
+      rule: "PathPrefix(`/reclaim-b`)"
+      entryPoints:
+        - web
+      service: reclaim-whoami
+      middlewares:
+        - waf-reclaim
+  services:
+    reclaim-whoami:
+      loadBalancer:
+        servers:
+          - url: http://whoami-reclaim:80
+  middlewares:
+    waf-reclaim:
+      plugin:
+        traefik-modsecurity:
+          modSecurityUrl: http://waf:8080
+          timeoutMillis: 3000
+          logLevel: debug

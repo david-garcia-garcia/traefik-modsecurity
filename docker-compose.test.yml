@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: "traefik:v3.6.9"
+    image: "traefik:v3.7.12"
     ports:
       - "8080:8080"  # Traefik API
       - "8000:80"    # HTTP
@@ -14,12 +14,15 @@ services:
       - "--accesslog.fields.headers.names.X-Waf-Status=keep"
       - "--experimental.localPlugins.traefik-modsecurity.moduleName=github.com/david-garcia-garcia/traefik-modsecurity"
       - "--providers.docker=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
       - "--entrypoints.web.address=:80"
       # Disable path sanitization so absolute-form Request-URI reaches the plugin (for integration test reproduction)
       - "--entrypoints.web.http.sanitizePath=false"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - ".:/plugins-local/src/github.com/david-garcia-garcia/traefik-modsecurity"
+      - "./test-dynamic:/etc/traefik/dynamic"
       - logs-local:/var/log/traefik
 
   waf:
@@ -34,6 +37,10 @@ services:
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
 
   dummy:
+    image: traefik/whoami
+
+  # Backend for file-provider reclaim routers (/reclaim-a, /reclaim-b). No Docker labels.
+  whoami-reclaim:
     image: traefik/whoami
 
   # Protected by WAF

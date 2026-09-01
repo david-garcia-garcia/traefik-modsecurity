@@ -26,6 +26,11 @@ Before writing any `It` block, read `scripts/TestHelpers.ps1` to know what helpe
 | `Get-TraefikContainerName` | Get the Traefik container name (works across compose project names). |
 | `Get-WafContainerName` | Get the WAF container name. |
 | `Wait-ForAllServices -Services <array>` | Wait for all services to become healthy before tests run. |
+| `Get-TraefikStdoutLines` | Read Traefik process logs (`docker logs`). Plugin slog is remapped here. |
+| `Get-ReclaimLogEvents` | Parse `reclaim_*` slog lines for one middleware name. |
+| `Wait-ReclaimLogCount` | Poll until at least N matching reclaim events exist. |
+| `Set-ReclaimDynamicTimeoutMillis` | Rewrite `test-dynamic/reclaim.yml` and touch it in the container. |
+| `Get-ReclaimDynamicConfigPath` | Host path of the file-provider reclaim fixture. |
 
 ---
 
