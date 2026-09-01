@@ -6,7 +6,7 @@ authority: source
 ref: github.com/david-garcia-garcia/traefik-geoblock@0c2f46dab0fd6cac90f4db0e4ac2c5d2a58325cf:pkg/geoblock/config.go
 ---
 
-Inspected at commit `0c2f46dab0fd6cac90f4db0e4ac2c5d2a58325cf` (tag v1.2.0) from the named repo already fetched under `openspec/knowledge/external/traefik-geoblock`.
+Inspected at commit `0c2f46dab0fd6cac90f4db0e4ac2c5d2a58325cf` (tag v1.2.0) from a temp clone of the named repo.
 
 ```go
 LogLevel  string // Log level: "trace", "debug", "info", "warn", "error"

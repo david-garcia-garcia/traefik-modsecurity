@@ -9,6 +9,7 @@ Pester v5 tests hit a live Traefik + ModSecurity + whoami stack from `docker-com
 - Read `scripts/TestHelpers.ps1` before writing an `It` block. Call a helper instead of raw `Invoke-WebRequest`, Docker inspect, or TCP.
 - Dot-source helpers from `BeforeAll` (`. "$PSScriptRoot/TestHelpers.ps1"`). Put shared URLs and `Wait-ForAllServices` there, not inside each `It`.
 - Keep each `It` linear: setup → action → assert. Extract anything longer than a short sequence into `TestHelpers.ps1`.
+- Use `-Because` when the assertion reason is not obvious. Do not repeat `$BaseUrl` or readiness checks inside each `It`.
 - Send HTTP through `Invoke-SafeWebRequest`. Use `Test-WafBlocking` / `Test-MaliciousPatterns` / `Test-BypassPatterns` for block/pass batches.
 - Run the full local suite with `./Test-Integration.ps1` (default `-TestPath ./scripts/*.Tests.ps1`, `-ComposeFile ./docker-compose.test.yml`).
 - Filter with `-PesterFullNameFilter` or `-PesterTagFilter`. Debug with `-SkipDockerCleanup` or `-SkipWait`.
@@ -36,7 +37,7 @@ It "Should allow normal GET requests" {
 - `Test-Integration.ps1` — Compose up, optional wait, `Invoke-Pester`, Compose down.
 - `scripts/integration-tests.Tests.ps1` — main suite (`$BaseUrl` `http://localhost:8000`).
 - `scripts/integration-tests.BodySize.Tests.ps1` — large-body transport checks.
-- `scripts/TestHelpers.ps1` — HTTP, WAF assertions, container names, access-log parse, body builder, Traefik stdout / reclaim log parse.
+- `scripts/TestHelpers.ps1` — HTTP, WAF assertions, container names, access-log parse, body builder, Traefik stdout / reclaim log parse. Helpers include `Invoke-SafeWebRequest`, `Test-WafBlocking`, `Get-TraefikAccessLogEntries`, `Get-TraefikStdoutLines`, `Get-ReclaimLogEvents`, `Wait-ReclaimLogCount`, `Set-ReclaimDynamicTimeoutMillis`.
 - `docker-compose.test.yml` — Traefik local plugin on `:8000`, WAF, dummy, labeled whoami routes, file-provider directory `test-dynamic/`.
 - `test-dynamic/reclaim.yml` — two routers (`/reclaim-a`, `/reclaim-b`) share `waf-reclaim` (`logLevel=debug`). Tests rewrite `timeoutMillis` to force a new reclaim key.
 
