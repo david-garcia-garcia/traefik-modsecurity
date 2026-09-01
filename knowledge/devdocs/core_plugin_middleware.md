@@ -22,6 +22,10 @@ _Avoid_: outage (operator slang)
 An HTTP/1.1 GET whose `Connection` list includes the token `upgrade` and whose `Upgrade` value matches `websocket` (case-insensitive).
 _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 
+**Sidecar response**:
+The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
+_Avoid_: WAF page (ambiguous with `next`)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -32,7 +36,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Add a config knob on `Config` in `pkg/modsecurity` with a `json` tag and `omitempty`, set the default in `CreateConfig()`, apply zeros in `Prepare()`, then use it from `Plugin.ServeHTTP`.
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
-- On the pass path, restore `req.Body` when you read it, then call `next.ServeHTTP`. Traefik still needs the body for the backend.
+- On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
 - On a sidecar `4xx` (security block), copy the WAF response with `forwardResponse` and do not call `next`.
 - On a sidecar `5xx` (WAF failure), set the status request header to `error` when configured, then take the same path as an `httpClient.Do` error (`failWafRequest`): record a health failure, fail-open, or return 502. Do not `forwardResponse` a 5xx.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
@@ -69,3 +73,4 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
+- Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
