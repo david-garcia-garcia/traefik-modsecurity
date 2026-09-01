@@ -152,6 +152,7 @@ http:
           # This header is added to the REQUEST (not response) for Traefik access logs
           # Header values:
           # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
+          # - "toolarge" when this plugin rejects the body before it reaches ModSecurity
           # - "unhealthy" when ModSecurity is down and backoff is enabled
           # - "error" when communication with ModSecurity fails
           # - "cannotforward" when request forwarding fails

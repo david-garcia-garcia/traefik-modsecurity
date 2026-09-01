@@ -41,7 +41,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
 		if n, err := limitedBody.Read(testByte); n > 0 || err == nil {
-			p.logger.Error("HTTP request should not have a body, rejecting", "method", req.Method)
+			p.logger.Warn("HTTP request should not have a body, rejecting", "method", req.Method)
 			http.Error(rw, "HTTP "+req.Method+" requests should not have a body", http.StatusBadRequest)
 			return
 		}
@@ -69,9 +69,9 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 			if _, err := io.Copy(buf, req.Body); err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+					p.logger.Warn("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 					if p.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
+						req.Header.Set(p.modSecurityStatusRequestHeader, "toolarge")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
@@ -85,9 +85,9 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			largeBody, err := io.ReadAll(req.Body)
 			if err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+					p.logger.Warn("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 					if p.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
+						req.Header.Set(p.modSecurityStatusRequestHeader, "toolarge")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
@@ -125,11 +125,13 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
+		// Access logs need error on this request even when no tracker exists.
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
+		}
 		// Record WAF client failure; pass through when the shared tracker trips.
 		if p.healthTracker != nil {
-			if becameUnhealthy := p.healthTracker.RecordFailure(); becameUnhealthy && p.modSecurityStatusRequestHeader != "" {
-				req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-			}
+			_ = p.healthTracker.RecordFailure()
 			if p.healthTracker.IsUnhealthy() {
 				if body != nil {
 					req.Body = io.NopCloser(bytes.NewReader(body))
@@ -152,7 +154,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	// Block: copy the WAF response and do not call next.
 	if resp.StatusCode >= 400 {
 		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
+			req.Header.Set(p.modSecurityStatusRequestHeader, strconv.Itoa(resp.StatusCode))
 		}
 		forwardResponse(resp, rw)
 		return
