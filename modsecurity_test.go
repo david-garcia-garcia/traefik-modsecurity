@@ -15,13 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// chunkedReader reads data in chunks to simulate real-world streaming
-type chunkedReader struct {
-	data   []byte
-	pos    int
-	chunkSize int
-}
-
 // writeTestResponse copies a canned response onto the mock writer.
 func writeTestResponse(resp *http.Response, rw http.ResponseWriter) {
 	dst := rw.Header()
@@ -29,31 +22,9 @@ func writeTestResponse(resp *http.Response, rw http.ResponseWriter) {
 		dst[k] = append(dst[k][:0], vv...)
 	}
 	rw.WriteHeader(resp.StatusCode)
-	io.Copy(rw, resp.Body)
-}
-
-func newChunkedReader(data []byte, chunkSize int) *chunkedReader {
-	return &chunkedReader{data: data, chunkSize: chunkSize}
-}
-
-func (r *chunkedReader) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
+	if _, err := io.Copy(rw, resp.Body); err != nil {
+		return
 	}
-	toRead := r.chunkSize
-	if toRead > len(p) {
-		toRead = len(p)
-	}
-	if r.pos+toRead > len(r.data) {
-		toRead = len(r.data) - r.pos
-	}
-	copy(p, r.data[r.pos:r.pos+toRead])
-	r.pos += toRead
-	return toRead, nil
-}
-
-func (r *chunkedReader) Close() error {
-	return nil
 }
 
 func TestModsecurity_ServeHTTP(t *testing.T) {
@@ -241,13 +212,13 @@ func TestModsecurity_AbsoluteFormRequestURI(t *testing.T) {
 	wafMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wafRequestURL = r.URL.String()
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("WAF OK"))
+		_, _ = w.Write([]byte("WAF OK"))
 	}))
 	defer wafMock.Close()
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("backend"))
+		_, _ = w.Write([]byte("backend"))
 	})
 
 	config := &Config{
@@ -330,7 +301,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 				// Read the body sent to WAF
 				wafBodyReceived, _ = io.ReadAll(r.Body)
 				w.WriteHeader(200)
-				w.Write([]byte("WAF OK"))
+				_, _ = w.Write([]byte("WAF OK"))
 			}))
 			defer modsecurityMockServer.Close()
 
@@ -341,7 +312,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 				backendCalled = true
 				backendBodyReceived, _ = io.ReadAll(r.Body)
 				w.WriteHeader(200)
-				w.Write([]byte("Backend OK"))
+				_, _ = w.Write([]byte("Backend OK"))
 			})
 
 			// Create request with body
@@ -440,7 +411,7 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			modsecurityMockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(200)
-				w.Write([]byte("WAF OK"))
+				_, _ = w.Write([]byte("WAF OK"))
 			}))
 			defer modsecurityMockServer.Close()
 
@@ -448,7 +419,7 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 			httpServiceHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				backendCalled = true
 				w.WriteHeader(200)
-				w.Write([]byte("Backend OK"))
+				_, _ = w.Write([]byte("Backend OK"))
 			})
 
 			bodyData := make([]byte, tt.bodySize)
