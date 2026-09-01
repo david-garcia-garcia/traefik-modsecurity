@@ -46,4 +46,4 @@ When the shipped Apache CRS compose sets `REMOTEIP_HEADER` to `X-Forwarded-For` 
 #### Scenario: Deny audit log has Traefik ClientHost
 
 - **WHEN** an inspected request is denied by CRS and the compose WAF trusts Traefik via `REMOTEIP_INT_PROXY`
-- **THEN** the WAF JSON audit record for that request SHALL have `transaction.client_ip` equal to Traefik access-log `ClientHost` for the same request
+- **THEN** the WAF JSON audit record for that request SHALL have `transaction.remote_address` equal to Traefik access-log `ClientHost` for the same request

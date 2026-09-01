@@ -337,34 +337,34 @@ function Get-WafAuditLogRecords {
     return $records
 }
 
-# Get-WafAuditClientIp returns REMOTE_ADDR as logged (transaction.client_ip, else remote_address).
+# Get-WafAuditClientIp returns REMOTE_ADDR as logged (transaction.remote_address on CRS 4.3 Apache JSON).
 function Get-WafAuditClientIp {
     param(
         [Parameter(Mandatory)]
         $AuditRecord
     )
 
-    if ($AuditRecord.transaction.client_ip) {
-        return [string]$AuditRecord.transaction.client_ip
-    }
     if ($AuditRecord.transaction.remote_address) {
         return [string]$AuditRecord.transaction.remote_address
+    }
+    if ($AuditRecord.transaction.client_ip) {
+        return [string]$AuditRecord.transaction.client_ip
     }
     return $null
 }
 
-# Get-WafAuditRequestUri returns the request URI used to match a deny to its audit record.
+# Get-WafAuditRequestUri returns the request line used to match a deny to its audit record.
 function Get-WafAuditRequestUri {
     param(
         [Parameter(Mandatory)]
         $AuditRecord
     )
 
+    if ($AuditRecord.request.request_line) {
+        return [string]$AuditRecord.request.request_line
+    }
     if ($AuditRecord.transaction.request.uri) {
         return [string]$AuditRecord.transaction.request.uri
-    }
-    if ($AuditRecord.transaction.request.request_line) {
-        return [string]$AuditRecord.transaction.request.request_line
     }
     return $null
 }
