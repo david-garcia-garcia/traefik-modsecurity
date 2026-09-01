@@ -19,7 +19,7 @@ Project-specific context for OpenSpec. When designing features or creating propo
 
 ## Architecture
 
-- **Package**: Single package `traefik_modsecurity`.
+- **Package**: Root package `traefik_modsecurity` (plugin entry point). Isolated components live as subpackages under `pkg/<name>/` (e.g. `pkg/health/`).
 - **Flow**: Incoming `http.Request` → optional body read (size/verb limits) → proxy to `ModSecurityUrl` → on block: return 403 and optional status header; on pass: call `next.ServeHTTP`.
 - **Key types**:
   - `Config`: plugin configuration (YAML/JSON), created via `CreateConfig()` with documented defaults.
@@ -31,6 +31,7 @@ Project-specific context for OpenSpec. When designing features or creating propo
 - Performance: `sync.Pool` for body buffers; configurable timeouts, connection limits, max body size.
 - Body handling: configurable verbs that skip body (e.g. GET, HEAD); optional deny for body on those verbs.
 - Logging: use the plugin’s `logger`; no direct `log` package for plugin behavior.
+- Subpackages: isolated, self-contained components (no dependency on the root plugin package) go in `pkg/<name>/` as their own Go package. The root package imports from `pkg/`; `pkg/` packages must not import the root package.
 
 ## Where to extend
 

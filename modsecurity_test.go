@@ -22,6 +22,16 @@ type chunkedReader struct {
 	chunkSize int
 }
 
+// writeTestResponse copies a canned response onto the mock writer.
+func writeTestResponse(resp *http.Response, rw http.ResponseWriter) {
+	dst := rw.Header()
+	for k, vv := range resp.Header {
+		dst[k] = append(dst[k][:0], vv...)
+	}
+	rw.WriteHeader(resp.StatusCode)
+	io.Copy(rw, resp.Body)
+}
+
 func newChunkedReader(data []byte, chunkSize int) *chunkedReader {
 	return &chunkedReader{data: data, chunkSize: chunkSize}
 }
@@ -157,7 +167,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 					Header:     http.Header{},
 				}
 				log.Printf("WAF Mock: status code: %d, body: %s", resp.StatusCode, tt.wafResponse.Body)
-				forwardResponse(&resp, w)
+				writeTestResponse(&resp, w)
 			}))
 			defer modsecurityMockServer.Close()
 
@@ -170,7 +180,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 					Header:     http.Header{},
 				}
 				log.Printf("Service Handler: status code: %d, body: %s", resp.StatusCode, tt.serviceResponse.Body)
-				forwardResponse(&resp, w)
+				writeTestResponse(&resp, w)
 			})
 
 			config := &Config{

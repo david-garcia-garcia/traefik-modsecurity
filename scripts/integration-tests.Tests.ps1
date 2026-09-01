@@ -14,7 +14,8 @@ BeforeAll {
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
-        @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" }
+        @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
+        @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" }
     )
     
     Wait-ForAllServices -Services $services
@@ -533,6 +534,63 @@ Describe "IgnoreBodyForVerbsForce Configuration Tests" {
             # 403  -> body validation allowed, ModSecurity blocked (acceptable)
             # 400  -> body validation wrongly rejected by our validation layer (NOT acceptable)
             $statusCode | Should -Not -Be 400 -Because "PUT is not in ignoreBodyForVerbs; our body validation must not reject it"
+        }
+    }
+}
+
+Describe "WAF Health Tracker Threshold Tests" {
+    Context "Threshold and bypass behaviour" {
+        It "Should not trip unhealthy on fewer than threshold failures" {
+            try {
+                docker stop $script:wafContainer | Out-Null
+                # Poll until WAF is down (502); then one more request must still be 502 (2 failures, threshold=3, no trip)
+                $maxWait = 15
+                $first502 = $null
+                for ($i = 0; $i -lt $maxWait; $i++) {
+                    $r = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 5
+                    if ($r.StatusCode -eq 502) {
+                        $first502 = $r
+                        break
+                    }
+                    Start-Sleep -Seconds 1
+                }
+                $first502 | Should -Not -BeNullOrEmpty -Because "WAF must eventually return 502 when stopped"
+
+                # Second failure under threshold=3 must still return 502 (no pass-through)
+                $r2 = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $r2.StatusCode | Should -Be 502 -Because "two failures under threshold must not trip; still 502"
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+            }
+        }
+
+        It "Should trip unhealthy after threshold failures and bypass WAF" {
+            try {
+                docker stop $script:wafContainer | Out-Null
+                Start-Sleep -Seconds 2
+
+                # Trigger 3 failures to reach threshold (middleware: threshold=3, window=30s, backoff=10s)
+                1..3 | ForEach-Object {
+                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
+                    Start-Sleep -Milliseconds 500
+                }
+
+                # Next request should be pass-through (200); request gets X-Waf-Status: unhealthy (visible in access log)
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $response.StatusCode | Should -Be 200 -Because "after threshold we bypass WAF and get backend response"
+                Start-Sleep -Seconds 2
+                $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                $unhealthyPassThrough = ($allLogEntries | Where-Object {
+                    $_.'request_X-Waf-Status' -eq "unhealthy" -and $_.RequestPath -like "/threshold-test*"
+                } | Select-Object -Last 1)
+                $unhealthyPassThrough | Should -Not -BeNullOrEmpty -Because "pass-through when unhealthy adds X-Waf-Status: unhealthy to request"
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+            }
         }
     }
 }

@@ -1,0 +1,128 @@
+package modsecurity
+
+import (
+	"context"
+	"crypto/tls"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/health"
+)
+
+// Plugin is the shared core for one middleware name+config: WAF client, logger, and health tracker.
+type Plugin struct {
+	modSecurityUrl                 string
+	name                           string
+	httpClient                     *http.Client
+	logger                         *log.Logger
+	healthTracker                  *health.Tracker
+	modSecurityStatusRequestHeader string
+	maxBodySizeBytes               int64
+	maxBodySizeBytesForPool        int64
+	ignoreBodyForVerbs             map[string]bool
+	ignoreBodyForVerbsDeny         bool
+}
+
+// New builds the Plugin. cfg must already be Prepare'd.
+func New(name string, cfg *Config) (*Plugin, error) {
+	if err := Prepare(cfg, name); err != nil {
+		return nil, err
+	}
+
+	timeout := 2 * time.Second
+	if cfg.TimeoutMillis != 0 {
+		timeout = time.Duration(cfg.TimeoutMillis) * time.Millisecond
+	}
+
+	// dialer is a custom net.Dialer with a specified timeout and keep-alive duration.
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	// transport is a custom http.Transport with configurable timeouts and connection limits
+	transport := &http.Transport{
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		ForceAttemptHTTP2: true,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
+	}
+
+	if cfg.MaxConnsPerHost > 0 {
+		transport.MaxConnsPerHost = cfg.MaxConnsPerHost
+	}
+	if cfg.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
+	}
+	if cfg.ResponseHeaderTimeoutMillis > 0 {
+		transport.ResponseHeaderTimeout = time.Duration(cfg.ResponseHeaderTimeoutMillis) * time.Millisecond
+	}
+	if cfg.ExpectContinueTimeoutMillis > 0 {
+		transport.ExpectContinueTimeout = time.Duration(cfg.ExpectContinueTimeoutMillis) * time.Millisecond
+	}
+
+	logger := log.New(os.Stdout, "", log.LstdFlags)
+	var healthTracker *health.Tracker
+	if cfg.UnhealthyWafBackOffPeriodSecs > 0 {
+		backoff := time.Duration(cfg.UnhealthyWafBackOffPeriodSecs) * time.Second
+		window := time.Duration(cfg.UnhealthyWafFailureWindowSecs) * time.Second
+		healthTracker = health.New(backoff, window, cfg.UnhealthyWafFailureThreshold, logger)
+	}
+
+	return &Plugin{
+		modSecurityUrl:                 cfg.ModSecurityUrl,
+		name:                           name,
+		httpClient:                     &http.Client{Timeout: timeout, Transport: transport},
+		logger:                         logger,
+		healthTracker:                  healthTracker,
+		modSecurityStatusRequestHeader: cfg.ModSecurityStatusRequestHeader,
+		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
+		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,
+		ignoreBodyForVerbs:             createIgnoreBodyMap(cfg.IgnoreBodyForVerbs),
+		ignoreBodyForVerbsDeny:         cfg.IgnoreBodyForVerbsDeny,
+	}, nil
+}
+
+// Close releases idle HTTP connections when the reclaim incarnation ends.
+func (p *Plugin) Close() {
+	if p == nil || p.httpClient == nil {
+		return
+	}
+	p.httpClient.CloseIdleConnections()
+}
+
+// HTTPClient is the shared WAF client. Tests compare identity across New calls.
+func (p *Plugin) HTTPClient() *http.Client {
+	if p == nil {
+		return nil
+	}
+	return p.httpClient
+}
+
+// IsUnhealthy reports whether the shared health tracker is in backoff.
+func (p *Plugin) IsUnhealthy() bool {
+	if p == nil || p.healthTracker == nil {
+		return false
+	}
+	return p.healthTracker.IsUnhealthy()
+}
+
+// createIgnoreBodyMap converts a slice of verbs to a map for O(1) lookup.
+func createIgnoreBodyMap(verbs []string) map[string]bool {
+	ignoreMap := make(map[string]bool, len(verbs))
+	for _, verb := range verbs {
+		ignoreMap[strings.ToUpper(verb)] = true
+	}
+	return ignoreMap
+}
