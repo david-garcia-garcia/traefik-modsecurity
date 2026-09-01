@@ -18,6 +18,10 @@ _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
 
+**Status request header**:
+The optional request header named by `modSecurityStatusRequestHeader`. Traefik access logs keep it so operators can tell a sidecar block from a local reject from a broken WAF. It is not a response header.
+_Avoid_: remediation header, WAF response header
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -29,8 +33,9 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
-- On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
-- Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
+- On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`. When `modSecurityStatusRequestHeader` is set, write the sidecar status as a decimal string (for example `403`) on that request header. Do not write `blocked`.
+- On a local body-too-large reject, write `toolarge` on that header and return 413. On every sidecar `httpClient.Do` failure, write `error` even when no health tracker exists. Keep `unhealthy` for an already-down tracker and `cannotforward` when the forwarded request cannot be built. Leave the header unset on the allow path.
+- Log client-fault rejections (ignore-verb body, body too large) at `Warn`. Log infrastructure failures (cannot read the body for another reason, cannot reach ModSecurity) at `Error`. Use the core slog logger, not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet
 
