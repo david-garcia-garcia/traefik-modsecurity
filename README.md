@@ -239,14 +239,15 @@ http:
           
           maxBodySizeBytesForPool: 4194304
           # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
-          # Default: 4194304 (4 MB)
+          # Default: 5242880 (5 MB)
           # Memory optimization: prevents pool pollution with large buffers
           # 
           # How it works:
-          # - Checks Content-Length header before reading body
-          # - If Content-Length <= threshold: uses pooled bytes.Buffer
-          # - If Content-Length > threshold: uses io.ReadAll with ad-hoc allocation
-          # - Large requests don't store body to avoid memory issues
+          # - Uses req.ContentLength (the parsed size; -1 means unknown, e.g. chunked)
+          # - If ContentLength >= 0 and <= threshold: uses pooled bytes.Buffer
+          # - If ContentLength > threshold: uses io.ReadAll with ad-hoc allocation
+          # - If ContentLength is -1: still uses the pool for the read
+          # - After a pooled read, the buffer is returned only when its capacity is <= threshold
           # 
           # Benefits:
           # - Keeps pool efficient for common small requests

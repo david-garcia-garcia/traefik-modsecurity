@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -54,18 +53,21 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
 		}
 
-		contentLengthStr := req.Header.Get("Content-Length")
+		// Known length uses the pool only under the pool cap; -1 (unknown) still pools the read.
 		usePool := true
-		if contentLengthStr != "" {
-			if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
-				usePool = contentLength <= p.maxBodySizeBytesForPool
-			}
+		if req.ContentLength >= 0 {
+			usePool = req.ContentLength <= p.maxBodySizeBytesForPool
 		}
 
 		if usePool {
 			buf := bodyBufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
-			defer bodyBufferPool.Put(buf)
+			// Drop the buffer when it grew past the pool cap so the pool cannot retain it.
+			defer func() {
+				if int64(buf.Cap()) <= p.maxBodySizeBytesForPool {
+					bodyBufferPool.Put(buf)
+				}
+			}()
 
 			if _, err := io.Copy(buf, req.Body); err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
