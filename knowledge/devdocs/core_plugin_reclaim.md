@@ -21,7 +21,7 @@ _Avoid_: cache, pool (the HTTP transport pool is a different object)
 
 ```go
 stored, err := reclaim.Open(ctx, key, logger, func() (any, error) {
-	return modsecurity.New(name, cfg)
+		return modsecurity.New(name, cfg, logger)
 })
 ```
 
