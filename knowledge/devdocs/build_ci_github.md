@@ -11,7 +11,6 @@ Pull requests to `main`, `master`, or `develop` run Go build/test, golangci-lint
 - Run the same lint locally with `golangci-lint run ./...` (v2) from the repo root. Do not pass `--config` unless you are pointing at that file.
 - Put Compose+Pester checks in `.github/workflows/integration-test.yml`. That job starts `docker-compose.test.yml`, waits on Traefik API / bypass / protected, then runs `./scripts/integration-tests.Tests.ps1` only.
 - Cut a release by pushing a `v*.*.*` tag. `.github/workflows/release.yml` calls `softprops/action-gh-release` with generated notes. It does not run `go build` or lint.
-- To bump the version string in `docker-compose.yml`, run `make NEXT=<version> update-doc-version`. That is the only Makefile target.
 
 ## Key files
 
@@ -21,12 +20,10 @@ Pull requests to `main`, `master`, or `develop` run Go build/test, golangci-lint
 - `.golangci.yml` — golangci-lint v2 config (`version: "2"`, `linters.default: standard`).
 - `.github/workflows/integration-test.yml` — PR: Compose up, Pester, logs on failure, `down -v`.
 - `.github/workflows/release.yml` — tag `v*.*.*` → GitHub Release.
-- `Makefile` — `sed` rewrite of `version=v…` in `docker-compose.yml`.
-- `release.config.js` — semantic-release plugin list (`@semantic-release/exec` → that Makefile target, then git + GitHub).
 
 ## Gotchas
 
 - `go.yml` and `build.yml` overlap. A PR to `main`/`master`/`develop` runs both Go jobs plus `lint`.
 - `golangci-lint.yml` leaves `only-new-issues` unset, so the whole tree must pass, not only new lines.
 - `integration-test.yml` hard-codes `./scripts/integration-tests.Tests.ps1`. It does not run `scripts/integration-tests.BodySize.Tests.ps1`.
-- I did not find a workflow step that invokes `semantic-release` or `release.config.js`. The file and Makefile exist; tag release today is `release.yml` only.
+- Tag release is `release.yml` only. There is no semantic-release or Makefile in this repo.
