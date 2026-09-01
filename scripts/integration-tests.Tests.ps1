@@ -65,6 +65,31 @@ Describe "WAF Protection Tests" {
             Test-MaliciousPatterns -BaseUrl "$BaseUrl/protected" -Patterns $maliciousPatterns
         }
     }
+
+    Context "Client IP in WAF audit log" {
+        # Negative control: drop REMOTEIP_INT_PROXY from docker-compose.test.yml
+        # and this It fails — audit client_ip stays the Traefik-to-WAF hop.
+        It "Should record Traefik ClientHost as REMOTE_ADDR on a deny" {
+            $marker = "host-ip-$(Get-Random)"
+            $denyUrl = "$BaseUrl/protected?id=1' OR '1'='1&marker=$marker"
+            $response = Invoke-SafeWebRequest -Uri $denyUrl
+            $response.StatusCode | Should -BeGreaterOrEqual 400 -Because "CRS should deny the SQL-injection query"
+
+            Start-Sleep -Seconds 2
+
+            $accessEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $traefikEntry = $accessEntries | Where-Object { $_.RequestPath -like "*$marker*" } | Select-Object -First 1
+            $traefikEntry | Should -Not -BeNullOrEmpty -Because "Traefik access.log should contain the deny request"
+            $sourceIp = Get-TraefikClientHost -AccessLogEntry $traefikEntry
+            $sourceIp | Should -Not -BeNullOrEmpty -Because "Traefik ClientHost (or ClientAddr) is the expected source IP"
+
+            $auditRecords = Get-WafAuditLogRecords -WafContainerName $script:wafContainer
+            $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
+            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log $script:WafAuditLogPath should contain the deny"
+            $auditClientIp = Get-WafAuditClientIp -AuditRecord $denyRecord
+            $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing REMOTEIP_INT_PROXY fails this."
+        }
+    }
     
     Context "Legitimate Request Handling" {
         It "Should allow normal GET requests" {

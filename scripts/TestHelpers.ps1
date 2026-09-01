@@ -290,6 +290,85 @@ function Get-TraefikAccessLogEntries {
     return $entries
 }
 
+# Path set on the waf service in docker-compose.test.yml (MODSEC_AUDIT_LOG).
+$script:WafAuditLogPath = "/var/log/modsec_audit.log"
+
+# Get-TraefikClientHost returns the peer IP Traefik logged (ClientHost, else ClientAddr host).
+function Get-TraefikClientHost {
+    param(
+        [Parameter(Mandatory)]
+        $AccessLogEntry
+    )
+
+    if ($AccessLogEntry.ClientHost) {
+        return [string]$AccessLogEntry.ClientHost
+    }
+    $clientAddr = [string]$AccessLogEntry.ClientAddr
+    if ($clientAddr -match '^\[(.+)\]:\d+$') {
+        return $Matches[1]
+    }
+    if ($clientAddr -match '^(.+):\d+$') {
+        return $Matches[1]
+    }
+    return $clientAddr
+}
+
+# Get-WafAuditLogRecords reads JSON audit lines from the waf container (not Traefik access.log).
+function Get-WafAuditLogRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    $auditLogContent = docker exec $WafContainerName cat $script:WafAuditLogPath 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read WAF audit log $script:WafAuditLogPath from container: $WafContainerName"
+    }
+
+    $logLines = $auditLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+    $records = @()
+    foreach ($line in $logLines) {
+        try {
+            $records += ($line | ConvertFrom-Json)
+        } catch {
+            # Skip malformed JSON lines
+        }
+    }
+    return $records
+}
+
+# Get-WafAuditClientIp returns REMOTE_ADDR as logged (transaction.client_ip, else remote_address).
+function Get-WafAuditClientIp {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    if ($AuditRecord.transaction.client_ip) {
+        return [string]$AuditRecord.transaction.client_ip
+    }
+    if ($AuditRecord.transaction.remote_address) {
+        return [string]$AuditRecord.transaction.remote_address
+    }
+    return $null
+}
+
+# Get-WafAuditRequestUri returns the request URI used to match a deny to its audit record.
+function Get-WafAuditRequestUri {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    if ($AuditRecord.transaction.request.uri) {
+        return [string]$AuditRecord.transaction.request.uri
+    }
+    if ($AuditRecord.transaction.request.request_line) {
+        return [string]$AuditRecord.transaction.request.request_line
+    }
+    return $null
+}
+
 function New-RequestBodyOfSizeBytes {
     param(
         [Parameter(Mandatory)]

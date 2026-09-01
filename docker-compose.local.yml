@@ -39,7 +39,16 @@ services:
       #######################################################
 
       - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG=/var/log/modsec_audit.log
+      - MODSEC_AUDIT_ENGINE=RelevantOnly
       - MODSEC_RULE_ENGINE=On
+      # Traefik is the only TCP peer of this sidecar. Trust its Docker/RFC1918
+      # networks so mod_remoteip rewrites REMOTE_ADDR from X-Forwarded-For.
+      # Image default 10.1.0.0/16 misses typical 172.16.0.0/12 bridges; deny
+      # logs and any IPS that parse them would then show Traefik's IP.
+      # Do not set 0.0.0.0/0.
+      - REMOTEIP_HEADER=X-Forwarded-For
+      - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
 
 
   dummy:
