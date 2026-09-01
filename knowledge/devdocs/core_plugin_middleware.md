@@ -18,6 +18,10 @@ _Avoid_: deny (ModSecurity action name)
 A transport error talking to the sidecar, or a sidecar `5xx`. Not a security block.
 _Avoid_: outage (operator slang)
 
+**WebSocket handshake**:
+An HTTP/1.1 GET whose `Connection` list includes the token `upgrade` and whose `Upgrade` value matches `websocket` (case-insensitive).
+_Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -61,7 +65,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 
 ## Gotchas
 
-- Websocket upgrades (`Upgrade: websocket`) skip the WAF and go straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`).
+- A GET WebSocket handshake (`Connection` contains the token `upgrade`, `Upgrade` matches `websocket` case-insensitively) skips the WAF and goes straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`). A request that only adds `Upgrade: websocket` is inspected.
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.

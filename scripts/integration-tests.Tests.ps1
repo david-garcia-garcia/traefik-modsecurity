@@ -17,7 +17,8 @@ BeforeAll {
         @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
         @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" },
         @{ Url = "$BaseUrl/reclaim-a"; Name = "Reclaim route A" },
-        @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" }
+        @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" },
+        @{ Url = "$BaseUrl/ws-echo"; Name = "WebSocket echo service" }
     )
     
     Wait-ForAllServices -Services $services
@@ -620,6 +621,16 @@ Describe "Plugin reclaim logs" -Tag Reclaim {
 
         $disposes = Wait-ReclaimLogCount -TraefikContainerName $script:traefikContainer -Middleware $middleware -Message "reclaim_dispose" -Count 1 -TimeoutSeconds 20
         ($disposes | Where-Object { $_.Key -eq $firstKey }) | Should -Not -BeNullOrEmpty -Because "the first core must dispose after DefaultGrace once no router holds it"
+    }
+}
+
+Describe "WebSocket through WAF middleware" {
+    Context "Live upgrade" {
+        It "Should complete a handshake and echo a text frame" {
+            $payload = "ws-echo-$(Get-Random)"
+            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message $payload
+            $echoed | Should -Be $payload -Because "a real WebSocket through Traefik and the plugin must stay usable after 101"
+        }
     }
 }
 

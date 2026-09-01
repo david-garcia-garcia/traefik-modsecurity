@@ -577,5 +577,80 @@ http:
     }
 }
 
+<#
+.SYNOPSIS
+    Opens a WebSocket, sends one text frame, and returns the echoed payload.
+
+.DESCRIPTION
+    Uses System.Net.WebSockets.ClientWebSocket so the test drives a real
+    RFC 6455 handshake (GET, Connection: upgrade, Upgrade: websocket, Key, Version)
+    through Traefik and this plugin, then checks the backend still speaks frames.
+
+.PARAMETER Uri
+    WebSocket URL (ws://host/path).
+
+.PARAMETER Message
+    Text frame to send.
+
+.PARAMETER TimeoutSec
+    Connect/send/receive deadline.
+#>
+function Invoke-WebSocketEcho {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Uri,
+        [Parameter(Mandatory)]
+        [string]$Message,
+        [int]$TimeoutSec = 10
+    )
+
+    $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+    $cts = [System.Threading.CancellationTokenSource]::new()
+    $cts.CancelAfter([TimeSpan]::FromSeconds($TimeoutSec))
+    try {
+        $null = $ws.ConnectAsync([Uri]$Uri, $cts.Token).GetAwaiter().GetResult()
+        if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+            throw "WebSocket connect finished in state $($ws.State)"
+        }
+
+        $sendBytes = [System.Text.Encoding]::UTF8.GetBytes($Message)
+        $sendSegment = [System.ArraySegment[byte]]::new($sendBytes)
+        $null = $ws.SendAsync(
+            $sendSegment,
+            [System.Net.WebSockets.WebSocketMessageType]::Text,
+            $true,
+            $cts.Token
+        ).GetAwaiter().GetResult()
+
+        $recvBuffer = [byte[]]::new(4096)
+        $recvSegment = [System.ArraySegment[byte]]::new($recvBuffer)
+        $echoed = $null
+        while ($true) {
+            $received = $ws.ReceiveAsync($recvSegment, $cts.Token).GetAwaiter().GetResult()
+            if ($received.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+                throw "WebSocket closed before the payload was echoed"
+            }
+            $text = [System.Text.Encoding]::UTF8.GetString($recvBuffer, 0, $received.Count)
+            # echo-server writes an empty or hostname greeting before it echoes.
+            if ($text -eq $Message) {
+                $echoed = $text
+                break
+            }
+        }
+
+        $null = $ws.CloseAsync(
+            [System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure,
+            "done",
+            $cts.Token
+        ).GetAwaiter().GetResult()
+
+        return $echoed
+    }
+    finally {
+        $ws.Dispose()
+        $cts.Dispose()
+    }
+}
+
 # Helper functions are available when dot-sourced
 # No Export-ModuleMember needed for dot-sourcing
