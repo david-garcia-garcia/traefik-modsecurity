@@ -12,7 +12,7 @@ _Avoid_: cache, pool (the HTTP transport pool is a different object)
 
 ## How to use
 
-- Call `reclaim.Open(ctx, key, logger, create)` from root `New` with the Plugin logger (`modsecurity.NewLogger(cfg)`). `create` is `func() (any, error)` with no context argument (Yaegi).
+- Call `reclaim.Open(ctx, key, logger, create)` from root `New` with the Plugin logger (`modsecurity.NewLogger(name, cfg)`). `create` is `func() (any, error)` with no context argument (Yaegi).
 - Key as `plugin:` + name + hex hash of prepared config.
 - Implement `Close()` on the stored value to drop idle HTTP connections.
 - Use `reclaim.Reset` / `ResetWith` only in tests.

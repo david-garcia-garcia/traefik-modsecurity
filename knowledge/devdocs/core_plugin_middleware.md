@@ -31,7 +31,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	if err := modsecurity.Prepare(config, name); err != nil {
 		return nil, err
 	}
-	logger := modsecurity.NewLogger(config)
+	logger := modsecurity.NewLogger(name, config)
 	stored, err := reclaim.Open(ctx, pluginKey(name, config), logger, func() (any, error) {
 		return modsecurity.New(name, config, logger)
 	})

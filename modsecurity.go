@@ -39,7 +39,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 
 // bindPlugin stores or reclaims the Plugin, then ForRoute this next.
 func bindPlugin(ctx context.Context, next http.Handler, name string, cfg *Config) (http.Handler, error) {
-	logger := modsecurity.NewLogger(cfg)
+	logger := modsecurity.NewLogger(name, cfg)
 	stored, err := reclaim.Open(ctx, pluginKey(name, cfg), logger, func() (any, error) {
 		return modsecurity.New(name, cfg, logger)
 	})

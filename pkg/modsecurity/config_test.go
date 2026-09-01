@@ -45,7 +45,7 @@ func TestNewLogger_InfoHidesDebug(t *testing.T) {
 	if err := Prepare(cfg, "t"); err != nil {
 		t.Fatal(err)
 	}
-	logger := NewLogger(cfg)
+	logger := NewLogger("t", cfg)
 	if logger.Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("info logger must not enable debug")
 	}
@@ -61,7 +61,7 @@ func TestNewLogger_DebugEnablesDebug(t *testing.T) {
 	if err := Prepare(cfg, "t"); err != nil {
 		t.Fatal(err)
 	}
-	logger := NewLogger(cfg)
+	logger := NewLogger("t", cfg)
 	if !logger.Enabled(context.Background(), slog.LevelDebug) {
 		t.Fatal("debug logger must enable debug")
 	}

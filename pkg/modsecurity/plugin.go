@@ -98,20 +98,13 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 }
 
 // NewLogger builds the plugin-owned slog logger for prepared cfg. Writes text to process stdout.
-func NewLogger(cfg *Config) *slog.Logger {
+// name is attached so request, health, and reclaim lines can be joined when several middlewares share stdout.
+func NewLogger(name string, cfg *Config) *slog.Logger {
 	level := slog.LevelInfo
 	if parsed, err := parseLogLevel(cfg.LogLevel); err == nil {
 		level = parsed
 	}
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-}
-
-// Logger is the shared core logger. Tests compare identity with the reclaim logger.
-func (p *Plugin) Logger() *slog.Logger {
-	if p == nil {
-		return nil
-	}
-	return p.logger
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})).With("middleware", name)
 }
 
 // Close releases idle HTTP connections when the reclaim incarnation ends.
