@@ -205,37 +205,22 @@ http:
           # - 52428800 (50 MB) for large file processing
           
           ignoreBodyForVerbs: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # OPTIONAL: HTTP methods for which request body should not be read
+          # OPTIONAL: HTTP methods whose request body is not sent to ModSecurity
           # Default: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # Performance optimization: skips body reading for methods that don't use it
-          # These methods either never have a body or ignore it per HTTP specification
-          # 
-          # ⚠️  IMPORTANT: When a method is in this list, the request body is COMPLETELY IGNORED
-          # and will NOT reach the backend service or next middleware. The body is consumed
-          # but not processed, making it unavailable for downstream handlers.
-          # 
-          # Benefits:
-          # - Faster processing for methods that don't need body inspection
-          # - Reduced allocations and GC pressure
-          # - Body is consumed but not forwarded (saves bandwidth to backend)
+          # The plugin still consumes that body so it cannot reach the backend.
+          #
+          # ⚠️  IMPORTANT: When a method is in this list, the request body is discarded.
+          # It is not inspected by ModSecurity and it is not forwarded to the backend
+          # or the next middleware. Content-Length is cleared. Residual risk: an attack
+          # that exists only in that body is never seen by the WAF.
+          # To inspect and forward a body on one of these methods, remove the method
+          # from this list. To reject any body on these methods, set ignoreBodyForVerbsDeny.
           
           ignoreBodyForVerbsDeny: false
           # OPTIONAL: Whether to reject requests with body for verbs in ignoreBodyForVerbs
           # Default: false
-          # Security feature: enforces HTTP compliance by rejecting requests that have a body
-          # when the HTTP method should not have one according to the specification. It will attempt to 
-          # read the first byte of the request body stream to decide.
-          # 
-          # When enabled (true):
-          # - Attempts to read 1 byte from the request body
-          # - If any data is found, returns HTTP 400 Bad Request
-          # - Prevents malformed requests from reaching the backend
-          # - Helps detect potential attacks or misconfigured clients
-          # 
-          # When disabled (false):
-          # - Simply ignores the body without validation
-          # - More permissive but less secure
-          # - May allow non-compliant requests to pass through
+          # When true, reads one byte from the body and returns HTTP 400 if any data is present.
+          # When false (default), the body is discarded and not forwarded (see ignoreBodyForVerbs).
           
           maxBodySizeBytesForPool: 4194304
           # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
