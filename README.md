@@ -145,6 +145,9 @@ http:
           # When ModSecurity is down, this plugin can temporarily bypass it
           # Set to 0 to disable bypass (always return 502 when WAF is down)
           # Set to 30+ seconds for production environments with automatic failover
+          # Omitted unhealthyWafFailureThreshold defaults to 5 (one error does not trip)
+          # Omitted unhealthyWafFailureWindowSecs defaults to 10 (tumbling window)
+          # Set unhealthyWafFailureThreshold: 1 to trip on the first sidecar error
           
           modSecurityStatusRequestHeader: "X-Waf-Status"
           # OPTIONAL: Header name to add to requests for logging purposes

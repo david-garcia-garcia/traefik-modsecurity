@@ -38,8 +38,8 @@ func CreateConfig() *Config {
 	return &Config{
 		TimeoutMillis:                  2000,
 		UnhealthyWafBackOffPeriodSecs:  0,
-		UnhealthyWafFailureThreshold:   1,
-		UnhealthyWafFailureWindowSecs:  0,
+		UnhealthyWafFailureThreshold:   5,
+		UnhealthyWafFailureWindowSecs:  10,
 		ModSecurityStatusRequestHeader: "",
 		MaxConnsPerHost:                100,
 		MaxIdleConnsPerHost:            10,
@@ -67,6 +67,9 @@ func Prepare(cfg *Config, name string) error {
 	}
 	if cfg.UnhealthyWafFailureThreshold == 0 {
 		cfg.UnhealthyWafFailureThreshold = defaults.UnhealthyWafFailureThreshold
+	}
+	if cfg.UnhealthyWafFailureWindowSecs == 0 {
+		cfg.UnhealthyWafFailureWindowSecs = defaults.UnhealthyWafFailureWindowSecs
 	}
 	if cfg.MaxConnsPerHost == 0 {
 		cfg.MaxConnsPerHost = defaults.MaxConnsPerHost

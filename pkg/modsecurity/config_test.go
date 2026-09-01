@@ -6,6 +6,39 @@ import (
 	"testing"
 )
 
+func TestPrepare_HealthTrackerOmittedDefaults(t *testing.T) {
+	cfg := &Config{
+		ModSecurityUrl:                "http://waf",
+		UnhealthyWafBackOffPeriodSecs: 30,
+	}
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UnhealthyWafFailureThreshold != 5 {
+		t.Fatalf("UnhealthyWafFailureThreshold = %d, want 5", cfg.UnhealthyWafFailureThreshold)
+	}
+	if cfg.UnhealthyWafFailureWindowSecs != 10 {
+		t.Fatalf("UnhealthyWafFailureWindowSecs = %d, want 10", cfg.UnhealthyWafFailureWindowSecs)
+	}
+}
+
+func TestPrepare_KeepsExplicitThreshold(t *testing.T) {
+	cfg := &Config{
+		ModSecurityUrl:                "http://waf",
+		UnhealthyWafBackOffPeriodSecs: 30,
+		UnhealthyWafFailureThreshold:  1,
+	}
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UnhealthyWafFailureThreshold != 1 {
+		t.Fatalf("UnhealthyWafFailureThreshold = %d, want 1", cfg.UnhealthyWafFailureThreshold)
+	}
+	if cfg.UnhealthyWafFailureWindowSecs != 10 {
+		t.Fatalf("UnhealthyWafFailureWindowSecs = %d, want 10", cfg.UnhealthyWafFailureWindowSecs)
+	}
+}
+
 func TestPrepare_LogLevelDefaultInfo(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf"
