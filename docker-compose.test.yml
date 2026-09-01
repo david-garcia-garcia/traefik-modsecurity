@@ -110,6 +110,20 @@ services:
       - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=20971520"
       # 20MB = 20 * 1024 * 1024 = 20971520 bytes
 
+  # Test service for WAF health tracker threshold (3 failures in 30s window, 10s backoff)
+  whoami-threshold-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.threshold-test.rule=PathPrefix(`/threshold-test`)"
+      - "traefik.http.routers.threshold-test.middlewares=waf-threshold-middleware"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=10"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=3"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafFailureWindowSecs=30"
+
   # Test service for usePool=false path testing (small pool threshold, larger body limit)
   whoami-pool-test:
     image: traefik/whoami
