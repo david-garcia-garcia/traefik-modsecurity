@@ -18,11 +18,11 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 
 - Keep the Traefik catalog fields in `.traefik.yml`: `type: middleware`, `import: github.com/david-garcia-garcia/traefik-modsecurity`.
 - Add a config knob on `Config` in `pkg/modsecurity` with a `json` tag and `omitempty`, set the default in `CreateConfig()`, apply zeros in `Prepare()`, then use it from `Plugin.ServeHTTP`.
-- Reject an empty `ModSecurityUrl` in `Prepare` — that is the only required field today.
+- Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, then call `next.ServeHTTP`. Traefik still needs the body for the backend.
 - On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
-- Log request-path events on the core `logger` (`p.logger.Printf`), not the global `log` package.
+- Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet
 
@@ -31,8 +31,9 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	if err := modsecurity.Prepare(config, name); err != nil {
 		return nil, err
 	}
-	stored, err := reclaim.Open(ctx, pluginKey(name, config), reclaimLog, func() (any, error) {
-		return modsecurity.New(name, config)
+	logger := modsecurity.NewLogger(config)
+	stored, err := reclaim.Open(ctx, pluginKey(name, config), logger, func() (any, error) {
+		return modsecurity.New(name, config, logger)
 	})
 	if err != nil {
 		return nil, err

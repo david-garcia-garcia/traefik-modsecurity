@@ -12,7 +12,7 @@ _Avoid_: cache, pool (the HTTP transport pool is a different object)
 
 ## How to use
 
-- Call `reclaim.Open(ctx, key, logger, create)` from root `New`. `create` is `func() (any, error)` with no context argument (Yaegi).
+- Call `reclaim.Open(ctx, key, logger, create)` from root `New` with the Plugin logger (`modsecurity.NewLogger(cfg)`). `create` is `func() (any, error)` with no context argument (Yaegi).
 - Key as `plugin:` + name + hex hash of prepared config.
 - Implement `Close()` on the stored value to drop idle HTTP connections.
 - Use `reclaim.Reset` / `ResetWith` only in tests.
@@ -35,4 +35,4 @@ stored, err := reclaim.Open(ctx, key, logger, func() (any, error) {
 
 - A later `Open` for the same key during grace reclaims the value and stops the timer.
 - Zero grace disposes as soon as the last holder’s context is done.
-- `logger` is required; this repo passes a discard slog handler so reclaim debug lines stay off the request log.
+- `logger` is required. Pass the Plugin slog logger. Reclaim lines are Debug (`reclaim_put`, `reclaim_bind`, `reclaim_dispose`); they appear only when `logLevel` is `debug`.

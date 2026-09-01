@@ -36,7 +36,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
 		if n, err := limitedBody.Read(testByte); n > 0 || err == nil {
-			p.logger.Printf("HTTP %s request should not have a body, rejecting", req.Method)
+			p.logger.Error("HTTP request should not have a body, rejecting", "method", req.Method)
 			http.Error(rw, "HTTP "+req.Method+" requests should not have a body", http.StatusBadRequest)
 			return
 		}
@@ -64,14 +64,14 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 			if _, err := io.Copy(buf, req.Body); err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, p.maxBodySizeBytes)
+					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 					if p.modSecurityStatusRequestHeader != "" {
 						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
 				}
-				p.logger.Printf("fail to read incoming request: %s", err.Error())
+				p.logger.Error("fail to read incoming request", "error", err)
 				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
@@ -80,14 +80,14 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			largeBody, err := io.ReadAll(req.Body)
 			if err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, p.maxBodySizeBytes)
+					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 					if p.modSecurityStatusRequestHeader != "" {
 						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
 				}
-				p.logger.Printf("fail to read incoming request: %s", err.Error())
+				p.logger.Error("fail to read incoming request", "error", err)
 				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
@@ -108,7 +108,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "cannotforward")
 		}
-		p.logger.Printf("fail to prepare forwarded request: %s", err.Error())
+		p.logger.Error("fail to prepare forwarded request", "error", err)
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}
@@ -134,7 +134,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			}
 		}
 
-		p.logger.Printf("fail to send HTTP request to modsec: %s", err.Error())
+		p.logger.Error("fail to send HTTP request to modsec", "error", err)
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}

@@ -122,6 +122,14 @@ http:
           # - "http://localhost:8080" (Local development)
           # - "https://waf.example.com" (External service)
           
+          logLevel: info
+          # OPTIONAL: Plugin-owned log level (Traefik --log.level does not reach this middleware)
+          # Default: info
+          # Accepted: debug, info, warn, error
+          # info: failures and health backoff expiry (production-quiet)
+          # debug: also reclaim_put / reclaim_bind / reclaim_dispose
+          # Invalid values fail plugin construction
+          
           timeoutMillis: 2000
           # OPTIONAL: Timeout in milliseconds for ModSecurity requests
           # Default: 2000ms (2 seconds)

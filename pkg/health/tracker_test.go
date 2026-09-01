@@ -1,7 +1,7 @@
 package health
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +13,7 @@ func TestNew_InitialisesFieldsCorrectly(t *testing.T) {
 	backoff := 5 * time.Second
 	window := 10 * time.Second
 	threshold := 2
-	logger := log.Default()
+	logger := slog.Default()
 
 	ht := New(backoff, window, threshold, logger)
 	assert.NotNil(t, ht)
@@ -31,7 +31,7 @@ func TestNew_InitialisesFieldsCorrectly(t *testing.T) {
 }
 
 func TestRecordFailure_UnderThresholdDoesNotTrip_AtThresholdTrips(t *testing.T) {
-	ht := New(100*time.Millisecond, 0, 3, log.Default())
+	ht := New(100*time.Millisecond, 0, 3, slog.Default())
 
 	assert.False(t, ht.RecordFailure())
 	assert.False(t, ht.IsUnhealthy())
@@ -43,7 +43,7 @@ func TestRecordFailure_UnderThresholdDoesNotTrip_AtThresholdTrips(t *testing.T) 
 
 func TestRecordFailure_WindowReset(t *testing.T) {
 	window := 50 * time.Millisecond
-	ht := New(time.Second, window, 2, log.Default())
+	ht := New(time.Second, window, 2, slog.Default())
 
 	ht.RecordFailure()
 	assert.False(t, ht.IsUnhealthy())
@@ -60,7 +60,7 @@ func TestRecordFailure_WindowReset(t *testing.T) {
 
 func TestIsUnhealthy_TrueWhileInBackoff_FalseAfterExpiry(t *testing.T) {
 	backoff := 50 * time.Millisecond
-	ht := New(backoff, 0, 1, log.Default())
+	ht := New(backoff, 0, 1, slog.Default())
 
 	ht.RecordFailure()
 	assert.True(t, ht.IsUnhealthy())
@@ -70,7 +70,7 @@ func TestIsUnhealthy_TrueWhileInBackoff_FalseAfterExpiry(t *testing.T) {
 }
 
 func TestRecordFailure_NegativeThresholdNeverTrips(t *testing.T) {
-	ht := New(time.Second, 0, -1, log.Default())
+	ht := New(time.Second, 0, -1, slog.Default())
 
 	for i := 0; i < 100; i++ {
 		assert.False(t, ht.RecordFailure())
@@ -79,7 +79,7 @@ func TestRecordFailure_NegativeThresholdNeverTrips(t *testing.T) {
 }
 
 func TestRecordFailure_ZeroThresholdFirstFailureTrips(t *testing.T) {
-	ht := New(100*time.Millisecond, 0, 0, log.Default())
+	ht := New(100*time.Millisecond, 0, 0, slog.Default())
 
 	// threshold 0: "first" failure trips (count >= 0 after first increment)
 	assert.True(t, ht.RecordFailure())
@@ -87,7 +87,7 @@ func TestRecordFailure_ZeroThresholdFirstFailureTrips(t *testing.T) {
 }
 
 func TestRecordFailure_ConcurrentNoRace(t *testing.T) {
-	ht := New(10*time.Millisecond, 5*time.Millisecond, 1000, log.Default())
+	ht := New(10*time.Millisecond, 5*time.Millisecond, 1000, slog.Default())
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
