@@ -58,10 +58,10 @@ See [docker-compose.yml](docker-compose.yml)
 
 This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
 
-The plugin checks that the response from the waf container hasn't an http code > 400 before forwarding the request to
+The plugin checks that the response from the waf container hasn't an http code of 400 or higher before forwarding the request to
 the real service.
 
-If it is > 400, then the error page is returned instead.
+If the status is 400 or higher, the sidecar error-page body is returned to the client instead. Hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server` are not copied from the sidecar. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.

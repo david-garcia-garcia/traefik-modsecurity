@@ -18,7 +18,7 @@ See proposal.md for motivation. The only copy site is `forwardResponse` in `pkg/
 
 - **Filter at copy time, not on the sidecar `http.Response`.** The sidecar object is not reused after the block return. Alternative: mutate `resp.Header` first — same effect, extra mutation of a value we close immediately.
 - **`Proxy-*` is a prefix match** on the header name (`strings.HasPrefix(strings.ToLower(k), "proxy-")`). Alternative: only `Proxy-Authenticate` / `Proxy-Authorization` / `Proxy-Connection` (Traefik hopHeaders). Ticket text is `Proxy-*`.
-- **Also drop names listed in sidecar `Connection`.** RFC 9110 MUST. Reuse comma-token parsing already in this file. Alternative: fixed list only — would miss a custom hop listed in `Connection`.
+- **Also drop names listed in sidecar `Connection`.** RFC 9110 MUST. Reuse comma-token parsing already in this file. Alternative: fixed list only — would miss a custom hop listed in `Connection`. After `http.Client.Do`, `Connection` is often already gone; extra hops are stripped only when that field is still on `resp.Header`. The direct `forwardResponse` test covers the listed-name case.
 - **`Server` is a named drop, not hop-by-hop.** Fingerprint only. Alternative: rewrite `Server` to a generic value — extra surface, ticket says strip.
 - **Document on README How it works.** That is the public statement operators already read. Usage gotcha on `core_plugin_middleware.md` when that packet is updated.
 

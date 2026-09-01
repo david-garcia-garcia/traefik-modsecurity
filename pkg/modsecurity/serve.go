@@ -201,10 +201,14 @@ func headerValuesContainToken(values []string, token string) bool {
 	return false
 }
 
-// forwardResponse copies the WAF response to the client.
+// forwardResponse copies the WAF response to the client, omitting hop-by-hop headers and Server.
 func forwardResponse(resp *http.Response, rw http.ResponseWriter) {
 	dst := rw.Header()
+	connectionValues := resp.Header.Values("Connection")
 	for k, vv := range resp.Header {
+		if omitSidecarResponseHeader(k, connectionValues) {
+			continue
+		}
 		dst[k] = append(dst[k][:0], vv...)
 	}
 	rw.WriteHeader(resp.StatusCode)
@@ -212,4 +216,19 @@ func forwardResponse(resp *http.Response, rw http.ResponseWriter) {
 	if _, err := io.Copy(rw, resp.Body); err != nil {
 		return
 	}
+}
+
+// omitSidecarResponseHeader reports whether name must not be copied from the sidecar to the client.
+func omitSidecarResponseHeader(name string, connectionValues []string) bool {
+	if strings.EqualFold(name, "Server") {
+		return true
+	}
+	switch http.CanonicalHeaderKey(name) {
+	case "Connection", "Keep-Alive", "Transfer-Encoding", "Upgrade", "Te", "Trailer":
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(name), "proxy-") {
+		return true
+	}
+	return headerValuesContainToken(connectionValues, name)
 }
