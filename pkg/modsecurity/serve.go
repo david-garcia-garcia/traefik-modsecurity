@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -160,11 +161,30 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	next.ServeHTTP(rw, req)
 }
 
-// isWebsocket reports whether req is a websocket upgrade.
+// isWebsocket reports whether req is an HTTP/1.1 WebSocket handshake.
 func isWebsocket(req *http.Request) bool {
-	for _, header := range req.Header["Upgrade"] {
-		if header == "websocket" {
+	if req.Method != http.MethodGet {
+		return false
+	}
+	if !headerValuesContainToken(req.Header.Values("Connection"), "upgrade") {
+		return false
+	}
+	for _, value := range req.Header.Values("Upgrade") {
+		if strings.EqualFold(value, "websocket") {
 			return true
+		}
+	}
+	return false
+}
+
+// headerValuesContainToken reports whether any comma-separated token in values equals token, ignoring ASCII case.
+func headerValuesContainToken(values []string, token string) bool {
+	// Connection and similar fields are comma-separated token lists.
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
+			}
 		}
 	}
 	return false

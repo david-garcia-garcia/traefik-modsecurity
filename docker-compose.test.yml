@@ -146,5 +146,16 @@ services:
       - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
       # 5KB max body size, 1KB pool threshold - requests > 1KB will use usePool=false path
 
+  # WebSocket echo behind the same WAF middleware as /protected.
+  echo-ws:
+    image: jmalloc/echo-server:v0.3.7
+    environment:
+      - SEND_SERVER_HOSTNAME=false
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.echo-ws.rule=PathPrefix(`/ws-echo`)"
+      - "traefik.http.routers.echo-ws.middlewares=waf-middleware"
+      - "traefik.http.services.echo-ws.loadbalancer.server.port=8080"
+
 volumes:
   logs-local:

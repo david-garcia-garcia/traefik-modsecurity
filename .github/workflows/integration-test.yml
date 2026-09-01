@@ -185,6 +185,10 @@ jobs:
         echo "==================== Bypass Service Logs ===================="
         docker compose -f docker-compose.test.yml logs whoami-bypass --tail=50
 
+        echo ""
+        echo "==================== WebSocket echo Logs ===================="
+        docker compose -f docker-compose.test.yml logs echo-ws --tail=50
+
     - name: Cleanup Test Environment
       if: always()
       run: |
