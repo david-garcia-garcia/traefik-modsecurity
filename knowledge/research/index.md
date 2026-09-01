@@ -9,3 +9,8 @@ description: Official Traefik proxy behavior this product relies on.
 priority: normal
 local: index_ext_geoblock.md
 description: Traefik geoblock plugin public config used as a pattern.
+
+## golangci-lint
+priority: normal
+local: index_ext_golangci-lint.md
+description: Official golangci-lint runner and GitHub Action this product can add to CI.

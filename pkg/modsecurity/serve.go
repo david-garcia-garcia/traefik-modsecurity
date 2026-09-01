@@ -138,7 +138,11 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			p.logger.Error("fail to close WAF response body", "error", err)
+		}
+	}()
 
 	// Block: copy the WAF response and do not call next.
 	if resp.StatusCode >= 400 {
@@ -173,5 +177,8 @@ func forwardResponse(resp *http.Response, rw http.ResponseWriter) {
 		dst[k] = append(dst[k][:0], vv...)
 	}
 	rw.WriteHeader(resp.StatusCode)
-	io.Copy(rw, resp.Body)
+	// Headers are already sent; a copy failure cannot change the status.
+	if _, err := io.Copy(rw, resp.Body); err != nil {
+		return
+	}
 }
