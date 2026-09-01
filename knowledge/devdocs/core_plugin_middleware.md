@@ -10,6 +10,14 @@ _Avoid_: singleton, instance (ambiguous with Traefik `New`)
 The thin `http.Handler` returned by one Traefik `New`. It holds `next` and a pointer to the Plugin core.
 _Avoid_: middleware instance
 
+**Security block**:
+A sidecar `4xx` that is copied to the client. The next handler is not called.
+_Avoid_: deny (ModSecurity action name)
+
+**WAF failure**:
+A transport error talking to the sidecar, or a sidecar `5xx`. Not a security block.
+_Avoid_: outage (operator slang)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -21,7 +29,8 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, then call `next.ServeHTTP`. Traefik still needs the body for the backend.
-- On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
+- On a sidecar `4xx` (security block), copy the WAF response with `forwardResponse` and do not call `next`.
+- On a sidecar `5xx` (WAF failure), set the status request header to `error` when configured, then take the same path as an `httpClient.Do` error (`failWafRequest`): record a health failure, fail-open, or return 502. Do not `forwardResponse` a 5xx.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet

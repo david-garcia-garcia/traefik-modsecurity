@@ -8,13 +8,14 @@ _Avoid_: circuit breaker
 
 ## Overview
 
-`pkg/health` trips when outbound calls to ModSecurity fail. The Plugin core owns one tracker when `unhealthyWafBackOffPeriodSecs` is greater than zero. Routes that share that core share the trip.
+`pkg/health` trips when outbound calls to ModSecurity fail, including a sidecar HTTP 5xx. The Plugin core owns one tracker when `unhealthyWafBackOffPeriodSecs` is greater than zero. Routes that share that core share the trip.
 
 ## How to use
 
 - Build the tracker in `New` when backoff seconds are greater than zero. Pass the Plugin slog logger. Trip at warn (expected backoff); backoff expiry at info.
-- Call `RecordFailure` after `httpClient.Do` errors. Call `IsUnhealthy` before sending to the WAF.
+- Call `RecordFailure` after `httpClient.Do` errors and after a sidecar `5xx`. Call `IsUnhealthy` before sending to the WAF.
 - When unhealthy, forward to `next` (fail-open) and optionally set the status request header to `unhealthy`.
+- On a sidecar `5xx`, set the status request header to `error` when configured (every such request, not only the trip).
 
 ## Key files
 
