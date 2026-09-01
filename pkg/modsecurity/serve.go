@@ -9,6 +9,10 @@ import (
 	"sync"
 )
 
+// sidecarBodyDrainLimit is how many unread sidecar response bytes the allow
+// path discards so http.Transport can return the TCP connection to the idle pool.
+const sidecarBodyDrainLimit = 256 << 10
+
 // bodyBufferPool reuses buffers for request bodies under the pool threshold.
 var bodyBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -158,7 +162,14 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	if body != nil {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
+	// Discard leftover sidecar bytes so the shared client can reuse the connection.
+	drainSidecarBody(resp.Body)
 	next.ServeHTTP(rw, req)
+}
+
+// drainSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit.
+func drainSidecarBody(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, sidecarBodyDrainLimit))
 }
 
 // isWebsocket reports whether req is an HTTP/1.1 WebSocket handshake.
