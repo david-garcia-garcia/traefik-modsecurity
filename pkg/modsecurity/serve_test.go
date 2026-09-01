@@ -1,12 +1,14 @@
 package modsecurity
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // testWhoamiSizedBody stands in for traefik/whoami's typical allow-path body.
@@ -58,5 +60,57 @@ func TestPlugin_AllowPathReusesSidecarConnection(t *testing.T) {
 
 	if got := newConns.Load(); got != 1 {
 		t.Fatalf("new sidecar connections = %d, want 1 across %d allows", got, requests)
+	}
+}
+
+// TestPlugin_InboundCancelAbortsSidecarCall checks that canceling the inbound
+// request context stops the sidecar call instead of waiting for timeoutMillis.
+func TestPlugin_InboundCancelAbortsSidecarCall(t *testing.T) {
+	started := make(chan struct{})
+	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		// Stay blocked until the client hangs up this sidecar request.
+		<-r.Context().Done()
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.TimeoutMillis = 5000
+	plugin, err := New("cancel-test", cfg, NewLogger("cancel-test", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		route.ServeHTTP(rec, req)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not receive the request")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ServeHTTP did not return after inbound cancel")
 	}
 }

@@ -12,4 +12,4 @@ Extract: `.sources/pkg-go-dev-net-http-newrequest.md`
 
 ## This product
 
-`pkg/modsecurity/serve.go` builds the sidecar request with `http.NewRequest`. Usage: `knowledge/devdocs/core_plugin_middleware.md`.
+`pkg/modsecurity/serve.go` builds the sidecar request with `http.NewRequestWithContext(req.Context(), ...)`. Usage: `knowledge/devdocs/core_plugin_middleware.md`.
