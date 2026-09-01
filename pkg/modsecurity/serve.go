@@ -16,43 +16,44 @@ var bodyBufferPool = sync.Pool{
 }
 
 // ServeHTTP proxies req to ModSecurity, then either blocks or calls next.
-func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
 	if isWebsocket(req) {
 		next.ServeHTTP(rw, req)
 		return
 	}
 
 	// If the WAF is unhealthy just forward the request early.
-	if a.healthTracker != nil && a.healthTracker.IsUnhealthy() {
-		if a.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(a.modSecurityStatusRequestHeader, "unhealthy")
+	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
 		}
 		next.ServeHTTP(rw, req)
 		return
 	}
 
 	// Check if we should enforce strict body validation for this HTTP method
-	if a.ignoreBodyForVerbsDeny && a.ignoreBodyForVerbs[req.Method] {
+	if p.ignoreBodyForVerbsDeny && p.ignoreBodyForVerbs[req.Method] {
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
 		if n, err := limitedBody.Read(testByte); n > 0 || err == nil {
-			a.logger.Printf("HTTP %s request should not have a body, rejecting", req.Method)
+			p.logger.Printf("HTTP %s request should not have a body, rejecting", req.Method)
 			http.Error(rw, "HTTP "+req.Method+" requests should not have a body", http.StatusBadRequest)
 			return
 		}
 	}
 
+	// Read the body when this method is not on the ignore list.
 	var body []byte
-	if !a.ignoreBodyForVerbs[req.Method] {
-		if a.maxBodySizeBytes > 0 {
-			req.Body = http.MaxBytesReader(rw, req.Body, a.maxBodySizeBytes)
+	if !p.ignoreBodyForVerbs[req.Method] {
+		if p.maxBodySizeBytes > 0 {
+			req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
 		}
 
 		contentLengthStr := req.Header.Get("Content-Length")
 		usePool := true
 		if contentLengthStr != "" {
 			if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
-				usePool = contentLength <= a.maxBodySizeBytesForPool
+				usePool = contentLength <= p.maxBodySizeBytesForPool
 			}
 		}
 
@@ -63,14 +64,14 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 			if _, err := io.Copy(buf, req.Body); err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
-					if a.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
+					p.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, p.maxBodySizeBytes)
+					if p.modSecurityStatusRequestHeader != "" {
+						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
 				}
-				a.logger.Printf("fail to read incoming request: %s", err.Error())
+				p.logger.Printf("fail to read incoming request: %s", err.Error())
 				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
@@ -79,14 +80,14 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			largeBody, err := io.ReadAll(req.Body)
 			if err != nil {
 				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					a.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, a.maxBodySizeBytes)
-					if a.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
+					p.logger.Printf("request body too large: %d bytes (limit: %d bytes)", maxBytesErr.Limit, p.maxBodySizeBytes)
+					if p.modSecurityStatusRequestHeader != "" {
+						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 					}
 					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 					return
 				}
-				a.logger.Printf("fail to read incoming request: %s", err.Error())
+				p.logger.Printf("fail to read incoming request: %s", err.Error())
 				http.Error(rw, "", http.StatusBadGateway)
 				return
 			}
@@ -94,7 +95,8 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}
 
-	url := a.modSecurityUrl + req.URL.RequestURI()
+	// Build the WAF request and send it on the shared client.
+	url := p.modSecurityUrl + req.URL.RequestURI()
 
 	var bodyReader io.Reader
 	if body != nil {
@@ -103,10 +105,10 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	proxyReq, err := http.NewRequest(req.Method, url, bodyReader)
 	if err != nil {
-		if a.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(a.modSecurityStatusRequestHeader, "cannotforward")
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "cannotforward")
 		}
-		a.logger.Printf("fail to prepare forwarded request: %s", err.Error())
+		p.logger.Printf("fail to prepare forwarded request: %s", err.Error())
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}
@@ -116,13 +118,14 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		proxyReq.Header[h] = val
 	}
 
-	resp, err := a.httpClient.Do(proxyReq)
+	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
-		if a.healthTracker != nil {
-			if becameUnhealthy := a.healthTracker.RecordFailure(); becameUnhealthy && a.modSecurityStatusRequestHeader != "" {
-				req.Header.Set(a.modSecurityStatusRequestHeader, "error")
+		// Record WAF client failure; pass through when the shared tracker trips.
+		if p.healthTracker != nil {
+			if becameUnhealthy := p.healthTracker.RecordFailure(); becameUnhealthy && p.modSecurityStatusRequestHeader != "" {
+				req.Header.Set(p.modSecurityStatusRequestHeader, "error")
 			}
-			if a.healthTracker.IsUnhealthy() {
+			if p.healthTracker.IsUnhealthy() {
 				if body != nil {
 					req.Body = io.NopCloser(bytes.NewReader(body))
 				}
@@ -131,20 +134,22 @@ func (a *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			}
 		}
 
-		a.logger.Printf("fail to send HTTP request to modsec: %s", err.Error())
+		p.logger.Printf("fail to send HTTP request to modsec: %s", err.Error())
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
+	// Block: copy the WAF response and do not call next.
 	if resp.StatusCode >= 400 {
-		if a.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(a.modSecurityStatusRequestHeader, "blocked")
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
 		forwardResponse(resp, rw)
 		return
 	}
 
+	// Pass: restore the body Traefik still needs for the backend.
 	if body != nil {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	}

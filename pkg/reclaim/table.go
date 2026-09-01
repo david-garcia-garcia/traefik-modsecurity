@@ -88,9 +88,9 @@ type closer interface {
 	Close()
 }
 
-// stopValue calls Close if v has it. Used for a lost create and when life ends.
-func stopValue(v any) {
-	if c, ok := v.(closer); ok {
+// stopValue calls Close if value has it. Used for a lost create and when life ends.
+func stopValue(value any) {
+	if c, ok := value.(closer); ok {
 		c.Close()
 	}
 }
@@ -113,17 +113,17 @@ func (t *Table) Open(ctx context.Context, key string, logger *slog.Logger, creat
 	if e, ok := t.items[key]; ok {
 		id, reclaimed := t.bindLocked(e)
 		e.logger = logger
-		v := e.value
+		stored := e.value
 		t.mu.Unlock()
 		t.logBind(logger, key, reclaimed)
 		go t.watch(key, id, e, ctx)
-		return v, nil
+		return stored, nil
 	}
 	t.mu.Unlock()
 
 	// Create outside the lock so two first Opens can race.
 	life, cancel := context.WithCancel(context.Background())
-	v, err := create()
+	created, err := create()
 	if err != nil {
 		cancel()
 		return nil, err
@@ -137,7 +137,7 @@ func (t *Table) Open(ctx context.Context, key string, logger *slog.Logger, creat
 		exist := e.value
 		t.mu.Unlock()
 		cancel()
-		stopValue(v)
+		stopValue(created)
 		t.logBind(logger, key, reclaimed)
 		go t.watch(key, id, e, ctx)
 		return exist, nil
@@ -145,7 +145,7 @@ func (t *Table) Open(ctx context.Context, key string, logger *slog.Logger, creat
 
 	// First put for this key. Close the value when life is canceled (fire / Reset).
 	e := &slot{
-		value:   v,
+		value:   created,
 		cancel:  cancel,
 		holders: map[uint64]struct{}{},
 		logger:  logger,
@@ -155,12 +155,12 @@ func (t *Table) Open(ctx context.Context, key string, logger *slog.Logger, creat
 	t.mu.Unlock()
 	go func() {
 		waitCtx(life)
-		stopValue(v)
+		stopValue(created)
 	}()
 	logger.Debug(MsgPut, "key", key)
 	t.logBind(logger, key, false)
 	go t.watch(key, id, e, ctx)
-	return v, nil
+	return created, nil
 }
 
 // bindLocked attaches a holder and invalidates grace if this Open reclaimed the key. Caller holds t.mu.

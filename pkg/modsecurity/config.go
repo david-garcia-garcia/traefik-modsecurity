@@ -39,13 +39,38 @@ func CreateConfig() *Config {
 	}
 }
 
-// Prepare validates cfg before it is hashed and used to build a core.
+// Prepare validates cfg and fills CreateConfig defaults for omitted zeros so the reclaim hash is stable.
 func Prepare(cfg *Config, name string) error {
 	if cfg == nil {
 		return fmt.Errorf("%s: no config provided", name)
 	}
 	if len(cfg.ModSecurityUrl) == 0 {
 		return fmt.Errorf("modSecurityUrl cannot be empty")
+	}
+	defaults := CreateConfig()
+	if cfg.TimeoutMillis == 0 {
+		cfg.TimeoutMillis = defaults.TimeoutMillis
+	}
+	if cfg.UnhealthyWafFailureThreshold == 0 {
+		cfg.UnhealthyWafFailureThreshold = defaults.UnhealthyWafFailureThreshold
+	}
+	if cfg.MaxConnsPerHost == 0 {
+		cfg.MaxConnsPerHost = defaults.MaxConnsPerHost
+	}
+	if cfg.MaxIdleConnsPerHost == 0 {
+		cfg.MaxIdleConnsPerHost = defaults.MaxIdleConnsPerHost
+	}
+	if cfg.ExpectContinueTimeoutMillis == 0 {
+		cfg.ExpectContinueTimeoutMillis = defaults.ExpectContinueTimeoutMillis
+	}
+	if cfg.MaxBodySizeBytes == 0 {
+		cfg.MaxBodySizeBytes = defaults.MaxBodySizeBytes
+	}
+	if cfg.MaxBodySizeBytesForPool == 0 {
+		cfg.MaxBodySizeBytesForPool = defaults.MaxBodySizeBytesForPool
+	}
+	if len(cfg.IgnoreBodyForVerbs) == 0 {
+		cfg.IgnoreBodyForVerbs = defaults.IgnoreBodyForVerbs
 	}
 	return nil
 }

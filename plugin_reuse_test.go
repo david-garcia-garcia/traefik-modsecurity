@@ -74,6 +74,27 @@ func TestNew_DifferentName_DoesNotShareCore(t *testing.T) {
 	}
 }
 
+func TestNew_OmittedDefaults_SharesCore(t *testing.T) {
+	reclaim.ResetWith(0)
+	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+
+	minimal := &Config{ModSecurityUrl: "http://127.0.0.1:9"}
+	full := CreateConfig()
+	full.ModSecurityUrl = "http://127.0.0.1:9"
+	ctx := context.Background()
+	a, err := New(ctx, testNextOK(), minimal, "waf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(ctx, testNextOK(), full, "waf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testRoute(t, a).SameCore(testRoute(t, b)) {
+		t.Fatal("omitted CreateConfig zeros must hash the same as explicit defaults")
+	}
+}
+
 func TestNew_DifferentConfig_DoesNotShareCore(t *testing.T) {
 	reclaim.ResetWith(0)
 	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
