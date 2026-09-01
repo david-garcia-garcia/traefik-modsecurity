@@ -222,7 +222,7 @@ func TestModsecurity_AbsoluteFormRequestURI(t *testing.T) {
 	})
 
 	config := &Config{
-		TimeoutMillis: 2000,
+		TimeoutMillis:  2000,
 		ModSecurityUrl: wafMock.URL,
 	}
 	middleware, err := New(context.Background(), next, config, "modsecurity")
@@ -243,14 +243,14 @@ func TestModsecurity_AbsoluteFormRequestURI(t *testing.T) {
 func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 	// This test reproduces the bug where MaxBytesError is not properly detected
 	// when usePool=false (i.e., when Content-Length > maxBodySizeBytesForPool)
-	// 
+	//
 	// The bug: When usePool=false, io.ReadAll may not properly detect MaxBytesError
 	// and the request may pass through to the backend even when it exceeds the limit
-	
+
 	// Set a small pool threshold so we trigger the usePool=false path
 	maxBodySizeBytesForPool := int64(1024) // 1KB - small threshold
 	maxBodySizeBytes := int64(5 * 1024)    // 5KB - larger limit
-	
+
 	tests := []struct {
 		name                string
 		bodySize            int64  // Size of request body in bytes
@@ -271,7 +271,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 			name:                "Body exceeds limit, triggers usePool=false path - THIS SHOULD FAIL",
 			bodySize:            6 * 1024, // 6KB - exceeds 5KB limit and > 1KB pool threshold
 			contentLength:       "6144",
-			expectStatus:        413, // Should be rejected
+			expectStatus:        413,   // Should be rejected
 			expectBackendCalled: false, // Backend should NOT be called
 			description:         "6KB body should be rejected (exceeds 5KB limit, triggers usePool=false) - REPRODUCES BUG",
 		},
@@ -287,7 +287,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 			name:                "Body exceeds limit by 1 byte, triggers usePool=false path - THIS SHOULD FAIL",
 			bodySize:            5*1024 + 1, // 5KB + 1 byte - exceeds limit by 1 byte
 			contentLength:       "5121",
-			expectStatus:        413, // Should be rejected
+			expectStatus:        413,   // Should be rejected
 			expectBackendCalled: false, // Backend should NOT be called
 			description:         "5KB+1 body should be rejected (exceeds limit by 1 byte) - REPRODUCES BUG",
 		},
@@ -320,7 +320,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 			for i := range bodyData {
 				bodyData[i] = 'a'
 			}
-			
+
 			req, err := http.NewRequest(http.MethodPost, "http://proxy.com/test", bytes.NewReader(bodyData))
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
@@ -343,20 +343,20 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 			rw := httptest.NewRecorder()
 			middleware.ServeHTTP(rw, req)
 			resp := rw.Result()
-			
+
 			// Verify status code
 			if resp.StatusCode != tt.expectStatus {
-				t.Errorf("Status code mismatch for %s. Expected %d, got %d", 
+				t.Errorf("Status code mismatch for %s. Expected %d, got %d",
 					tt.description, tt.expectStatus, resp.StatusCode)
 			}
-			
+
 			// Verify backend was called or not called as expected
 			if backendCalled != tt.expectBackendCalled {
 				t.Errorf("Backend call expectation mismatch for %s. Expected called=%v, got called=%v. "+
-					"This indicates the bug: request exceeded limit but backend was still called (or vice versa)", 
+					"This indicates the bug: request exceeded limit but backend was still called (or vice versa)",
 					tt.description, tt.expectBackendCalled, backendCalled)
 			}
-			
+
 			// If request was rejected (413), verify error message
 			if tt.expectStatus == 413 {
 				body, _ := io.ReadAll(resp.Body)
@@ -364,7 +364,7 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 					t.Errorf("Expected error message about body being too large, got: %s", string(body))
 				}
 			}
-			
+
 			// Debug output for failed tests
 			if resp.StatusCode != tt.expectStatus || backendCalled != tt.expectBackendCalled {
 				t.Logf("Debug: bodySize=%d, contentLength=%s, status=%d, backendCalled=%v, wafBodyLen=%d, backendBodyLen=%d",
@@ -377,10 +377,10 @@ func TestModsecurity_BodySizeLimit_WhenNotUsingPool(t *testing.T) {
 func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 	// Test case: What happens when Content-Length header is missing or incorrect?
 	// This might trigger usePool=true even for large bodies, or cause other issues
-	
+
 	maxBodySizeBytesForPool := int64(1024) // 1KB - small threshold
 	maxBodySizeBytes := int64(5 * 1024)    // 5KB - larger limit
-	
+
 	tests := []struct {
 		name                string
 		bodySize            int64
@@ -392,8 +392,8 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 		{
 			name:                "Large body without Content-Length header - might trigger usePool=true incorrectly",
 			bodySize:            6 * 1024, // 6KB - exceeds limit
-			contentLength:       "", // No Content-Length header
-			expectStatus:        413, // Should be rejected
+			contentLength:       "",       // No Content-Length header
+			expectStatus:        413,      // Should be rejected
 			expectBackendCalled: false,
 			description:         "6KB body without Content-Length should be rejected",
 		},
@@ -401,7 +401,7 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 			name:                "Large body with incorrect Content-Length (smaller than actual)",
 			bodySize:            6 * 1024, // 6KB actual body
 			contentLength:       "2048",   // But Content-Length says 2KB
-			expectStatus:        413, // Should be rejected when actual body exceeds limit
+			expectStatus:        413,      // Should be rejected when actual body exceeds limit
 			expectBackendCalled: false,
 			description:         "6KB body with incorrect Content-Length should be rejected",
 		},
@@ -426,7 +426,7 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 			for i := range bodyData {
 				bodyData[i] = 'a'
 			}
-			
+
 			req, err := http.NewRequest(http.MethodPost, "http://proxy.com/test", bytes.NewReader(bodyData))
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
@@ -451,12 +451,12 @@ func TestModsecurity_BodySizeLimit_WithoutContentLength(t *testing.T) {
 			rw := httptest.NewRecorder()
 			middleware.ServeHTTP(rw, req)
 			resp := rw.Result()
-			
+
 			if resp.StatusCode != tt.expectStatus {
-				t.Errorf("Status code mismatch: Expected %d, got %d. %s", 
+				t.Errorf("Status code mismatch: Expected %d, got %d. %s",
 					tt.expectStatus, resp.StatusCode, tt.description)
 			}
-			
+
 			if backendCalled != tt.expectBackendCalled {
 				t.Errorf("Backend call mismatch: Expected called=%v, got called=%v. %s. "+
 					"This indicates a bug!", tt.expectBackendCalled, backendCalled, tt.description)
@@ -548,6 +548,86 @@ func TestModsecurity_BodySizeLimit_20MB_LargeBodies(t *testing.T) {
 
 			if backendCalled != tt.expectBackendCalled {
 				t.Fatalf("backendCalled mismatch: got %v, want %v", backendCalled, tt.expectBackendCalled)
+			}
+		})
+	}
+}
+
+// TestModsecurity_Sidecar5xxIsWafFailure checks a sidecar 5xx is a WAF failure, not a block.
+func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
+	tests := []struct {
+		name           string
+		backoffSecs    int
+		expectStatus   int
+		expectBody     string
+		expectHeader   string
+		expectBackend  bool
+		middlewareName string
+	}{
+		{
+			name:           "503 without backoff returns 502 and error header",
+			backoffSecs:    0,
+			expectStatus:   http.StatusBadGateway,
+			expectBody:     "sidecar down",
+			expectHeader:   "error",
+			expectBackend:  false,
+			middlewareName: "sidecar-5xx-nobackoff",
+		},
+		{
+			name:           "503 at threshold 1 fail-opens to next",
+			backoffSecs:    30,
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
+			expectHeader:   "error",
+			expectBackend:  true,
+			middlewareName: "sidecar-5xx-failopen",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(w, "sidecar down")
+			}))
+			defer waf.Close()
+
+			backendCalled := false
+			backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				backendCalled = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "from backend")
+			})
+
+			req, err := http.NewRequest(http.MethodGet, "http://proxy.com/test", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &Config{
+				TimeoutMillis:                  2000,
+				ModSecurityUrl:                 waf.URL,
+				ModSecurityStatusRequestHeader: "X-Waf-Status",
+				UnhealthyWafBackOffPeriodSecs:  tt.backoffSecs,
+				UnhealthyWafFailureThreshold:   1,
+			}
+			middleware, err := New(context.Background(), backend, cfg, tt.middlewareName)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rw := httptest.NewRecorder()
+			middleware.ServeHTTP(rw, req)
+			resp := rw.Result()
+			body, _ := io.ReadAll(resp.Body)
+
+			assert.Equal(t, tt.expectStatus, resp.StatusCode)
+			assert.Equal(t, tt.expectHeader, req.Header.Get("X-Waf-Status"))
+			assert.Equal(t, tt.expectBackend, backendCalled)
+			if tt.expectBackend {
+				assert.Equal(t, tt.expectBody, string(body))
+			} else {
+				assert.NotContains(t, string(body), tt.expectBody)
 			}
 		})
 	}
