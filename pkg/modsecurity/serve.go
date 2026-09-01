@@ -133,9 +133,6 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// Sidecar 5xx is a WAF failure, not a security block.
 	if resp.StatusCode >= 500 {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-		}
 		p.failWafRequest(rw, req, next, body, fmt.Errorf("waf status %d", resp.StatusCode))
 		return
 	}
@@ -158,11 +155,14 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 // failWafRequest records a WAF communication failure and fail-opens or returns 502.
 func (p *Plugin) failWafRequest(rw http.ResponseWriter, req *http.Request, next http.Handler, body []byte, cause error) {
+	// One write: every WAF failure is "error" (sidecar 5xx and transport).
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Set(p.modSecurityStatusRequestHeader, "error")
+	}
+
 	// Record the failure; pass through when the shared tracker trips.
 	if p.healthTracker != nil {
-		if becameUnhealthy := p.healthTracker.RecordFailure(); becameUnhealthy && p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-		}
+		p.healthTracker.RecordFailure()
 		if p.healthTracker.IsUnhealthy() {
 			if body != nil {
 				req.Body = io.NopCloser(bytes.NewReader(body))
