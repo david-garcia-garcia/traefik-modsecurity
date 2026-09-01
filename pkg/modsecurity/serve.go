@@ -150,7 +150,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}()
 
 	// Block: copy the WAF response and do not call next.
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 300 {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}

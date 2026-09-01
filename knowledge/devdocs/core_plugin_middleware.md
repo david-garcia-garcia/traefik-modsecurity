@@ -29,7 +29,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
-- On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
+- On a WAF status `>= 300`, copy the WAF response with `forwardResponse` and do not call `next`. The shared WAF client does not follow `Location`; `Do` returns the sidecar's own 3xx.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet

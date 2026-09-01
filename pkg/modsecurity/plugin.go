@@ -84,9 +84,16 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 	}
 
 	return &Plugin{
-		modSecurityUrl:                 cfg.ModSecurityUrl,
-		name:                           name,
-		httpClient:                     &http.Client{Timeout: timeout, Transport: transport},
+		modSecurityUrl: cfg.ModSecurityUrl,
+		name:           name,
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+			// Keep the sidecar's own 3xx so ServeHTTP can copy it; default follow hides redirect blocks.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		logger:                         logger,
 		healthTracker:                  healthTracker,
 		modSecurityStatusRequestHeader: cfg.ModSecurityStatusRequestHeader,
