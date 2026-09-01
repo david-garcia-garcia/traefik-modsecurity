@@ -19,3 +19,8 @@ description: Traefik geoblock plugin public config used as a pattern.
 priority: normal
 local: index_ext_golangci-lint.md
 description: Official golangci-lint runner and GitHub Action this product can add to CI.
+
+## modsecurity
+priority: normal
+local: index_ext_modsecurity.md
+description: Official ModSecurity rule-language actions this product relies on.
