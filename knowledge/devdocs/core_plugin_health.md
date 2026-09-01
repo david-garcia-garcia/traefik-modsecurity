@@ -12,7 +12,7 @@ _Avoid_: circuit breaker
 
 ## How to use
 
-- Build the tracker in `New` when backoff seconds are greater than zero.
+- Build the tracker in `New` when backoff seconds are greater than zero. Pass the Plugin slog logger. Trip at warn (expected backoff); backoff expiry at info.
 - Call `RecordFailure` after `httpClient.Do` errors. Call `IsUnhealthy` before sending to the WAF.
 - When unhealthy, forward to `next` (fail-open) and optionally set the status request header to `unhealthy`.
 

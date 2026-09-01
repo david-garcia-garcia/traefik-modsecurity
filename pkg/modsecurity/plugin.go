@@ -3,7 +3,8 @@ package modsecurity
 import (
 	"context"
 	"crypto/tls"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -18,7 +19,7 @@ type Plugin struct {
 	modSecurityUrl                 string
 	name                           string
 	httpClient                     *http.Client
-	logger                         *log.Logger
+	logger                         *slog.Logger
 	healthTracker                  *health.Tracker
 	modSecurityStatusRequestHeader string
 	maxBodySizeBytes               int64
@@ -27,10 +28,13 @@ type Plugin struct {
 	ignoreBodyForVerbsDeny         bool
 }
 
-// New builds the Plugin. cfg must already be Prepare'd.
-func New(name string, cfg *Config) (*Plugin, error) {
+// New builds the Plugin. cfg must already be Prepare'd. logger is the shared core logger.
+func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 	if err := Prepare(cfg, name); err != nil {
 		return nil, err
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("%s: no logger provided", name)
 	}
 
 	timeout := 2 * time.Second
@@ -72,7 +76,6 @@ func New(name string, cfg *Config) (*Plugin, error) {
 		transport.ExpectContinueTimeout = time.Duration(cfg.ExpectContinueTimeoutMillis) * time.Millisecond
 	}
 
-	logger := log.New(os.Stdout, "", log.LstdFlags)
 	var healthTracker *health.Tracker
 	if cfg.UnhealthyWafBackOffPeriodSecs > 0 {
 		backoff := time.Duration(cfg.UnhealthyWafBackOffPeriodSecs) * time.Second
@@ -92,6 +95,16 @@ func New(name string, cfg *Config) (*Plugin, error) {
 		ignoreBodyForVerbs:             createIgnoreBodyMap(cfg.IgnoreBodyForVerbs),
 		ignoreBodyForVerbsDeny:         cfg.IgnoreBodyForVerbsDeny,
 	}, nil
+}
+
+// NewLogger builds the plugin-owned slog logger for prepared cfg. Writes text to process stdout.
+// name is attached so request, health, and reclaim lines can be joined when several middlewares share stdout.
+func NewLogger(name string, cfg *Config) *slog.Logger {
+	level := slog.LevelInfo
+	if parsed, err := parseLogLevel(cfg.LogLevel); err == nil {
+		level = parsed
+	}
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})).With("middleware", name)
 }
 
 // Close releases idle HTTP connections when the reclaim incarnation ends.

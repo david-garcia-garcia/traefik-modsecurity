@@ -2,7 +2,7 @@
 package health
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,12 +19,12 @@ type Tracker struct {
 	backoffTimeout   time.Duration
 	failureWindow    time.Duration
 	failureThreshold int
-	logger           *log.Logger
+	logger           *slog.Logger
 }
 
 // New creates a new Tracker. When failureThreshold < 0,
 // the tracker never trips (opt-out). When failureWindow is 0, the counter never resets.
-func New(backoffTimeout, failureWindow time.Duration, failureThreshold int, logger *log.Logger) *Tracker {
+func New(backoffTimeout, failureWindow time.Duration, failureThreshold int, logger *slog.Logger) *Tracker {
 	return &Tracker{
 		backoffTimeout:   backoffTimeout,
 		failureWindow:    failureWindow,
@@ -57,7 +57,7 @@ func (ht *Tracker) RecordFailure() bool {
 	if ht.failureThreshold >= 0 && ht.failureCount >= ht.failureThreshold {
 		ht.isShutdown.Store(true)
 		ht.shutdownUntil = now.Add(ht.backoffTimeout)
-		ht.logger.Printf("marking modsec as unhealthy for %v (failures: %d) fail to send HTTP request to modsec", ht.backoffTimeout, ht.failureCount)
+		ht.logger.Warn("marking modsec as unhealthy fail to send HTTP request to modsec", "backoff", ht.backoffTimeout, "failures", ht.failureCount)
 		return true
 	}
 	return false
@@ -77,7 +77,7 @@ func (ht *Tracker) IsUnhealthy() bool {
 	if ht.isShutdown.Load() && time.Now().After(ht.shutdownUntil) {
 		ht.isShutdown.Store(false)
 		ht.failureCount = 0
-		ht.logger.Printf("modsec unhealthy backoff expired")
+		ht.logger.Info("modsec unhealthy backoff expired")
 		return false
 	}
 	return ht.isShutdown.Load()

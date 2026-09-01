@@ -440,5 +440,142 @@ function Test-ResponseTime {
 
 
 
+function Get-ReclaimDynamicConfigPath {
+    # Host path of the file-provider fixture Traefik watches (two routers, one waf-reclaim).
+    return Join-Path (Split-Path $PSScriptRoot -Parent) "test-dynamic/reclaim.yml"
+}
+
+function Get-TraefikStdoutLines {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName
+    )
+
+    # Plugin slog is remapped onto Traefik process logs (Yaegi stdout → Traefik DEBUG).
+    $raw = docker logs $TraefikContainerName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read Traefik stdout from container: $TraefikContainerName"
+    }
+
+    return @($raw | ForEach-Object { "$_" })
+}
+
+function Get-ReclaimLogEvents {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName,
+        [Parameter(Mandatory)]
+        [string]$Middleware,
+        [string]$Message
+    )
+
+    # slog text: msg=reclaim_put middleware=waf-reclaim@file key=plugin:waf-reclaim@file:…
+    $events = @()
+    foreach ($line in (Get-TraefikStdoutLines -TraefikContainerName $TraefikContainerName)) {
+        $text = "$line"
+        if ($text -notlike "*$Middleware*") {
+            continue
+        }
+        if ($text -notmatch 'msg=(?<msg>reclaim_\w+)') {
+            continue
+        }
+        $msg = $Matches['msg']
+        if ($Message -and $msg -ne $Message) {
+            continue
+        }
+        $key = $null
+        if ($text -match 'key=(?<key>\S+)') {
+            $key = $Matches['key'].Trim('"')
+        }
+        $events += [pscustomobject]@{
+            Message = $msg
+            Key     = $key
+            Line    = $text
+        }
+    }
+
+    return @($events)
+}
+
+function Wait-ReclaimLogCount {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName,
+        [Parameter(Mandatory)]
+        [string]$Middleware,
+        [Parameter(Mandatory)]
+        [string]$Message,
+        [Parameter(Mandatory)]
+        [int]$Count,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $elapsed = 0
+    $events = @()
+    do {
+        $events = @(Get-ReclaimLogEvents -TraefikContainerName $TraefikContainerName -Middleware $Middleware -Message $Message)
+        if ($events.Count -ge $Count) {
+            return $events
+        }
+        Start-Sleep -Seconds 1
+        $elapsed += 1
+    } while ($elapsed -lt $TimeoutSeconds)
+
+    throw "Timed out waiting for $Count $Message line(s) for middleware $Middleware (saw $($events.Count))"
+}
+
+function Set-ReclaimDynamicTimeoutMillis {
+    param(
+        [Parameter(Mandatory)]
+        [int]$TimeoutMillis,
+        [Parameter(Mandatory)]
+        [string]$TraefikContainerName
+    )
+
+    # Rewrite the watched YAML so Traefik rebuilds waf-reclaim (new plugin key). Touch kicks inotify on bind mounts.
+    $path = Get-ReclaimDynamicConfigPath
+    $template = @'
+# File-provider middleware shared by two routers. Tests rewrite timeoutMillis to force a new reclaim key.
+http:
+  routers:
+    reclaim-a:
+      rule: "PathPrefix(`/reclaim-a`)"
+      entryPoints:
+        - web
+      service: reclaim-whoami
+      middlewares:
+        - waf-reclaim
+    reclaim-b:
+      rule: "PathPrefix(`/reclaim-b`)"
+      entryPoints:
+        - web
+      service: reclaim-whoami
+      middlewares:
+        - waf-reclaim
+  services:
+    reclaim-whoami:
+      loadBalancer:
+        servers:
+          - url: http://whoami-reclaim:80
+  middlewares:
+    waf-reclaim:
+      plugin:
+        traefik-modsecurity:
+          modSecurityUrl: http://waf:8080
+          timeoutMillis: __TIMEOUT__
+          logLevel: debug
+'@
+    $yaml = $template.Replace('__TIMEOUT__', "$TimeoutMillis")
+    $yaml = $yaml -replace "`r`n", "`n"
+    if (-not $yaml.EndsWith("`n")) {
+        $yaml += "`n"
+    }
+    [System.IO.File]::WriteAllText($path, $yaml)
+    docker exec $TraefikContainerName touch /etc/traefik/dynamic/reclaim.yml
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to touch reclaim.yml in container: $TraefikContainerName"
+    }
+}
+
 # Helper functions are available when dot-sourced
 # No Export-ModuleMember needed for dot-sourcing

@@ -1,6 +1,18 @@
 package modsecurity
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+	"strings"
+)
+
+// Accepted logLevel strings after Prepare. Stored lowercase.
+const (
+	LogLevelDebug = "debug"
+	LogLevelInfo  = "info"
+	LogLevelWarn  = "warn"
+	LogLevelError = "error"
+)
 
 // Config is the Traefik plugin configuration Yaegi decodes.
 type Config struct {
@@ -18,6 +30,7 @@ type Config struct {
 	MaxBodySizeBytesForPool        int64    `json:"maxBodySizeBytesForPool,omitempty"`
 	IgnoreBodyForVerbs             []string `json:"ignoreBodyForVerbs,omitempty"`
 	IgnoreBodyForVerbsDeny         bool     `json:"ignoreBodyForVerbsDeny,omitempty"`
+	LogLevel                       string   `json:"logLevel,omitempty"`
 }
 
 // CreateConfig returns default plugin configuration.
@@ -36,6 +49,7 @@ func CreateConfig() *Config {
 		MaxBodySizeBytesForPool:        5 * 1024 * 1024,
 		IgnoreBodyForVerbs:             []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
 		IgnoreBodyForVerbsDeny:         false,
+		LogLevel:                       LogLevelInfo,
 	}
 }
 
@@ -72,5 +86,30 @@ func Prepare(cfg *Config, name string) error {
 	if len(cfg.IgnoreBodyForVerbs) == 0 {
 		cfg.IgnoreBodyForVerbs = defaults.IgnoreBodyForVerbs
 	}
+	// Normalize logLevel so the reclaim hash is stable across case and omitted values.
+	normalizedLevel := strings.ToLower(strings.TrimSpace(cfg.LogLevel))
+	if normalizedLevel == "" {
+		normalizedLevel = defaults.LogLevel
+	}
+	if _, err := parseLogLevel(normalizedLevel); err != nil {
+		return err
+	}
+	cfg.LogLevel = normalizedLevel
 	return nil
+}
+
+// parseLogLevel maps a prepared logLevel string to slog. Empty is not accepted here; Prepare fills info first.
+func parseLogLevel(level string) (slog.Level, error) {
+	switch level {
+	case LogLevelDebug:
+		return slog.LevelDebug, nil
+	case LogLevelInfo:
+		return slog.LevelInfo, nil
+	case LogLevelWarn:
+		return slog.LevelWarn, nil
+	case LogLevelError:
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("logLevel must be debug, info, warn, or error")
+	}
 }

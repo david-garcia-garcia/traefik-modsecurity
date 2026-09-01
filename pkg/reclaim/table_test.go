@@ -365,6 +365,12 @@ func TestTable_HashChangeProof(t *testing.T) {
 	if time.Since(start) < grace*3/4 {
 		t.Fatalf("A disposed before grace: %v", time.Since(start))
 	}
+	// Close runs on the life goroutine after cancel; the dispose log can win the race.
+	waitUntil(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(ended) == 1 && ended[0] == "A"
+	})
 	mu.Lock()
 	got := append([]string(nil), ended...)
 	mu.Unlock()

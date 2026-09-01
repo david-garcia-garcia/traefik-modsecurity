@@ -15,7 +15,9 @@ BeforeAll {
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
         @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
-        @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" }
+        @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" },
+        @{ Url = "$BaseUrl/reclaim-a"; Name = "Reclaim route A" },
+        @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" }
     )
     
     Wait-ForAllServices -Services $services
@@ -592,6 +594,32 @@ Describe "WAF Health Tracker Threshold Tests" {
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
             }
         }
+    }
+}
+
+Describe "Plugin reclaim logs" -Tag Reclaim {
+    AfterAll {
+        Set-ReclaimDynamicTimeoutMillis -TimeoutMillis 3000 -TraefikContainerName $script:traefikContainer
+    }
+
+    It "emits one reclaim_put for two routes, one new put after config change, then reclaim_dispose" {
+        $middleware = "waf-reclaim"
+        $puts = Wait-ReclaimLogCount -TraefikContainerName $script:traefikContainer -Middleware $middleware -Message "reclaim_put" -Count 1
+        $puts.Count | Should -Be 1 -Because "two file-provider routers must share one plugin core"
+        $firstKey = $puts[0].Key
+
+        $routeA = Invoke-SafeWebRequest -Uri "$BaseUrl/reclaim-a"
+        $routeA.StatusCode | Should -Be 200
+        $routeB = Invoke-SafeWebRequest -Uri "$BaseUrl/reclaim-b"
+        $routeB.StatusCode | Should -Be 200
+        @(Get-ReclaimLogEvents -TraefikContainerName $script:traefikContainer -Middleware $middleware -Message "reclaim_put").Count | Should -Be 1 -Because "traffic on both routes must not create a second core"
+
+        Set-ReclaimDynamicTimeoutMillis -TimeoutMillis 4001 -TraefikContainerName $script:traefikContainer
+        $putsAfterReload = Wait-ReclaimLogCount -TraefikContainerName $script:traefikContainer -Middleware $middleware -Message "reclaim_put" -Count 2
+        $putsAfterReload.Count | Should -Be 2 -Because "a timeoutMillis change must put exactly one new core"
+
+        $disposes = Wait-ReclaimLogCount -TraefikContainerName $script:traefikContainer -Middleware $middleware -Message "reclaim_dispose" -Count 1 -TimeoutSeconds 20
+        ($disposes | Where-Object { $_.Key -eq $firstKey }) | Should -Not -BeNullOrEmpty -Because "the first core must dispose after DefaultGrace once no router holds it"
     }
 }
 
