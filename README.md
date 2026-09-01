@@ -126,7 +126,9 @@ http:
           # OPTIONAL: Plugin-owned log level (Traefik --log.level does not reach this middleware)
           # Default: info
           # Accepted: debug, info, warn, error
-          # info: failures and health backoff expiry (production-quiet)
+          # error: cannot read body, cannot reach ModSecurity
+          # warn: health trip (expected backoff)
+          # info: health backoff expiry (default; production-quiet)
           # debug: also reclaim_put / reclaim_bind / reclaim_dispose
           # Invalid values fail plugin construction
           

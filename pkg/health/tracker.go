@@ -57,7 +57,7 @@ func (ht *Tracker) RecordFailure() bool {
 	if ht.failureThreshold >= 0 && ht.failureCount >= ht.failureThreshold {
 		ht.isShutdown.Store(true)
 		ht.shutdownUntil = now.Add(ht.backoffTimeout)
-		ht.logger.Error("marking modsec as unhealthy fail to send HTTP request to modsec", "backoff", ht.backoffTimeout, "failures", ht.failureCount)
+		ht.logger.Warn("marking modsec as unhealthy fail to send HTTP request to modsec", "backoff", ht.backoffTimeout, "failures", ht.failureCount)
 		return true
 	}
 	return false

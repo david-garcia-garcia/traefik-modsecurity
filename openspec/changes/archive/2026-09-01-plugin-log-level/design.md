@@ -36,7 +36,8 @@ Explore decisions: `devstate/explore.md`.
    - Alternative: silent fallback to `info` — hides operator typos.
 
 4. **Level map**
-   - error: ServeHTTP failures + health trip.
+   - error: ServeHTTP failures.
+   - warn: health trip (expected backoff).
    - info: backoff expired.
    - debug: reclaim messages already at Debug.
    - No per-request “still unhealthy” line.

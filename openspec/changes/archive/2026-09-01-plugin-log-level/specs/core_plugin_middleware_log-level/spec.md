@@ -39,12 +39,12 @@ The shared plugin core SHALL own one logger used for request-path lines, health-
 
 ### Requirement: Level map for request, health, and reclaim
 
-The plugin SHALL emit request-path and health failures at `error` (cannot read the request body, cannot reach ModSecurity, health trip that marks the WAF unhealthy). The plugin SHALL emit health backoff expiry at `info`. The plugin SHALL emit reclaim bind, put, reclaim, and dispose lines at `debug`. The plugin SHALL NOT emit a log line on every request that merely observes an already-unhealthy WAF.
+The plugin SHALL emit request-path failures at `error` (cannot read the request body, cannot reach ModSecurity). The plugin SHALL emit the health trip that marks the WAF unhealthy at `warn` (expected backoff). The plugin SHALL emit health backoff expiry at `info`. The plugin SHALL emit reclaim bind, put, reclaim, and dispose lines at `debug`. The plugin SHALL NOT emit a log line on every request that merely observes an already-unhealthy WAF.
 
-#### Scenario: Health trip is error
+#### Scenario: Health trip is warn
 
 - **WHEN** the health tracker marks the WAF unhealthy
-- **THEN** the plugin SHALL emit the trip line at `error`
+- **THEN** the plugin SHALL emit the trip line at `warn`
 
 #### Scenario: Backoff expired is info
 
