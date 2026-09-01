@@ -18,6 +18,10 @@ _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
 
+**Ignored-verb body**:
+A request body whose method is listed in `ignoreBodyForVerbs`. The plugin does not send that body to ModSecurity. When `ignoreBodyForVerbsDeny` is false, it discards the body so `next` does not receive it.
+_Avoid_: ignored request (ambiguous with WAF skip)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -29,6 +33,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
+- When the method is in `ignoreBodyForVerbs` and deny is false, do not send the request body to ModSecurity. Consume it, set `req.Body` to `http.NoBody`, set `ContentLength` to 0, and delete `Content-Length` before `next`. Do not leave the original body for the backend.
 - On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
