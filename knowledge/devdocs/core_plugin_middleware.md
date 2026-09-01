@@ -72,3 +72,4 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
 - Incoming Host lives on `req.Host`, not `req.Header`. A header-copy loop leaves the sidecar seeing the `ModSecurityUrl` host unless you assign `proxyReq.Host`.
 - `req.RemoteAddr` is `host:port`. Append only the host part to `X-Forwarded-For`. Parse failure leaves the existing chain. Traefik does not append this hop before the plugin.
+- CRS `REMOTE_ADDR` stays the Traefik-to-sidecar hop until the WAF httpd trusts that hop (`REMOTEIP_HEADER=X-Forwarded-For` and `REMOTEIP_INT_PROXY` covering Docker/RFC1918, as in `docker-compose.yml`). Do not set `0.0.0.0/0`. The plugin does not set `X-Real-IP`.

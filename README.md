@@ -34,6 +34,7 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
 - [Demo](#demo)
 - [Usage (docker-compose.yml)](#usage-docker-composeyml)
 - [How it works](#how-it-works)
+- [Trust this middleware (client IP in WAF logs)](#trust-this-middleware-client-ip-in-waf-logs)
 - [Testing](#-testing)
 - [Configuration](#️-configuration)
 - [Local development](#local-development-docker-composelocalyml)
@@ -65,6 +66,44 @@ If it is > 400, then the error page is returned instead.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
+
+## Trust this middleware (client IP in WAF logs)
+
+Copying headers is not enough for ModSecurity to treat the visitor as the client. `REMOTE_ADDR` (audit logs, error logs, IP collections, and any IPS that parses those logs) stays the **Traefik-to-sidecar TCP hop** until the WAF httpd is told to trust this middleware.
+
+What this plugin sends to `modSecurityUrl`:
+
+- Copies the incoming header map, including Traefik’s `X-Real-Ip` when Traefik already set it.
+- Appends the Traefik peer (`RemoteAddr`) to `X-Forwarded-For`.
+- Sets the sidecar request `Host` to the incoming `Host`.
+
+The plugin does **not** set `X-Real-IP` itself. CRS / ModSecurity does **not** read `X-Forwarded-For` as `REMOTE_ADDR` on its own.
+
+### Apache CRS image (what we ship)
+
+Use [docker-compose.yml](docker-compose.yml) as the reference. The `waf` service sets:
+
+```yaml
+REMOTEIP_HEADER: X-Forwarded-For
+REMOTEIP_INT_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+```
+
+`REMOTEIP_INT_PROXY` must include the network Traefik uses to reach the sidecar (Docker bridge is usually `172.16.0.0/12`). The image default `10.1.0.0/16` does not. Do **not** set `0.0.0.0/0`.
+
+### nginx CRS
+
+Same trust idea, different directives:
+
+```nginx
+real_ip_header X-Forwarded-For;
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+```
+
+You can use `real_ip_header X-Real-IP;` instead if that is the header your sidecar trusts. Do **not** `set_real_ip_from 0.0.0.0/0`.
+
+Without this, every deny is attributed to the Traefik container IP. An IPS that blocks from the WAF log then bans Traefik, not the attacker.
 
 ## Testing
 

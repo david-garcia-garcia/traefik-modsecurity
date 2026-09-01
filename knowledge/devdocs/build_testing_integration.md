@@ -37,8 +37,8 @@ It "Should allow normal GET requests" {
 - `Test-Integration.ps1` — Compose up, optional wait, `Invoke-Pester`, Compose down.
 - `scripts/integration-tests.Tests.ps1` — main suite (`$BaseUrl` `http://localhost:8000`).
 - `scripts/integration-tests.BodySize.Tests.ps1` — large-body transport checks.
-- `scripts/TestHelpers.ps1` — HTTP, WAF assertions, container names, access-log parse, body builder, Traefik stdout / reclaim log parse, WebSocket echo. Helpers include `Invoke-SafeWebRequest`, `Invoke-WebSocketEcho`, `Test-WafBlocking`, `Get-TraefikAccessLogEntries`, `Get-TraefikStdoutLines`, `Get-ReclaimLogEvents`, `Wait-ReclaimLogCount`, `Set-ReclaimDynamicTimeoutMillis`.
-- `docker-compose.test.yml` — Traefik local plugin on `:8000`, WAF, dummy, labeled whoami routes, `echo-ws` (`jmalloc/echo-server`) on `/ws-echo` behind `waf-middleware`, file-provider directory `test-dynamic/`.
+- `scripts/TestHelpers.ps1` — HTTP, WAF assertions, container names, access-log parse, WAF audit-log parse, body builder, Traefik stdout / reclaim log parse, WebSocket echo. Helpers include `Invoke-SafeWebRequest`, `Invoke-WebSocketEcho`, `Test-WafBlocking`, `Get-TraefikAccessLogEntries`, `Get-TraefikClientHost`, `Get-WafAuditLogRecords`, `Get-WafAuditClientIp`, `Get-TraefikStdoutLines`, `Get-ReclaimLogEvents`, `Wait-ReclaimLogCount`, `Set-ReclaimDynamicTimeoutMillis`.
+- `docker-compose.test.yml` — Traefik local plugin on `:8000`, WAF, dummy, labeled whoami routes, `echo-ws` (`jmalloc/echo-server`) on `/ws-echo` behind `waf-middleware`, file-provider directory `test-dynamic/`. The `waf` service sets `REMOTEIP_*` and `MODSEC_AUDIT_LOG=/var/log/modsec_audit.log` so a deny records Traefik `ClientHost` as `REMOTE_ADDR`.
 - `test-dynamic/reclaim.yml` — two routers (`/reclaim-a`, `/reclaim-b`) share `waf-reclaim` (`logLevel=debug`). Tests rewrite `timeoutMillis` to force a new reclaim key.
 
 ## Gotchas

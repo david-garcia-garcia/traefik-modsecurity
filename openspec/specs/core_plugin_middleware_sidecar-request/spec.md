@@ -38,3 +38,12 @@ When the plugin builds the request it sends to ModSecurity, it SHALL take the IP
 
 - **WHEN** an inspected request has RemoteAddr `not-a-host-port` and `X-Forwarded-For` `198.51.100.1`
 - **THEN** the sidecar SHALL receive `X-Forwarded-For` `198.51.100.1`
+
+### Requirement: Trusted CRS sidecar records the Traefik client on deny
+
+When the shipped Apache CRS compose sets `REMOTEIP_HEADER` to `X-Forwarded-For` and `REMOTEIP_INT_PROXY` to private ranges that include the Traefik hop, a request that CRS denies SHALL appear in the WAF audit log with a client IP equal to the address Traefik logged as the request's client host. The plugin SHALL NOT set `X-Real-IP`.
+
+#### Scenario: Deny audit log has Traefik ClientHost
+
+- **WHEN** an inspected request is denied by CRS and the compose WAF trusts Traefik via `REMOTEIP_INT_PROXY`
+- **THEN** the WAF JSON audit record for that request SHALL have `transaction.client_ip` equal to Traefik access-log `ClientHost` for the same request
