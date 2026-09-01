@@ -18,6 +18,10 @@ _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
 
+**Body buffer pool**:
+The reuse pool of `bytes.Buffer` used for request bodies whose parsed size is at or under `maxBodySizeBytesForPool`.
+_Avoid_: body cache, request buffer (ambiguous with `MaxBytesReader`)
+
 ## Overview
 
 Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and `New` at the module root. Traefik calls `New` per route; this repo reuses one Plugin core while name and prepared config stay the same.
@@ -29,6 +33,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
 - On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
+- When you read a request body, choose the body buffer pool from `req.ContentLength` (not `Header.Get("Content-Length")`). Known length above `maxBodySizeBytesForPool` uses ad-hoc allocation. `-1` (unknown) still uses the pool. After a pooled read, Put the buffer only when `buf.Cap()` is at or under that cap.
 - On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
@@ -65,3 +70,4 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
 - Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
+- Do not decide the body buffer pool from the `Content-Length` header. net/http deletes that header on chunked HTTP/1, so `Header.Get` is empty while `req.ContentLength` is `-1`. A grown pooled buffer must not be Put back when `Cap()` exceeds `maxBodySizeBytesForPool`.
