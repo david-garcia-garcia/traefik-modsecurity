@@ -13,7 +13,7 @@ import (
 func isolateBodyBufferPool(t *testing.T) {
 	t.Helper()
 	original := bodyBufferPool
-	bodyBufferPool = sync.Pool{
+	bodyBufferPool = &sync.Pool{
 		New: func() interface{} {
 			return new(bytes.Buffer)
 		},

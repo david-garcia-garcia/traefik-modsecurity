@@ -13,7 +13,8 @@ import (
 const sidecarBodyDrainLimit = 256 << 10
 
 // bodyBufferPool reuses buffers for request bodies under the pool threshold.
-var bodyBufferPool = sync.Pool{
+// The pointer lets tests swap the pool without copying sync.Pool.
+var bodyBufferPool = &sync.Pool{
 	New: func() interface{} {
 		return new(bytes.Buffer)
 	},
