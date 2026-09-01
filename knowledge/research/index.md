@@ -1,5 +1,10 @@
 # Outside-system findings
 
+## http
+priority: normal
+local: index_ext_http.md
+description: Official HTTP and WebSocket handshake rules this product relies on.
+
 ## traefik
 priority: normal
 local: index_ext_traefik.md
