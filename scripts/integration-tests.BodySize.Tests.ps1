@@ -70,6 +70,21 @@ Describe "MaxBodySizeBytes Configuration Tests (Large Bodies)" {
     }
 }
 
+Describe "Chunked POST vs pool threshold" {
+    # /pool-test: maxBodySizeBytes=5120, maxBodySizeBytesForPool=1024
+    Context "HTTP/1 chunked above the pool cap" {
+        It "Should allow a chunked POST larger than the pool cap and under maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 2048
+            $result.StatusCode | Should -Be 200 -Because "2KB chunked is above the 1KB pool cap and under the 5KB body limit"
+        }
+
+        It "Should reject a chunked POST that exceeds maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 6144
+            $result.StatusCode | Should -Be 413 -Because "6KB chunked exceeds the 5KB maxBodySizeBytes on /pool-test"
+        }
+    }
+}
+
 Describe "MaxBodySizeBytes Status Header Tests" {
     Context "Pooled path body size enforcement (/protected)" {
         It "Should mark 413 body-too-large responses as blocked in access logs (usePool=true)" {
@@ -184,6 +199,21 @@ Describe "Body Size Limit Tests - usePool=false Path" {
             $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /pool-test entry in access logs"
             $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
             $latestEntry.'request_X-Waf-Status' | Should -Be "blocked" -Because "MaxBodySizeBytes enforcement in middleware should be logged as blocked"
+        }
+    }
+}
+
+Describe "Chunked POST vs pool threshold" {
+    # /pool-test: maxBodySizeBytes=5120, maxBodySizeBytesForPool=1024
+    Context "HTTP/1 chunked above the pool cap" {
+        It "Should allow a chunked POST larger than the pool cap and under maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 2048
+            $result.StatusCode | Should -Be 200 -Because "2KB chunked is above the 1KB pool cap and under the 5KB body limit"
+        }
+
+        It "Should reject a chunked POST that exceeds maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 6144
+            $result.StatusCode | Should -Be 413 -Because "6KB chunked exceeds the 5KB maxBodySizeBytes on /pool-test"
         }
     }
 }

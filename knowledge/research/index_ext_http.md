@@ -10,6 +10,11 @@ priority: normal
 local: ext_http_client_body-reuse/
 description: When Go's HTTP client can keep an HTTP/1 connection after Close.
 
+## Request.ContentLength
+priority: normal
+local: ext_http_request_content-length/
+description: How Go net/http sets Request.ContentLength versus the Content-Length header on incoming requests.
+
 ## HTTP method request content
 priority: normal
 local: ext_http_methods_request-content/

@@ -510,6 +510,22 @@ Describe "MaxBodySizeBytes Configuration Tests" {
         # Large-body tests moved to scripts/integration-tests.BodySize.Tests.ps1
     }
     
+    Context "Chunked POST vs pool threshold (/pool-test)" {
+        # /pool-test: maxBodySizeBytes=5120, maxBodySizeBytesForPool=1024
+        # Chunked requests have no Content-Length, so the plugin pools the read and
+        # drops the buffer when Cap() exceeds 1KB. Invoke-WebRequest cannot send this.
+
+        It "Should allow a chunked POST larger than the pool cap and under maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 2048
+            $result.StatusCode | Should -Be 200 -Because "2KB chunked is above the 1KB pool cap and under the 5KB body limit; Traefik must still reach whoami"
+        }
+
+        It "Should reject a chunked POST that exceeds maxBodySizeBytes" {
+            $result = Invoke-ChunkedHttpRequest -Path "/pool-test" -BodySizeBytes 6144
+            $result.StatusCode | Should -Be 413 -Because "6KB chunked exceeds the 5KB maxBodySizeBytes on /pool-test"
+        }
+    }
+
     Context "Body Size Limit Logging" {
         It "Should log body size limit violations appropriately" {
             # Make a request that exceeds the body size limit
