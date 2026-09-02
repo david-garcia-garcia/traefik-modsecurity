@@ -96,6 +96,8 @@ services:
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+      # Header test needs trip-on-first-error; product default threshold is now 5.
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=1"
 
   # Test service for error header testing (invalid ModSecurity URL)
   whoami-error-test:
@@ -108,6 +110,8 @@ services:
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.timeoutMillis=1000"
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+      # First invalid-URL request must fail open; product default threshold is now 5.
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=1"
 
   # Test service for denyVerbsWithBody (default list 400s GET/HEAD/DELETE with a body)
   whoami-force-test:
