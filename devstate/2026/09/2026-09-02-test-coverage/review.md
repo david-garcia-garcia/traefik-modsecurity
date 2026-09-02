@@ -16,3 +16,34 @@ findings: none
 fixed: none
 skipped: none
 change: close-remaining-waf-test-gaps
+
+## implement (2026-09-02T19:29:41Z)
+phase: implement
+findings: none
+fixed: clone TestModsecurity_ServeHTTP rows; remaining rejectNegative tests; concurrent mixed-body ServeHTTP; go.yml -race
+skipped: local -race (no gcc)
+
+## codereview (2026-09-02T19:29:41Z)
+phase: codereview
+findings: none
+fixed: none
+skipped: none
+
+## devdocsimpact (2026-09-02T19:29:41Z)
+phase: devdocsimpact
+findings: stale-usage go.yml -race (already produced in implement)
+fixed: none
+skipped: none
+
+## archive (2026-09-02T19:29:41Z)
+phase: archive
+findings: none
+fixed: specs synced; change moved to archive/2026-09-02-close-remaining-waf-test-gaps
+skipped: none
+
+## pullrequest (2026-09-02T19:29:41Z)
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
+

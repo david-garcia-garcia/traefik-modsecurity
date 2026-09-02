@@ -39,13 +39,13 @@ report.md holes
   By: explore
 
 - Q: Should CI gain `-race`, or only a unit test that is race-safe when someone runs `go test -race` locally?
-  Decision: assumed — add the concurrent mixed-body test and pass `-race` on `.github/workflows/go.yml` Test only. `build.yml` stays without `-race`.
-  By: explore
+  Decision: resolved — concurrent mixed-body test plus `-race` on `.github/workflows/go.yml` Test only; `build.yml` stays without `-race`. Shipped.
+  By: implement
 
 - Q: Do we still need a test that arbitrary inbound headers (beyond Host / XFF / X-Real-Ip) reach the sidecar?
   Decision: resolved — no. `pkg/modsecurity/serve_test.go` already asserts Host, X-Forwarded-For, and X-Real-Ip, which was the product gap the report named.
   By: explore
 
 - Q: Will in-flight sibling worktrees add these remaining tests before merge?
-  Decision: assumed — ignore sibling trees; close the holes on this branch against `origin/main`.
-  By: explore
+  Decision: resolved — ignored sibling trees; holes closed on this branch against `origin/main`.
+  By: implement
