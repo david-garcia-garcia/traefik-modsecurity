@@ -144,15 +144,15 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "blocked",
 		},
 		{
-			name:                           "Does not add remediation header when request is allowed",
+			name:                           "Adds ok when the sidecar allows the request",
 			request:                        req.Clone(req.Context()),
 			wafResponse:                    response{StatusCode: 200, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from service",
 			expectStatus:                   200,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
-			expectHeader:                   "",
-			expectHeaderValue:              "",
+			expectHeader:                   "X-Waf-Block",
+			expectHeaderValue:              "ok",
 		},
 		{
 			name:                           "Adds remediation header with different status codes",
@@ -657,6 +657,93 @@ func TestModsecurity_BodySizeLimit_20MB_LargeBodies(t *testing.T) {
 				t.Fatalf("backendCalled mismatch: got %v, want %v", backendCalled, tt.expectBackendCalled)
 			}
 		})
+	}
+}
+
+// TestModsecurity_StatusHeader_SidecarError checks a sidecar Do failure writes error with no tracker.
+func TestModsecurity_StatusHeader_SidecarError(t *testing.T) {
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	wafURL := waf.URL
+	waf.Close()
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	config := &Config{
+		TimeoutMillis:                  200,
+		ModSecurityUrl:                 wafURL,
+		UnhealthyWafBackOffPeriodSecs:  0,
+		ModSecurityStatusRequestHeader: "X-Waf-Status",
+	}
+	middleware, err := New(context.Background(), next, config, "status-header-sidecar-error")
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "http://proxy.com/test", http.NoBody)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	rw := httptest.NewRecorder()
+	middleware.ServeHTTP(rw, req)
+
+	if nextCalled {
+		t.Fatal("next must not run when the sidecar call fails and no tracker exists")
+	}
+	if rw.Result().StatusCode != http.StatusBadGateway {
+		t.Fatalf("status: got %d, want 502", rw.Result().StatusCode)
+	}
+	if got := req.Header.Get("X-Waf-Status"); got != "error" {
+		t.Fatalf("status header: got %q, want error", got)
+	}
+}
+
+// TestModsecurity_StatusHeader_BodyTooLarge checks a local 413 writes blocked (same token as a sidecar block).
+func TestModsecurity_StatusHeader_BodyTooLarge(t *testing.T) {
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("WAF OK"))
+	}))
+	defer waf.Close()
+
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	config := &Config{
+		TimeoutMillis:                  2000,
+		ModSecurityUrl:                 waf.URL,
+		MaxBodySizeBytes:               64,
+		MaxBodySizeBytesForPool:        32,
+		ModSecurityStatusRequestHeader: "X-Waf-Status",
+	}
+	middleware, err := New(context.Background(), next, config, "status-header-body-too-large")
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+
+	body := bytes.Repeat([]byte("a"), 128)
+	req, err := http.NewRequest(http.MethodPost, "http://proxy.com/test", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	rw := httptest.NewRecorder()
+	middleware.ServeHTTP(rw, req)
+
+	if nextCalled {
+		t.Fatal("next must not run when the body exceeds maxBodySizeBytes")
+	}
+	if rw.Result().StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: got %d, want 413", rw.Result().StatusCode)
+	}
+	if got := req.Header.Get("X-Waf-Status"); got != "blocked" {
+		t.Fatalf("status header: got %q, want blocked", got)
 	}
 }
 
