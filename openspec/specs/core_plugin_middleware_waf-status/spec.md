@@ -35,6 +35,15 @@ When the sidecar answers with a 4xx status, the plugin SHALL treat the request a
 - **THEN** the client SHALL receive status 406
 - **AND** the request header SHALL be `blocked`
 
+#### Scenario: 413 oversize body is blocked
+
+- **WHEN** the sidecar responds with HTTP 413
+- **AND** `modSecurityStatusRequestHeader` is configured
+- **THEN** the client SHALL receive status 413 and the sidecar body
+- **AND** the request header SHALL be `blocked`
+- **AND** the next handler SHALL NOT run
+- **AND** the health tracker SHALL NOT record a failure
+
 ### Requirement: Sidecar 5xx is a WAF failure
 
 When the sidecar answers with a 5xx status, the plugin SHALL treat that as a WAF communication failure, not a security block. The plugin SHALL NOT copy the sidecar 5xx response to the client as a block. When `modSecurityStatusRequestHeader` is configured, the plugin SHALL set it to `error`.
@@ -42,6 +51,13 @@ When the sidecar answers with a 5xx status, the plugin SHALL treat that as a WAF
 #### Scenario: 503 is not labeled blocked
 
 - **WHEN** the sidecar responds with HTTP 503
+- **AND** `modSecurityStatusRequestHeader` is configured
+- **THEN** the request header SHALL be `error`
+- **AND** the request header SHALL NOT be `blocked`
+
+#### Scenario: 500 is not labeled blocked
+
+- **WHEN** the sidecar responds with HTTP 500
 - **AND** `modSecurityStatusRequestHeader` is configured
 - **THEN** the request header SHALL be `error`
 - **AND** the request header SHALL NOT be `blocked`
@@ -55,6 +71,14 @@ A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffP
 - **WHEN** `unhealthyWafBackOffPeriodSecs` is greater than zero
 - **AND** `unhealthyWafFailureThreshold` is 1
 - **AND** the sidecar responds with HTTP 503
+- **THEN** the plugin SHALL call the next handler
+- **AND** the client SHALL receive the next handler's response
+
+#### Scenario: 500 trips fail-open at threshold 1
+
+- **WHEN** `unhealthyWafBackOffPeriodSecs` is greater than zero
+- **AND** `unhealthyWafFailureThreshold` is 1
+- **AND** the sidecar responds with HTTP 500
 - **THEN** the plugin SHALL call the next handler
 - **AND** the client SHALL receive the next handler's response
 

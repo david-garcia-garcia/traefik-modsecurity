@@ -106,6 +106,14 @@ Owner: [ngx_http_proxy_module — proxy_next_upstream](https://nginx.org/en/docs
 
 Extract: `.sources/nginx-proxy-next-upstream.md`
 
+## Request body over the engine buffer limit
+
+This is not a CRS `deny` and not a sidecar crash. `SecRequestBodyLimit` / `SecRequestBodyNoFilesLimit` reject oversize bodies with **413 Request Entity Too Large** when `SecRequestBodyLimitAction` is `Reject` (the default). CRS does not set those directives; they live in the engine / image config. Official `owasp/modsecurity-crs` defaults: `MODSEC_REQ_BODY_LIMIT=13107200` (12.5 MiB), `MODSEC_REQ_BODY_NOFILES_LIMIT=131072` (128 KiB), `MODSEC_REQ_BODY_LIMIT_ACTION=Reject`. This repo’s test compose overrides the first two to 10 MiB / 1 MiB. None of those paths return 500.
+
+Owner: [Reference Manual (v3.x) — SecRequestBodyLimit](https://github.com/owasp-modsecurity/ModSecurity/wiki/Reference-Manual-(v3.x)). Same 413 wording on [v2 Configuration Directives](https://github.com/owasp-modsecurity/ModSecurity/wiki/Reference-Manual-(v2.x)-Configuration-Directives). Image env: [coreruleset/modsecurity-crs-docker README](https://github.com/coreruleset/modsecurity-crs-docker/blob/master/README.md).
+
+Extracts: `.sources/reference-manual-v3-request-body-limit.md`, `.sources/crs-docker-readme-req-body-limit.md`
+
 ## Implication for “500 means sidecar down”
 
-Default CRS / image deny is **403**. A broken or unreachable `BACKEND` is typically **503** (Apache connect) or **502** (bad/missing upstream response). **500** appears both as a valid `deny,status:500`, as v2’s invalid-status deny, and as some Apache proxy failures. Do not treat every 5xx from the sidecar as “WAF down,” and do not treat 500 as exclusively infrastructure.
+Default CRS / image deny is **403**. Engine body-limit reject is **413**. A broken or unreachable `BACKEND` is typically **503** (Apache connect) or **502** (bad/missing upstream response). **500** appears both as a valid `deny,status:500`, as v2’s invalid-status deny, and as some Apache proxy failures. Do not treat every 5xx from the sidecar as “WAF down,” and do not treat 500 as exclusively infrastructure. Do not treat an oversize body as 5xx.

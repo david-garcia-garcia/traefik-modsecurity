@@ -165,6 +165,17 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeader:                   "X-Remediation-Info",
 			expectHeaderValue:              "blocked",
 		},
+		{
+			name:                           "Intercepts when WAF rejects oversize body",
+			request:                        req.Clone(req.Context()),
+			wafResponse:                    response{StatusCode: 413, Body: "Request Entity Too Large"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Request Entity Too Large",
+			expectStatus:                   413,
+			modSecurityStatusRequestHeader: "X-Waf-Block",
+			expectHeader:                   "X-Waf-Block",
+			expectHeaderValue:              "blocked",
+		},
 	}
 
 	for _, tt := range tests {
@@ -595,6 +606,7 @@ func TestModsecurity_BodySizeLimit_20MB_LargeBodies(t *testing.T) {
 func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
 	tests := []struct {
 		name           string
+		wafStatus      int
 		backoffSecs    int
 		expectStatus   int
 		expectBody     string
@@ -604,6 +616,7 @@ func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
 	}{
 		{
 			name:           "503 without backoff returns 502 and error header",
+			wafStatus:      http.StatusServiceUnavailable,
 			backoffSecs:    0,
 			expectStatus:   http.StatusBadGateway,
 			expectBody:     "sidecar down",
@@ -612,7 +625,18 @@ func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
 			middlewareName: "sidecar-5xx-nobackoff",
 		},
 		{
+			name:           "500 without backoff returns 502 and error header",
+			wafStatus:      http.StatusInternalServerError,
+			backoffSecs:    0,
+			expectStatus:   http.StatusBadGateway,
+			expectBody:     "sidecar down",
+			expectHeader:   "error",
+			expectBackend:  false,
+			middlewareName: "sidecar-500-nobackoff",
+		},
+		{
 			name:           "503 at threshold 1 fail-opens to next",
+			wafStatus:      http.StatusServiceUnavailable,
 			backoffSecs:    30,
 			expectStatus:   http.StatusOK,
 			expectBody:     "from backend",
@@ -620,12 +644,22 @@ func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
 			expectBackend:  true,
 			middlewareName: "sidecar-5xx-failopen",
 		},
+		{
+			name:           "500 at threshold 1 fail-opens to next",
+			wafStatus:      http.StatusInternalServerError,
+			backoffSecs:    30,
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
+			expectHeader:   "error",
+			expectBackend:  true,
+			middlewareName: "sidecar-500-failopen",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusServiceUnavailable)
+				w.WriteHeader(tt.wafStatus)
 				_, _ = io.WriteString(w, "sidecar down")
 			}))
 			defer waf.Close()

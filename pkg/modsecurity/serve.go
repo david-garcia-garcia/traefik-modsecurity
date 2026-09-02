@@ -12,8 +12,8 @@ import (
 	"sync"
 )
 
-// sidecarBodyDrainLimit is how many unread sidecar response bytes the allow
-// path discards so http.Transport can return the TCP connection to the idle pool.
+// sidecarBodyDrainLimit is how many unread sidecar response bytes we discard
+// so http.Transport can return the TCP connection to the idle pool.
 const sidecarBodyDrainLimit = 256 << 10
 
 // bodyBufferPool reuses buffers for request bodies under the pool threshold.
@@ -109,6 +109,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
+		// Traefik still needs this body for next (pass and fail-open). Sidecar got its own reader.
+		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
 	// Bind the sidecar request to the inbound context so a client disconnect cancels it.
@@ -138,7 +140,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			http.Error(rw, "", http.StatusBadGateway)
 			return
 		}
-		p.failWafRequest(rw, req, next, body, err)
+		p.recordWafFailureAndReplyToClient(rw, req, next, err)
 		return
 	}
 	defer func() {
@@ -147,32 +149,27 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}()
 
-	// Sidecar 5xx is a WAF failure, not a security block.
-	if resp.StatusCode >= 500 {
-		p.failWafRequest(rw, req, next, body, fmt.Errorf("waf status %d", resp.StatusCode))
-		return
-	}
-
-	// Block: copy the WAF 4xx response and do not call next.
-	if resp.StatusCode >= 400 {
+	// Block page must be copied before discard; then we are done with this request.
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
 		forwardResponse(resp, rw)
+		discardSidecarBody(resp.Body)
 		return
 	}
+	discardSidecarBody(resp.Body)
 
-	// Pass: restore the body Traefik still needs for the backend.
-	if body != nil {
-		req.Body = io.NopCloser(bytes.NewReader(body))
+	// Sidecar 5xx is a WAF failure, not a security block.
+	if resp.StatusCode >= 500 {
+		p.recordWafFailureAndReplyToClient(rw, req, next, fmt.Errorf("waf status %d", resp.StatusCode))
+		return
 	}
-	// Discard leftover sidecar bytes so the shared client can reuse the connection.
-	drainSidecarBody(resp.Body)
 	next.ServeHTTP(rw, req)
 }
 
-// failWafRequest records a WAF communication failure and fail-opens or returns 502.
-func (p *Plugin) failWafRequest(rw http.ResponseWriter, req *http.Request, next http.Handler, body []byte, cause error) {
+// recordWafFailureAndReplyToClient records a WAF communication failure and replies to the client (fail-open or 502).
+func (p *Plugin) recordWafFailureAndReplyToClient(rw http.ResponseWriter, req *http.Request, next http.Handler, cause error) {
 	// One write: every WAF failure is "error" (sidecar 5xx and transport).
 	if p.modSecurityStatusRequestHeader != "" {
 		req.Header.Set(p.modSecurityStatusRequestHeader, "error")
@@ -182,9 +179,6 @@ func (p *Plugin) failWafRequest(rw http.ResponseWriter, req *http.Request, next 
 	if p.healthTracker != nil {
 		p.healthTracker.RecordFailure()
 		if p.healthTracker.IsUnhealthy() {
-			if body != nil {
-				req.Body = io.NopCloser(bytes.NewReader(body))
-			}
 			next.ServeHTTP(rw, req)
 			return
 		}
@@ -194,8 +188,8 @@ func (p *Plugin) failWafRequest(rw http.ResponseWriter, req *http.Request, next 
 	http.Error(rw, "", http.StatusBadGateway)
 }
 
-// drainSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit.
-func drainSidecarBody(body io.Reader) {
+// discardSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit so Close can return the TCP connection to the pool.
+func discardSidecarBody(body io.Reader) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, sidecarBodyDrainLimit))
 }
 
