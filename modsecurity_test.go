@@ -134,7 +134,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:                           "Adds remediation header when request is blocked",
-			request:                        req,
+			request:                        req.Clone(req.Context()),
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from waf",
@@ -156,7 +156,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:                           "Adds remediation header with different status codes",
-			request:                        req,
+			request:                        req.Clone(req.Context()),
 			wafResponse:                    response{StatusCode: 406, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from waf",
