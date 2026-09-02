@@ -176,6 +176,17 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeader:                   "X-Waf-Block",
 			expectHeaderValue:              "blocked",
 		},
+		{
+			name:                           "Intercepts when WAF rejects oversize body",
+			request:                        req.Clone(req.Context()),
+			wafResponse:                    response{StatusCode: 413, Body: "Request Entity Too Large"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Request Entity Too Large",
+			expectStatus:                   413,
+			modSecurityStatusRequestHeader: "X-Waf-Block",
+			expectHeader:                   "X-Waf-Block",
+			expectHeaderValue:              "blocked",
+		},
 	}
 
 	for _, tt := range tests {
@@ -644,6 +655,109 @@ func TestModsecurity_BodySizeLimit_20MB_LargeBodies(t *testing.T) {
 
 			if backendCalled != tt.expectBackendCalled {
 				t.Fatalf("backendCalled mismatch: got %v, want %v", backendCalled, tt.expectBackendCalled)
+			}
+		})
+	}
+}
+
+// TestModsecurity_Sidecar5xxIsWafFailure checks a sidecar 5xx is a WAF failure, not a block.
+func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
+	tests := []struct {
+		name           string
+		wafStatus      int
+		backoffSecs    int
+		expectStatus   int
+		expectBody     string
+		expectHeader   string
+		expectBackend  bool
+		middlewareName string
+	}{
+		{
+			name:           "503 without backoff returns 502 and error header",
+			wafStatus:      http.StatusServiceUnavailable,
+			backoffSecs:    0,
+			expectStatus:   http.StatusBadGateway,
+			expectBody:     "sidecar down",
+			expectHeader:   "error",
+			expectBackend:  false,
+			middlewareName: "sidecar-5xx-nobackoff",
+		},
+		{
+			name:           "500 without backoff returns 502 and error header",
+			wafStatus:      http.StatusInternalServerError,
+			backoffSecs:    0,
+			expectStatus:   http.StatusBadGateway,
+			expectBody:     "sidecar down",
+			expectHeader:   "error",
+			expectBackend:  false,
+			middlewareName: "sidecar-500-nobackoff",
+		},
+		{
+			name:           "503 at threshold 1 fail-opens to next",
+			wafStatus:      http.StatusServiceUnavailable,
+			backoffSecs:    30,
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
+			expectHeader:   "error",
+			expectBackend:  true,
+			middlewareName: "sidecar-5xx-failopen",
+		},
+		{
+			name:           "500 at threshold 1 fail-opens to next",
+			wafStatus:      http.StatusInternalServerError,
+			backoffSecs:    30,
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
+			expectHeader:   "error",
+			expectBackend:  true,
+			middlewareName: "sidecar-500-failopen",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.wafStatus)
+				_, _ = io.WriteString(w, "sidecar down")
+			}))
+			defer waf.Close()
+
+			backendCalled := false
+			backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				backendCalled = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "from backend")
+			})
+
+			req, err := http.NewRequest(http.MethodGet, "http://proxy.com/test", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &Config{
+				TimeoutMillis:                  2000,
+				ModSecurityUrl:                 waf.URL,
+				ModSecurityStatusRequestHeader: "X-Waf-Status",
+				UnhealthyWafBackOffPeriodSecs:  tt.backoffSecs,
+				UnhealthyWafFailureThreshold:   1,
+			}
+			middleware, err := New(context.Background(), backend, cfg, tt.middlewareName)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rw := httptest.NewRecorder()
+			middleware.ServeHTTP(rw, req)
+			resp := rw.Result()
+			body, _ := io.ReadAll(resp.Body)
+
+			assert.Equal(t, tt.expectStatus, resp.StatusCode)
+			assert.Equal(t, tt.expectHeader, req.Header.Get("X-Waf-Status"))
+			assert.Equal(t, tt.expectBackend, backendCalled)
+			if tt.expectBackend {
+				assert.Equal(t, tt.expectBody, string(body))
+			} else {
+				assert.NotContains(t, string(body), tt.expectBody)
 			}
 		})
 	}

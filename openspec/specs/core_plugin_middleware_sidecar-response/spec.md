@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Finish the ModSecurity sidecar HTTP response so the shared WAF client can reuse the TCP connection on the allow path.
+Finish the ModSecurity sidecar HTTP response so the shared WAF client can reuse the TCP connection.
 
 ## Requirements
 
@@ -20,9 +20,19 @@ When the sidecar response status is below 300, the plugin SHALL read the leftove
 - **WHEN** the sidecar returns 200 with a non-empty body
 - **THEN** the client response SHALL be the `next` handler's response, not the sidecar body
 
+### Requirement: 5xx drains the sidecar body before Close or fail-open
+
+When the sidecar response status is a 5xx, the plugin SHALL read leftover response bytes up to 256 KiB and discard them before closing that body and before fail-open or 502. The plugin SHALL NOT copy that 5xx body to the client.
+
+#### Scenario: Sequential 5xx reuse one connection
+
+- **WHEN** the plugin handles several sequential requests whose sidecar responses are 503 with a whoami-sized body
+- **AND** fail-open backoff is not configured
+- **THEN** the mock WAF SHALL see one new TCP connection for those requests
+
 ### Requirement: Block path still copies the sidecar response
 
-When the sidecar response status is 300 or higher, the plugin SHALL copy that response to the client and SHALL NOT call `next`.
+When the sidecar response status is a 3xx or a 4xx, the plugin SHALL copy that response to the client and SHALL NOT call `next`. Leftover bytes after that copy SHALL still be drained up to 256 KiB. Sidecar 5xx is a WAF failure (`core_plugin_middleware_waf-status`), not a copied block.
 
 #### Scenario: Block still returns the sidecar page
 
@@ -34,6 +44,11 @@ When the sidecar response status is 300 or higher, the plugin SHALL copy that re
 - **WHEN** the sidecar returns 302 with a Location header and a body
 - **THEN** the client SHALL receive status 302, that Location, and that body
 - **AND** `next` SHALL NOT be called
+
+#### Scenario: Sequential 4xx reuse one connection
+
+- **WHEN** the plugin handles several sequential requests whose sidecar responses are 403 with a whoami-sized body
+- **THEN** the mock WAF SHALL see one new TCP connection for those requests
 
 ### Requirement: WAF client does not follow sidecar redirects
 
