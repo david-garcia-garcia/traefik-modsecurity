@@ -25,7 +25,7 @@ _Avoid_: circuit breaker
 
 ## Gotchas
 
-- Threshold `< 0` never trips. Threshold `0` is replaced by `Prepare` with the CreateConfig default (`1`).
+- Threshold `< 0` never trips inside `health.New`. Plugin `Prepare` rejects a negative `unhealthyWafFailureThreshold`, so that opt-out is not reachable from public config. Threshold `0` is replaced by `Prepare` with the CreateConfig default (`1`).
 - Window `0` means the failure count never resets until backoff expires.
 - Sharing one tracker across routes of the same name+config is intentional.
 - Inbound cancel aborts the WAF call and is not “fail to send HTTP request to modsec”. Log it as inbound-done. Inbound deadline and live-inbound sidecar/transport failures still trip health; keep the Error string for those.
