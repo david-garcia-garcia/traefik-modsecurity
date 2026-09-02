@@ -29,4 +29,8 @@ Shared ModSecurity ENV (Apache and nginx): `MODSEC_AUDIT_LOG` default `/dev/stdo
 
 `docker-compose.test.nginx.yml` is the nginx CRS reference. Demo `docker-compose.yml` stays Apache.
 
+On `4.3.0-nginx-alpine-202406090906`, `SET_REAL_IP_FROM` / `REAL_IP_HEADER` land in `includes/proxy_backend.conf` (`location /`). `modsecurity on` is at http level (`conf.d/modsecurity.conf`). Measured: location-only real_ip left audit `REMOTE_ADDR` as the Traefik hop. Compose mounts `crs-nginx/realip.conf` into `conf.d/` so real_ip runs at http level before CRS.
+
+The nginx user cannot write `/var/log`. Test compose uses `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log` (`/tmp/modsecurity` is nginx-owned).
+
 Extract: `.sources/crs-docker-readme-nginx-env.md`

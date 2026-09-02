@@ -298,8 +298,25 @@ function Get-TraefikAccessLogEntries {
     return $entries
 }
 
-# Path set on the waf service (MODSEC_AUDIT_LOG) in both Apache and nginx test compose files.
+# Default Apache path. Get-WafAuditLogPath reads MODSEC_AUDIT_LOG from the running container
+# so nginx (/tmp/modsecurity/modsec_audit.log) does not need a second helper.
 $script:WafAuditLogPath = "/var/log/modsec_audit.log"
+
+function Get-WafAuditLogPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    if ($env:WAF_AUDIT_LOG_PATH) {
+        return $env:WAF_AUDIT_LOG_PATH
+    }
+    $fromContainer = docker exec $WafContainerName printenv MODSEC_AUDIT_LOG 2>$null
+    if ($LASTEXITCODE -eq 0 -and $fromContainer) {
+        return ([string]$fromContainer).Trim()
+    }
+    return $script:WafAuditLogPath
+}
 
 # Get-TraefikClientHost returns the peer IP Traefik logged (ClientHost, else ClientAddr host).
 function Get-TraefikClientHost {
@@ -328,9 +345,10 @@ function Get-WafAuditLogRecords {
         [string]$WafContainerName
     )
 
-    $auditLogContent = docker exec $WafContainerName cat $script:WafAuditLogPath 2>$null
+    $auditLogPath = Get-WafAuditLogPath -WafContainerName $WafContainerName
+    $auditLogContent = docker exec $WafContainerName cat $auditLogPath 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to read WAF audit log $script:WafAuditLogPath from container: $WafContainerName"
+        throw "Failed to read WAF audit log $auditLogPath from container: $WafContainerName"
     }
 
     $logLines = $auditLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
@@ -346,7 +364,7 @@ function Get-WafAuditLogRecords {
 }
 
 # Get-WafAuditClientIp returns REMOTE_ADDR as logged.
-# Apache CRS 4.3 JSON: transaction.remote_address. nginx / libmodsecurity3: try client_ip / remote_addr too.
+# Apache CRS 4.3 JSON: transaction.remote_address. nginx CRS 4.3 JSON: transaction.client_ip.
 function Get-WafAuditClientIp {
     param(
         [Parameter(Mandatory)]

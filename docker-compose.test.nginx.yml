@@ -36,7 +36,8 @@ services:
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
       - MODSEC_AUDIT_LOG_FORMAT=JSON
-      - MODSEC_AUDIT_LOG=/var/log/modsec_audit.log
+      # nginx user cannot write /var/log (root). /tmp/modsecurity is nginx-owned.
+      - MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log
       - MODSEC_AUDIT_ENGINE=RelevantOnly
       # Traefik is the only TCP peer of this sidecar. Trust its Docker/RFC1918
       # networks so nginx real_ip rewrites REMOTE_ADDR from X-Real-IP, which
@@ -46,6 +47,10 @@ services:
       - REAL_IP_HEADER=X-Real-IP
       - "SET_REAL_IP_FROM=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       - REAL_IP_RECURSIVE=on
+    volumes:
+      # This 4.3.0 pin applies real_ip only in location / (too late for ModSecurity).
+      # Http-level overlay rewrites REMOTE_ADDR from X-Real-IP before CRS runs.
+      - ./crs-nginx/realip.conf:/etc/nginx/conf.d/zz-realip.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
       interval: 5s

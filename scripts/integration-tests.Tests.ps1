@@ -86,7 +86,7 @@ Describe "WAF Protection Tests" {
 
             $auditRecords = Get-WafAuditLogRecords -WafContainerName $script:wafContainer
             $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
-            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log $script:WafAuditLogPath should contain the deny"
+            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log should contain the deny"
             $auditClientIp = Get-WafAuditClientIp -AuditRecord $denyRecord
             $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing CRS X-Real-IP trust (REMOTEIP_INT_PROXY / SET_REAL_IP_FROM) fails this."
         }
