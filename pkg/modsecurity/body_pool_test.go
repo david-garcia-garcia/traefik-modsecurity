@@ -2,9 +2,11 @@ package modsecurity
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -247,5 +249,110 @@ func TestPlugin_BodyBufferPoolIsPerCore(t *testing.T) {
 	}
 	if a.bodyBufferPool == b.bodyBufferPool {
 		t.Fatal("distinct Plugin cores must not share a body buffer pool")
+	}
+}
+
+// capturedMixedBody holds the sidecar and next copies of one concurrent request body.
+type capturedMixedBody struct {
+	waf  []byte
+	next []byte
+}
+
+// TestPlugin_ConcurrentMixedBodySizesDoNotRace checks pooled and ad-hoc bodies on one core stay distinct under concurrency.
+func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 8192
+	small := bytes.Repeat([]byte("s"), 200)
+	large := bytes.Repeat([]byte("L"), 4096)
+
+	var mu sync.Mutex
+	got := map[string]*capturedMixedBody{}
+
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Test-Req")
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		seen := got[id]
+		if seen == nil {
+			seen = &capturedMixedBody{}
+			got[id] = seen
+		}
+		seen.waf = append([]byte(nil), body...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.MaxBodySizeBytes = maxBody
+	cfg.MaxBodySizeBytesForPool = poolCap
+	plugin, err := New("body-pool-concurrent", cfg, NewLogger("body-pool-concurrent", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Test-Req")
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		seen := got[id]
+		if seen == nil {
+			seen = &capturedMixedBody{}
+			got[id] = seen
+		}
+		seen.next = append([]byte(nil), body...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	errCh := make(chan string, n*2)
+	serve := func(id string, payload []byte) {
+		defer wg.Done()
+		req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(payload))
+		req.Header.Set("X-Test-Req", id)
+		req.ContentLength = int64(len(payload))
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			errCh <- fmt.Sprintf("%s status %d", id, rec.Code)
+		}
+	}
+	for i := 0; i < n; i++ {
+		wg.Add(2)
+		go serve(fmt.Sprintf("small-%d", i), small)
+		go serve(fmt.Sprintf("large-%d", i), large)
+	}
+	wg.Wait()
+	close(errCh)
+	for msg := range errCh {
+		t.Error(msg)
+	}
+
+	for i := 0; i < n; i++ {
+		smallID := fmt.Sprintf("small-%d", i)
+		largeID := fmt.Sprintf("large-%d", i)
+		mu.Lock()
+		smallSeen := got[smallID]
+		largeSeen := got[largeID]
+		mu.Unlock()
+		if smallSeen == nil {
+			t.Fatalf("missing %s", smallID)
+		}
+		if !bytes.Equal(smallSeen.waf, small) || !bytes.Equal(smallSeen.next, small) {
+			t.Fatalf("%s waf=%d next=%d, want %d", smallID, len(smallSeen.waf), len(smallSeen.next), len(small))
+		}
+		if largeSeen == nil {
+			t.Fatalf("missing %s", largeID)
+		}
+		if !bytes.Equal(largeSeen.waf, large) || !bytes.Equal(largeSeen.next, large) {
+			t.Fatalf("%s waf=%d next=%d, want %d", largeID, len(largeSeen.waf), len(largeSeen.next), len(large))
+		}
 	}
 }

@@ -102,6 +102,33 @@ func TestPrepare_RejectsNegativeMaxBodySizeBytes(t *testing.T) {
 	}
 }
 
+// TestPrepare_RejectsRemainingNegativeNumericFields checks Prepare fails for every leftover negative numeric field.
+func TestPrepare_RejectsRemainingNegativeNumericFields(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*Config)
+	}{
+		{"unhealthyWafBackOffPeriodSecs", func(c *Config) { c.UnhealthyWafBackOffPeriodSecs = -1 }},
+		{"unhealthyWafFailureThreshold", func(c *Config) { c.UnhealthyWafFailureThreshold = -1 }},
+		{"unhealthyWafFailureWindowSecs", func(c *Config) { c.UnhealthyWafFailureWindowSecs = -1 }},
+		{"maxConnsPerHost", func(c *Config) { c.MaxConnsPerHost = -1 }},
+		{"maxIdleConnsPerHost", func(c *Config) { c.MaxIdleConnsPerHost = -1 }},
+		{"responseHeaderTimeoutMillis", func(c *Config) { c.ResponseHeaderTimeoutMillis = -1 }},
+		{"expectContinueTimeoutMillis", func(c *Config) { c.ExpectContinueTimeoutMillis = -1 }},
+		{"maxBodySizeBytesForPool", func(c *Config) { c.MaxBodySizeBytesForPool = -1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := CreateConfig()
+			cfg.ModSecurityUrl = "http://waf"
+			tt.set(cfg)
+			if err := Prepare(cfg, "t"); err == nil {
+				t.Fatalf("expected error for %s=-1", tt.name)
+			}
+		})
+	}
+}
+
 func TestPrepare_RejectsURLWithoutScheme(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "waf:80"
