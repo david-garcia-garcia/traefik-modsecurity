@@ -42,11 +42,12 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}
 
 	// Read the inbound body for the sidecar and restore it for next.
-	body, releasePooledBuffer, ok := p.readInboundBody(rw, req)
+	body, releasePooledBuffer, err := p.readInboundBody(rw, req)
 	if releasePooledBuffer != nil {
 		defer releasePooledBuffer()
 	}
-	if !ok {
+	if err != nil {
+		p.replyInboundBodyReadFailure(rw, req, err)
 		return
 	}
 
@@ -113,6 +114,20 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		return
 	}
 	next.ServeHTTP(rw, req)
+}
+
+// replyInboundBodyReadFailure writes 413 for MaxBytesError or 502 for any other inbound body read error.
+func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.Request, err error) {
+	if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
+		p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
+		}
+		http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	p.logger.Error("fail to read incoming request", "error", err)
+	http.Error(rw, "", http.StatusBadGateway)
 }
 
 // recordWafFailureAndReplyToClient records a WAF communication failure and replies to the client (fail-open or 502).

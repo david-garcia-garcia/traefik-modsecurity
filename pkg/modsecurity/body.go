@@ -20,7 +20,8 @@ func newBodyBufferPool() *sync.Pool {
 // Known length uses this Plugin core's pool only under the pool cap; -1 (unknown) still pools the read.
 // The caller must defer release when it is non-nil so Put happens after ServeHTTP
 // (including next): buf.Bytes() aliases the pooled array.
-func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (body []byte, release func(), ok bool) {
+// rw is required for MaxBytesReader; the caller writes 413 or 502 when err is non-nil.
+func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (body []byte, release func(), err error) {
 	if p.maxBodySizeBytes > 0 {
 		req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
 	}
@@ -31,12 +32,11 @@ func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (bod
 	}
 
 	if !usePool {
-		largeBody, err := io.ReadAll(req.Body)
-		if err != nil {
-			p.replyInboundBodyReadFailure(rw, req, err)
-			return nil, nil, false
+		largeBody, readErr := io.ReadAll(req.Body)
+		if readErr != nil {
+			return nil, nil, readErr
 		}
-		return largeBody, nil, true
+		return largeBody, nil, nil
 	}
 
 	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
@@ -47,23 +47,8 @@ func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (bod
 		}
 	}
 
-	if _, err := io.Copy(buf, req.Body); err != nil {
-		p.replyInboundBodyReadFailure(rw, req, err)
-		return nil, release, false
+	if _, readErr := io.Copy(buf, req.Body); readErr != nil {
+		return nil, release, readErr
 	}
-	return buf.Bytes(), release, true
-}
-
-// replyInboundBodyReadFailure writes 413 for MaxBytesError or 502 for any other read error.
-func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.Request, err error) {
-	if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-		p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-		}
-		http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
-		return
-	}
-	p.logger.Error("fail to read incoming request", "error", err)
-	http.Error(rw, "", http.StatusBadGateway)
+	return buf.Bytes(), release, nil
 }
