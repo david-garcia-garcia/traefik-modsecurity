@@ -91,6 +91,30 @@ Describe "WAF Protection Tests" {
             $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing CRS X-Real-IP trust (REMOTEIP_INT_PROXY / SET_REAL_IP_FROM) fails this."
         }
     }
+
+    Context "Client Host in WAF audit log" {
+        # Negative control: drop proxyReq.Host = req.Host in ServeHTTP and this It
+        # fails — audit Host stays the sidecar URL host (waf / waf:8080).
+        It "Should record the incoming Host on a deny" {
+            $marker = "host-hdr-$(Get-Random)"
+            $wantHost = "app.example.test"
+            $requestLine = "GET /protected?id=1%27+OR+%271%27%3D%271&marker=$marker HTTP/1.1"
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine $requestLine -Headers @{
+                Host = $wantHost
+                Connection = "close"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] [45]\d\d' -Because "CRS should deny the SQL-injection query sent with a distinctive Host"
+
+            Start-Sleep -Seconds 2
+
+            $auditRecords = Get-WafAuditLogRecords -WafContainerName $script:wafContainer
+            $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
+            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log should contain the deny"
+            $auditHost = Get-WafAuditHost -AuditRecord $denyRecord
+            $auditHost | Should -Be $wantHost -Because "Audit Host must be the incoming Host, not the sidecar URL host. Missing proxyReq.Host = req.Host leaves waf or waf:8080."
+            $auditHost | Should -Not -BeIn @("waf", "waf:8080", "localhost", "localhost:8000") -Because "Sidecar URL host or the TCP target must not replace the incoming Host"
+        }
+    }
     
     Context "Legitimate Request Handling" {
         It "Should allow normal GET requests" {

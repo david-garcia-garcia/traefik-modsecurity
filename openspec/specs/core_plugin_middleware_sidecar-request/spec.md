@@ -23,6 +23,12 @@ When the plugin builds the request it sends to ModSecurity, that request SHALL u
 - **WHEN** an inspected request has Host `app.example.com` and the sidecar URL host is different
 - **THEN** the sidecar SHALL receive Host `app.example.com`
 
+#### Scenario: Deny audit log has original Host
+
+- **WHEN** an inspected request with Host `app.example.test` is denied by CRS
+- **THEN** the WAF JSON audit record for that request SHALL have Host `app.example.test` (`request.headers.Host` on Apache CRS 4.3, `transaction.request.headers.Host` on nginx CRS 4.3)
+- **AND** that Host SHALL NOT be the sidecar URL host (`waf`, `waf:8080`)
+
 ### Requirement: Sidecar request does not invent an X-Forwarded-For hop
 
 When the plugin builds the request it sends to ModSecurity, it SHALL copy incoming headers as-is and SHALL set Host. The plugin SHALL NOT append `req.RemoteAddr` to `X-Forwarded-For`. The plugin SHALL NOT set `X-Real-IP`, `X-Forwarded-Host`, or `X-Forwarded-Proto`. If the incoming request already has `X-Real-Ip` or `X-Forwarded-For`, those values SHALL reach the sidecar unchanged.

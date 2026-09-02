@@ -406,6 +406,28 @@ function Get-WafAuditRequestUri {
     return $null
 }
 
+# Get-WafAuditHost returns the Host CRS logged.
+# Apache CRS 4.3 JSON: request.headers.Host. nginx CRS 4.3 JSON: transaction.request.headers.Host.
+function Get-WafAuditHost {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.request.headers.Host,
+        $AuditRecord.transaction.request.headers.Host,
+        $AuditRecord.request.headers.host,
+        $AuditRecord.transaction.request.headers.host
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
 function New-RequestBodyOfSizeBytes {
     param(
         [Parameter(Mandatory)]
