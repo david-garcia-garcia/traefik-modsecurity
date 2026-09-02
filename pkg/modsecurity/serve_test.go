@@ -115,6 +115,129 @@ func TestPlugin_InboundCancelAbortsSidecarCall(t *testing.T) {
 	}
 }
 
+// newTestHealthRoute builds a plugin with fail-open backoff enabled and a next that writes 200.
+func newTestHealthRoute(t *testing.T, name, wafURL string, timeoutMillis int64) (*Plugin, http.Handler) {
+	t.Helper()
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = wafURL
+	cfg.TimeoutMillis = timeoutMillis
+	cfg.UnhealthyWafBackOffPeriodSecs = 30
+	cfg.UnhealthyWafFailureThreshold = 1
+	plugin, err := New(name, cfg, NewLogger(name, cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+	return plugin, route
+}
+
+// startTestBlockingWAF starts a sidecar that waits until its request context is done.
+func startTestBlockingWAF(t *testing.T) (wafURL string, started <-chan struct{}) {
+	t.Helper()
+	ready := make(chan struct{})
+	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(ready)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(waf.Close)
+	return waf.URL, ready
+}
+
+// TestPlugin_InboundCancelDoesNotTripHealth checks a client disconnect is not a WAF health failure.
+func TestPlugin_InboundCancelDoesNotTripHealth(t *testing.T) {
+	wafURL, started := startTestBlockingWAF(t)
+	plugin, route := newTestHealthRoute(t, "cancel-health", wafURL, 5000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		route.ServeHTTP(rec, req)
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not receive the request")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ServeHTTP did not return after inbound cancel")
+	}
+	if plugin.IsUnhealthy() {
+		t.Fatal("inbound cancel must not mark the WAF unhealthy")
+	}
+}
+
+// TestPlugin_InboundDeadlineTripsHealth checks a request deadline while waiting on the sidecar counts as a WAF health failure.
+func TestPlugin_InboundDeadlineTripsHealth(t *testing.T) {
+	wafURL, started := startTestBlockingWAF(t)
+	plugin, route := newTestHealthRoute(t, "deadline-health", wafURL, 5000)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	t.Cleanup(cancel)
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		route.ServeHTTP(rec, req)
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not receive the request")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeHTTP did not return after inbound deadline")
+	}
+	if !plugin.IsUnhealthy() {
+		t.Fatal("inbound deadline must mark the WAF unhealthy")
+	}
+}
+
+// TestPlugin_ClientTimeoutTripsHealth checks timeoutMillis still counts as a WAF health failure.
+func TestPlugin_ClientTimeoutTripsHealth(t *testing.T) {
+	waf := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		time.Sleep(2 * time.Second)
+	}))
+	t.Cleanup(waf.Close)
+	plugin, route := newTestHealthRoute(t, "timeout-health", waf.URL, 150)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if !plugin.IsUnhealthy() {
+		t.Fatal("client timeout must mark the WAF unhealthy")
+	}
+}
+
+// TestPlugin_UnreachableSidecarTripsHealth checks a live-inbound transport error still trips health.
+func TestPlugin_UnreachableSidecarTripsHealth(t *testing.T) {
+	plugin, route := newTestHealthRoute(t, "unreach-health", "http://127.0.0.1:1", 200)
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if !plugin.IsUnhealthy() {
+		t.Fatal("unreachable sidecar must mark the WAF unhealthy")
+	}
+}
+
 // TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders checks Host is set and Traefik headers are copied as-is.
 func TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders(t *testing.T) {
 	tests := []struct {
