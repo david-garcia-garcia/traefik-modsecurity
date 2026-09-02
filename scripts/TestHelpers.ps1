@@ -38,10 +38,18 @@ function Wait-ForWafHealthy {
     $health = $null
 
     do {
-        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        $health = docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" $ContainerName 2>$null
         if ($health -eq "healthy") {
             Write-Host "✅ WAF container is healthy" -ForegroundColor Green
             return $true
+        }
+        # nginx CRS (and some custom images) may omit HEALTHCHECK. Running is enough.
+        if ($health -eq "none") {
+            $running = docker inspect --format "{{.State.Running}}" $ContainerName 2>$null
+            if ($running -eq "true") {
+                Write-Host "✅ WAF container is running (no Docker HEALTHCHECK)" -ForegroundColor Green
+                return $true
+            }
         }
 
         Start-Sleep -Seconds $PollSeconds
@@ -288,6 +296,136 @@ function Get-TraefikAccessLogEntries {
     }
 
     return $entries
+}
+
+# Default Apache path. Get-WafAuditLogPath reads MODSEC_AUDIT_LOG from the running container
+# so nginx (/tmp/modsecurity/modsec_audit.log) does not need a second helper.
+$script:WafAuditLogPath = "/var/log/modsec_audit.log"
+
+function Get-WafAuditLogPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    if ($env:WAF_AUDIT_LOG_PATH) {
+        return $env:WAF_AUDIT_LOG_PATH
+    }
+    $fromContainer = docker exec $WafContainerName printenv MODSEC_AUDIT_LOG 2>$null
+    if ($LASTEXITCODE -eq 0 -and $fromContainer) {
+        return ([string]$fromContainer).Trim()
+    }
+    return $script:WafAuditLogPath
+}
+
+# Get-TraefikClientHost returns the peer IP Traefik logged (ClientHost, else ClientAddr host).
+function Get-TraefikClientHost {
+    param(
+        [Parameter(Mandatory)]
+        $AccessLogEntry
+    )
+
+    if ($AccessLogEntry.ClientHost) {
+        return [string]$AccessLogEntry.ClientHost
+    }
+    $clientAddr = [string]$AccessLogEntry.ClientAddr
+    if ($clientAddr -match '^\[(.+)\]:\d+$') {
+        return $Matches[1]
+    }
+    if ($clientAddr -match '^(.+):\d+$') {
+        return $Matches[1]
+    }
+    return $clientAddr
+}
+
+# Get-WafAuditLogRecords reads JSON audit lines from the waf container (not Traefik access.log).
+function Get-WafAuditLogRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    $auditLogPath = Get-WafAuditLogPath -WafContainerName $WafContainerName
+    $auditLogContent = docker exec $WafContainerName cat $auditLogPath 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read WAF audit log $auditLogPath from container: $WafContainerName"
+    }
+
+    $logLines = $auditLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+    $records = @()
+    foreach ($line in $logLines) {
+        try {
+            $records += ($line | ConvertFrom-Json)
+        } catch {
+            # Skip malformed JSON lines
+        }
+    }
+    return $records
+}
+
+# Get-WafAuditClientIp returns REMOTE_ADDR as logged.
+# Apache CRS 4.3 JSON: transaction.remote_address. nginx CRS 4.3 JSON: transaction.client_ip.
+function Get-WafAuditClientIp {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.transaction.remote_address,
+        $AuditRecord.transaction.client_ip,
+        $AuditRecord.transaction.remote_addr,
+        $AuditRecord.transaction.client.ip
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
+# Get-WafAuditRequestUri returns the request line used to match a deny to its audit record.
+function Get-WafAuditRequestUri {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.request.request_line,
+        $AuditRecord.transaction.request.request_line,
+        $AuditRecord.transaction.request.uri,
+        $AuditRecord.request.uri
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
+# Get-WafAuditHost returns the Host CRS logged.
+# Apache CRS 4.3 JSON: request.headers.Host. nginx CRS 4.3 JSON: transaction.request.headers.Host.
+function Get-WafAuditHost {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.request.headers.Host,
+        $AuditRecord.transaction.request.headers.Host,
+        $AuditRecord.request.headers.host,
+        $AuditRecord.transaction.request.headers.host
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
 }
 
 function New-RequestBodyOfSizeBytes {
