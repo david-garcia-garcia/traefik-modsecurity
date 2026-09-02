@@ -26,7 +26,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
 		if n, err := limitedBody.Read(testByte); n > 0 || err == nil {
-			p.logger.Error("HTTP request should not have a body, rejecting", "method", req.Method)
+			p.logger.Warn("HTTP request should not have a body, rejecting", "method", req.Method)
 			http.Error(rw, "HTTP "+req.Method+" requests should not have a body", http.StatusBadRequest)
 			return
 		}
@@ -65,7 +65,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, bodyReader)
 	if err != nil {
 		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "cannotforward")
+			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
 		}
 		p.logger.Error("fail to prepare forwarded request", "error", err)
 		http.Error(rw, "", http.StatusBadGateway)
@@ -113,13 +113,17 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		p.recordWafFailureAndReplyToClient(rw, req, next, fmt.Errorf("waf status %d", resp.StatusCode))
 		return
 	}
+	// Sidecar allow: mark ok for access logs, then Traefik continues.
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Set(p.modSecurityStatusRequestHeader, "ok")
+	}
 	next.ServeHTTP(rw, req)
 }
 
 // replyInboundBodyReadFailure writes 413 for MaxBytesError or 502 for any other inbound body read error.
 func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.Request, err error) {
 	if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-		p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+		p.logger.Warn("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}

@@ -80,6 +80,9 @@ func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	if !bytes.Equal(h.nextBody, body) || !bytes.Equal(h.wafBody, body) {
 		t.Fatalf("sidecar/next body mismatch: waf=%d next=%d want=%d", len(h.wafBody), len(h.nextBody), len(body))
 	}
+	if req.Header.Get("X-Waf-Status") != "ok" {
+		t.Fatalf("status header %q, want ok", req.Header.Get("X-Waf-Status"))
+	}
 	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
 		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
 	}

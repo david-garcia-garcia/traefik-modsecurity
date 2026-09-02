@@ -61,8 +61,8 @@ This is a very simple plugin that proxies the query to the owasp/modsecurity apa
 
 The plugin classifies the sidecar HTTP status:
 
-- **2xx / 3xx** — allow: forward the request to the real service.
-- **4xx** — security block: copy the sidecar response (the WAF error page) to the client.
+- **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
+- **3xx / 4xx** — security block: copy the sidecar response to the client. When `modSecurityStatusRequestHeader` is set, write `blocked`.
 - **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
@@ -202,11 +202,11 @@ http:
           # OPTIONAL: Header name to add to requests for logging purposes
           # Default: empty (no header added)
           # This header is added to the REQUEST (not response) for Traefik access logs
-          # Header values:
-          # - "blocked" when the sidecar returns 4xx (security block)
-          # - "error" when the sidecar is unreachable or returns 5xx
+          # Header values (coarse WAF status for access logs; not HTTP status codes):
+          # - "ok" when the sidecar allows the request
+          # - "blocked" when the sidecar returns 3xx/4xx, or this plugin rejects an oversize body
+          # - "error" when the sidecar is unreachable, returns 5xx, or the sidecar request cannot be built
           # - "unhealthy" when ModSecurity is down and backoff is already tripped
-          # - "cannotforward" when request forwarding fails
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
           
