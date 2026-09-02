@@ -35,6 +35,21 @@ services:
       - MODSEC_RULE_ENGINE=On
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
+      - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG=/var/log/modsec_audit.log
+      - MODSEC_AUDIT_ENGINE=RelevantOnly
+      # Traefik is the only TCP peer of this sidecar. Trust its Docker/RFC1918
+      # networks so mod_remoteip rewrites REMOTE_ADDR from X-Real-IP, which
+      # Traefik already set. The plugin does not invent XFF.
+      # Image default 10.1.0.0/16 misses typical 172.16.0.0/12 bridges; deny
+      # logs and any IPS that parse them would then show Traefik's IP.
+      # Do not set 0.0.0.0/0. Missing this list fails the client-IP audit test.
+      # This 4.3.0 pin hardcodes RemoteIPHeader X-Forwarded-For; REMOTEIP_HEADER
+      # is ignored. The volume overlay sets RemoteIPHeader X-Real-IP.
+      - REMOTEIP_HEADER=X-Real-IP
+      - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+    volumes:
+      - ./crs-apache/httpd-vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
 
   dummy:
     image: traefik/whoami
@@ -79,6 +94,8 @@ services:
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+      # Header test needs trip-on-first-error; product default threshold is now 5.
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=1"
 
   # Test service for error header testing (invalid ModSecurity URL)
   whoami-error-test:
@@ -91,8 +108,10 @@ services:
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.timeoutMillis=1000"
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+      # First invalid-URL request must fail open; product default threshold is now 5.
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=1"
 
-  # Test service for ignoreBodyForVerbsDeny testing
+  # Test service for denyVerbsWithBody (default list 400s GET/HEAD/DELETE with a body)
   whoami-force-test:
     image: traefik/whoami
     labels:
@@ -103,7 +122,6 @@ services:
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
       - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
-      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.ignoreBodyForVerbsDeny=true"
 
   # Test service for large body size limit testing (20MB limit)
   whoami-large-body-test:

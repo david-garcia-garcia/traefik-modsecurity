@@ -17,7 +17,7 @@ When `modSecurityStatusRequestHeader` is empty, the plugin SHALL NOT add a statu
 
 ### Requirement: Sidecar block writes the HTTP status code
 
-When `modSecurityStatusRequestHeader` is set and the sidecar response status is 400 or higher, the plugin SHALL set that header on the request to the decimal HTTP status code of the sidecar response (for example `403` or `406`). The plugin SHALL NOT write the literal `blocked` on this path.
+When `modSecurityStatusRequestHeader` is set and the sidecar response status is a security block (`3xx` or `4xx`), the plugin SHALL set that header on the request to the decimal HTTP status code of the sidecar response (for example `403` or `406`). The plugin SHALL NOT write the literal `blocked` on this path. A sidecar `5xx` is a WAF failure and SHALL write `error`, not the status code.
 
 #### Scenario: 403 block is the status string
 
@@ -68,7 +68,7 @@ When `modSecurityStatusRequestHeader` is set and the health tracker is already i
 
 ### Requirement: Allow path does not set the header
 
-When `modSecurityStatusRequestHeader` is set and the sidecar response status is below 400, the plugin SHALL NOT set that header.
+When `modSecurityStatusRequestHeader` is set and the sidecar response status is below 300 (allow), the plugin SHALL NOT set that header.
 
 #### Scenario: Allowed request has no status header
 
