@@ -535,58 +535,47 @@ Describe "MaxBodySizeBytes Configuration Tests" {
 
 # Body Size Limit Tests moved to scripts/integration-tests.BodySize.Tests.ps1
 
-Describe "IgnoreBodyForVerbsForce Configuration Tests" {
+Describe "DenyVerbsWithBody Configuration Tests" {
     Context "Strict Body Validation" {
-        It "Should reject GET requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test GET request with body (should be rejected)
+        It "Should reject GET requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
 
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method GET -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "GET requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should reject HEAD requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test HEAD request with body (should be rejected)
+        It "Should reject HEAD requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method HEAD -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "HEAD requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should reject DELETE requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test DELETE request with body (should be rejected)
+        It "Should reject DELETE requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method DELETE -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "DELETE requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should allow GET requests without body when ignoreBodyForVerbsDeny is enabled" {
-            # Test GET request without body (should be allowed)
+        It "Should allow GET requests without body" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test"
             $response.StatusCode | Should -Be 200 -Because "GET requests without body should be allowed"
         }
         
-        It "Should allow POST requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test POST request with body (should be allowed - POST is not in ignoreBodyForVerbs)
+        It "Should allow POST requests with body" {
             $body = "test data"
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method POST -Body $body
-            $response.StatusCode | Should -Be 200 -Because "POST requests with body should be allowed (POST is not in ignoreBodyForVerbs)"
+            $response.StatusCode | Should -Be 200 -Because "POST is not in denyVerbsWithBody"
         }
         
-        It "Should allow PUT requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test PUT request with body (should be allowed - PUT is not in ignoreBodyForVerbs)
-            # Note: This might be blocked by ModSecurity, but the important thing is that
-            # it's not blocked by our body validation (which would return 400)
+        It "Should allow PUT requests with body" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method PUT -Body $body -TimeoutSec 10
             $statusCode = [int]$response.StatusCode
 
-            # 200  -> body validation allowed and ModSecurity allowed (ideal)
-            # 403  -> body validation allowed, ModSecurity blocked (acceptable)
-            # 400  -> body validation wrongly rejected by our validation layer (NOT acceptable)
-            $statusCode | Should -Not -Be 400 -Because "PUT is not in ignoreBodyForVerbs; our body validation must not reject it"
+            $statusCode | Should -Not -Be 400 -Because "PUT is not in denyVerbsWithBody; body validation must not reject it"
         }
     }
 }

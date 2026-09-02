@@ -29,7 +29,7 @@ func writeTestResponse(resp *http.Response, rw http.ResponseWriter) {
 
 func TestModsecurity_ServeHTTP(t *testing.T) {
 
-	req, err := http.NewRequest(http.MethodGet, "http://proxy.com/test", bytes.NewBuffer([]byte("Request")))
+	req, err := http.NewRequest(http.MethodPost, "http://proxy.com/test", bytes.NewBuffer([]byte("Request")))
 
 	if err != nil {
 		log.Fatal(err)
@@ -285,7 +285,7 @@ func TestModsecurity_ServeHTTP_RedirectWithLocation(t *testing.T) {
 		t.Fatalf("Failed to create middleware: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "http://proxy.com/attack", bytes.NewBufferString("x"))
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.com/attack", bytes.NewBufferString("x"))
 	rw := httptest.NewRecorder()
 	middleware.ServeHTTP(rw, req)
 	resp := rw.Result()

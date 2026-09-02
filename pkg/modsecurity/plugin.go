@@ -24,8 +24,7 @@ type Plugin struct {
 	modSecurityStatusRequestHeader string
 	maxBodySizeBytes               int64
 	maxBodySizeBytesForPool        int64
-	ignoreBodyForVerbs             map[string]bool
-	ignoreBodyForVerbsDeny         bool
+	denyVerbsWithBody              map[string]bool
 }
 
 // New builds the Plugin. cfg must already be Prepare'd. logger is the shared core logger.
@@ -99,8 +98,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		modSecurityStatusRequestHeader: cfg.ModSecurityStatusRequestHeader,
 		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
 		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,
-		ignoreBodyForVerbs:             createIgnoreBodyMap(cfg.IgnoreBodyForVerbs),
-		ignoreBodyForVerbsDeny:         cfg.IgnoreBodyForVerbsDeny,
+		denyVerbsWithBody:              createMethodSet(cfg.DenyVerbsWithBody),
 	}, nil
 }
 
@@ -138,11 +136,11 @@ func (p *Plugin) IsUnhealthy() bool {
 	return p.healthTracker.IsUnhealthy()
 }
 
-// createIgnoreBodyMap converts a slice of verbs to a map for O(1) lookup.
-func createIgnoreBodyMap(verbs []string) map[string]bool {
-	ignoreMap := make(map[string]bool, len(verbs))
-	for _, verb := range verbs {
-		ignoreMap[strings.ToUpper(verb)] = true
+// createMethodSet converts HTTP methods to an uppercase set for O(1) lookup.
+func createMethodSet(methods []string) map[string]bool {
+	set := make(map[string]bool, len(methods))
+	for _, method := range methods {
+		set[strings.ToUpper(method)] = true
 	}
-	return ignoreMap
+	return set
 }

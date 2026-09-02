@@ -14,7 +14,7 @@ _Avoid_: circuit breaker
 
 - Build the tracker in `New` when backoff seconds are greater than zero. Pass the Plugin slog logger. Trip at warn (expected backoff); backoff expiry at info.
 - Call `RecordFailure` after `httpClient.Do` errors unless the inbound request is `context.Canceled`, and after a sidecar `5xx`. Match cancel with `errors.Is` on `req.Context().Err()`. Inbound `DeadlineExceeded` still counts. Call `IsUnhealthy` before sending to the WAF.
-- When unhealthy, forward to `next` (fail-open) and optionally set the status request header to `unhealthy`.
+- When unhealthy, forward to `next` (fail-open) and optionally set the status request header to `unhealthy`. Still return HTTP 400 first when `denyVerbsWithBody` lists the method and a body is present (`core_plugin_middleware.md`).
 - On a sidecar `5xx`, set the status request header to `error` when configured (every such request, not only the trip).
 
 ## Key files

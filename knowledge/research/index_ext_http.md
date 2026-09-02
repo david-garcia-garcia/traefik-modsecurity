@@ -10,6 +10,11 @@ priority: normal
 local: ext_http_client_body-reuse/
 description: When Go's HTTP client can keep an HTTP/1 connection after Close.
 
+## HTTP method request content
+priority: normal
+local: ext_http_methods_request-content/
+description: RFC 9110 rules for request content on GET, HEAD, and DELETE.
+
 ## Go net/url Parse
 priority: normal
 local: ext_http_url_parse/

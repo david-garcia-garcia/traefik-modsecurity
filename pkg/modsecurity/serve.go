@@ -30,17 +30,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		return
 	}
 
-	// If the WAF is unhealthy just forward the request early.
-	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
-		}
-		next.ServeHTTP(rw, req)
-		return
-	}
-
-	// Check if we should enforce strict body validation for this HTTP method
-	if p.ignoreBodyForVerbsDeny && p.ignoreBodyForVerbs[req.Method] {
+	// Reject a body on methods listed in denyVerbsWithBody before any forward.
+	if p.denyVerbsWithBody[req.Method] {
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
 		if n, err := limitedBody.Read(testByte); n > 0 || err == nil {
@@ -50,57 +41,64 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}
 
-	// Read the body when this method is not on the ignore list.
+	// If the WAF is unhealthy just forward the request early.
+	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
+		}
+		next.ServeHTTP(rw, req)
+		return
+	}
+
+	// Read the inbound body for the sidecar and restore it for next.
 	var body []byte
-	if !p.ignoreBodyForVerbs[req.Method] {
-		if p.maxBodySizeBytes > 0 {
-			req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
+	if p.maxBodySizeBytes > 0 {
+		req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
+	}
+
+	contentLengthStr := req.Header.Get("Content-Length")
+	usePool := true
+	if contentLengthStr != "" {
+		if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
+			usePool = contentLength <= p.maxBodySizeBytesForPool
 		}
+	}
 
-		contentLengthStr := req.Header.Get("Content-Length")
-		usePool := true
-		if contentLengthStr != "" {
-			if contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64); err == nil {
-				usePool = contentLength <= p.maxBodySizeBytesForPool
-			}
-		}
+	if usePool {
+		buf := bodyBufferPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		defer bodyBufferPool.Put(buf)
 
-		if usePool {
-			buf := bodyBufferPool.Get().(*bytes.Buffer)
-			buf.Reset()
-			defer bodyBufferPool.Put(buf)
-
-			if _, err := io.Copy(buf, req.Body); err != nil {
-				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-					if p.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-					}
-					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
-					return
+		if _, err := io.Copy(buf, req.Body); err != nil {
+			if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
+				p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+				if p.modSecurityStatusRequestHeader != "" {
+					req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 				}
-				p.logger.Error("fail to read incoming request", "error", err)
-				http.Error(rw, "", http.StatusBadGateway)
+				http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			body = buf.Bytes()
-		} else {
-			largeBody, err := io.ReadAll(req.Body)
-			if err != nil {
-				if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-					p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-					if p.modSecurityStatusRequestHeader != "" {
-						req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-					}
-					http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
-					return
+			p.logger.Error("fail to read incoming request", "error", err)
+			http.Error(rw, "", http.StatusBadGateway)
+			return
+		}
+		body = buf.Bytes()
+	} else {
+		largeBody, err := io.ReadAll(req.Body)
+		if err != nil {
+			if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
+				p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
+				if p.modSecurityStatusRequestHeader != "" {
+					req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 				}
-				p.logger.Error("fail to read incoming request", "error", err)
-				http.Error(rw, "", http.StatusBadGateway)
+				http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			body = largeBody
+			p.logger.Error("fail to read incoming request", "error", err)
+			http.Error(rw, "", http.StatusBadGateway)
+			return
 		}
+		body = largeBody
 	}
 
 	// Build the WAF request and send it on the shared client.

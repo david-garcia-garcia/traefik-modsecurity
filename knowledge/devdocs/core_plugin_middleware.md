@@ -30,6 +30,10 @@ _Avoid_: WAF request (ambiguous with the incoming client request)
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
 
+**Denied-verb body**:
+A request body whose method is listed in `denyVerbsWithBody`. The plugin rejects that request with HTTP 400.
+_Avoid_: ignored-verb body, ignoreBodyForVerbs
+
 **WAF base URL**:
 The prepared `ModSecurityUrl`: an absolute `http` or `https` origin (scheme + host and optional port) with no path. `ServeHTTP` concatenates it with the request URI.
 _Avoid_: sidecar path, WAF endpoint path
@@ -50,6 +54,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`. Build that sidecar request with `http.NewRequestWithContext(req.Context(), …)` so a client disconnect or Traefik deadline cancels it. `timeoutMillis` still caps the call when the inbound context stays live. The shared WAF client does not follow `Location`; `Do` returns the sidecar's own 3xx.
 - After `http.NewRequestWithContext` and the `req.Header` copy, set `proxyReq.Host = req.Host`. Incoming Host is not in the header map. Copy Traefik’s headers as-is. Do not append `req.RemoteAddr` to `X-Forwarded-For`. Do not set `X-Real-IP`.
 - After `Do`, a sidecar `3xx` or `4xx` is copied with `forwardResponse`, then `discardSidecarBody`, then return. Allow and 5xx `discardSidecarBody` (256 KiB cap) so the shared client can reuse the TCP connection, then fail-open/502 or `next`. Do not buffer the sidecar body on the allow path. After the inbound body is read, restore `req.Body` once so pass and fail-open both still have it for Traefik.
+- When the method is in `denyVerbsWithBody` and the request has a body, return HTTP 400 before the sidecar and before `next`, including when the WAF is already unhealthy. Omitted `denyVerbsWithBody` uses the CreateConfig default list. An explicit empty slice denies nothing. Methods not on the list are inspected and forwarded.
 - On a sidecar `3xx` or `4xx` (security block), copy the WAF response and do not call `next`.
 - On a sidecar `5xx` or a transport error talking to the sidecar, set the status request header to `error` when configured, record a health failure, then fail-open or return 502. Do not `forwardResponse` a 5xx. Inbound `Canceled` is not that path.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.

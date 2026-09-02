@@ -111,6 +111,30 @@ func TestNewLogger_InfoHidesDebug(t *testing.T) {
 	}
 }
 
+func TestPrepare_NilDenyVerbsWithBodyGetsDefault(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.DenyVerbsWithBody = nil
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.DenyVerbsWithBody) == 0 {
+		t.Fatal("nil denyVerbsWithBody must become the CreateConfig default")
+	}
+}
+
+func TestPrepare_EmptyDenyVerbsWithBodyStaysEmpty(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.DenyVerbsWithBody = []string{}
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DenyVerbsWithBody == nil || len(cfg.DenyVerbsWithBody) != 0 {
+		t.Fatalf("empty denyVerbsWithBody = %v, want empty non-nil", cfg.DenyVerbsWithBody)
+	}
+}
+
 func TestNewLogger_DebugEnablesDebug(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf"

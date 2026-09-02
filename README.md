@@ -253,38 +253,17 @@ http:
           # - 10485760 (10 MB) for file uploads
           # - 52428800 (50 MB) for large file processing
           
-          ignoreBodyForVerbs: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # OPTIONAL: HTTP methods for which request body should not be read
+          denyVerbsWithBody: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
+          # OPTIONAL: HTTP methods that must not carry a request body
           # Default: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # Performance optimization: skips body reading for methods that don't use it
-          # These methods either never have a body or ignore it per HTTP specification
-          # 
-          # ⚠️  IMPORTANT: When a method is in this list, the request body is COMPLETELY IGNORED
-          # and will NOT reach the backend service or next middleware. The body is consumed
-          # but not processed, making it unavailable for downstream handlers.
-          # 
-          # Benefits:
-          # - Faster processing for methods that don't need body inspection
-          # - Reduced allocations and GC pressure
-          # - Body is consumed but not forwarded (saves bandwidth to backend)
-          
-          ignoreBodyForVerbsDeny: false
-          # OPTIONAL: Whether to reject requests with body for verbs in ignoreBodyForVerbs
-          # Default: false
-          # Security feature: enforces HTTP compliance by rejecting requests that have a body
-          # when the HTTP method should not have one according to the specification. It will attempt to 
-          # read the first byte of the request body stream to decide.
-          # 
-          # When enabled (true):
-          # - Attempts to read 1 byte from the request body
-          # - If any data is found, returns HTTP 400 Bad Request
-          # - Prevents malformed requests from reaching the backend
-          # - Helps detect potential attacks or misconfigured clients
-          # 
-          # When disabled (false):
-          # - Simply ignores the body without validation
-          # - More permissive but less secure
-          # - May allow non-compliant requests to pass through
+          # When a listed method has a body, the plugin returns HTTP 400. It does not
+          # call ModSecurity and it does not call the next handler, including when the
+          # WAF is already unhealthy. Methods not on this list are inspected and forwarded.
+          #
+          # Omitted uses this default. An explicit empty list denies nothing (GET-with-body
+          # is inspected like POST). To allow GET-with-body while keeping the other defaults,
+          # omit GET from the list. The old keys ignoreBodyForVerbs and ignoreBodyForVerbsDeny
+          # are removed; leftover YAML for those keys is ignored.
           
           maxBodySizeBytesForPool: 4194304
           # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
