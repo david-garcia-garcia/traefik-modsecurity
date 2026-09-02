@@ -1,0 +1,173 @@
+services:
+  traefik:
+    image: "traefik:v3.7.12"
+    ports:
+      - "8080:8080"  # Traefik API
+      - "8000:80"    # HTTP
+    command:
+      - "--log.level=DEBUG"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--accesslog"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.format=json"
+      - "--accesslog.fields.headers.names.X-Waf-Status=keep"
+      - "--experimental.localPlugins.traefik-modsecurity.moduleName=github.com/david-garcia-garcia/traefik-modsecurity"
+      - "--providers.docker=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      # Disable path sanitization so absolute-form Request-URI reaches the plugin (for integration test reproduction)
+      - "--entrypoints.web.http.sanitizePath=false"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - ".:/plugins-local/src/github.com/david-garcia-garcia/traefik-modsecurity"
+      - "./test-dynamic:/etc/traefik/dynamic"
+      - logs-local:/var/log/traefik
+
+  waf:
+    image: owasp/modsecurity-crs:4.3.0-nginx-alpine-202406090906
+    environment:
+      - PARANOIA=1
+      - ANOMALY_INBOUND=5
+      - ANOMALY_OUTBOUND=4
+      - BACKEND=http://dummy
+      - MODSEC_RULE_ENGINE=On
+      - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
+      - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
+      - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG=/var/log/modsec_audit.log
+      - MODSEC_AUDIT_ENGINE=RelevantOnly
+      # Traefik is the only TCP peer of this sidecar. Trust its Docker/RFC1918
+      # networks so nginx real_ip rewrites REMOTE_ADDR from X-Real-IP, which
+      # Traefik already set. The plugin does not invent XFF.
+      # Image default SET_REAL_IP_FROM=127.0.0.1 misses Docker bridges.
+      # Comma-separated (CRS nginx README). Do not set 0.0.0.0/0.
+      - REAL_IP_HEADER=X-Real-IP
+      - "SET_REAL_IP_FROM=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      - REAL_IP_RECURSIVE=on
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  dummy:
+    image: traefik/whoami
+
+  # Backend for file-provider reclaim routers (/reclaim-a, /reclaim-b). No Docker labels.
+  whoami-reclaim:
+    image: traefik/whoami
+
+  # Protected by WAF
+  whoami-protected:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.protected.rule=PathPrefix(`/protected`)"
+      - "traefik.http.routers.protected.middlewares=waf-middleware"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
+      - "traefik.http.middlewares.waf-middleware.plugin.traefik-modsecurity.logLevel=debug"
+
+  # No WAF protection
+  whoami-bypass:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bypass.rule=PathPrefix(`/bypass`)"
+
+  # Test service for remediation header testing
+  whoami-remediation-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.remediation-test.rule=PathPrefix(`/remediation-test`)"
+      - "traefik.http.routers.remediation-test.middlewares=waf-remediation-middleware"
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-remediation-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+
+  # Test service for error header testing (invalid ModSecurity URL)
+  whoami-error-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.error-test.rule=PathPrefix(`/error-test`)"
+      - "traefik.http.routers.error-test.middlewares=waf-error-middleware"
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://invalid-waf-url:9999"
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.timeoutMillis=1000"
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-error-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=5"
+
+  # Test service for ignoreBodyForVerbsDeny testing
+  whoami-force-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.force-test.rule=PathPrefix(`/force-test`)"
+      - "traefik.http.routers.force-test.middlewares=waf-force-middleware"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=1024"
+      - "traefik.http.middlewares.waf-force-middleware.plugin.traefik-modsecurity.ignoreBodyForVerbsDeny=true"
+
+  # Test service for large body size limit testing (20MB limit)
+  whoami-large-body-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.large-body-test.rule=PathPrefix(`/large-body-test`)"
+      - "traefik.http.routers.large-body-test.middlewares=waf-large-body-middleware"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.timeoutMillis=30000"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-large-body-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=20971520"
+      # 20MB = 20 * 1024 * 1024 = 20971520 bytes
+
+  # Test service for WAF health tracker threshold (3 failures in 30s window, 10s backoff)
+  whoami-threshold-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.threshold-test.rule=PathPrefix(`/threshold-test`)"
+      - "traefik.http.routers.threshold-test.middlewares=waf-threshold-middleware"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafBackOffPeriodSecs=10"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafFailureThreshold=3"
+      - "traefik.http.middlewares.waf-threshold-middleware.plugin.traefik-modsecurity.unhealthyWafFailureWindowSecs=30"
+
+  # Test service for usePool=false path testing (small pool threshold, larger body limit)
+  whoami-pool-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pool-test.rule=PathPrefix(`/pool-test`)"
+      - "traefik.http.routers.pool-test.middlewares=waf-pool-middleware"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.timeoutMillis=10000"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytes=5120"
+      - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
+      # 5KB max body size, 1KB pool threshold - requests > 1KB will use usePool=false path
+
+  # WebSocket echo behind the same WAF middleware as /protected.
+  echo-ws:
+    image: jmalloc/echo-server:v0.3.7
+    environment:
+      - SEND_SERVER_HOSTNAME=false
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.echo-ws.rule=PathPrefix(`/ws-echo`)"
+      - "traefik.http.routers.echo-ws.middlewares=waf-middleware"
+      - "traefik.http.services.echo-ws.loadbalancer.server.port=8080"
+
+volumes:
+  logs-local:

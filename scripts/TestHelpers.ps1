@@ -38,10 +38,18 @@ function Wait-ForWafHealthy {
     $health = $null
 
     do {
-        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        $health = docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" $ContainerName 2>$null
         if ($health -eq "healthy") {
             Write-Host "✅ WAF container is healthy" -ForegroundColor Green
             return $true
+        }
+        # nginx CRS (and some custom images) may omit HEALTHCHECK. Running is enough.
+        if ($health -eq "none") {
+            $running = docker inspect --format "{{.State.Running}}" $ContainerName 2>$null
+            if ($running -eq "true") {
+                Write-Host "✅ WAF container is running (no Docker HEALTHCHECK)" -ForegroundColor Green
+                return $true
+            }
         }
 
         Start-Sleep -Seconds $PollSeconds
@@ -290,7 +298,7 @@ function Get-TraefikAccessLogEntries {
     return $entries
 }
 
-# Path set on the waf service in docker-compose.test.yml (MODSEC_AUDIT_LOG).
+# Path set on the waf service (MODSEC_AUDIT_LOG) in both Apache and nginx test compose files.
 $script:WafAuditLogPath = "/var/log/modsec_audit.log"
 
 # Get-TraefikClientHost returns the peer IP Traefik logged (ClientHost, else ClientAddr host).
@@ -337,18 +345,24 @@ function Get-WafAuditLogRecords {
     return $records
 }
 
-# Get-WafAuditClientIp returns REMOTE_ADDR as logged (transaction.remote_address on CRS 4.3 Apache JSON).
+# Get-WafAuditClientIp returns REMOTE_ADDR as logged.
+# Apache CRS 4.3 JSON: transaction.remote_address. nginx / libmodsecurity3: try client_ip / remote_addr too.
 function Get-WafAuditClientIp {
     param(
         [Parameter(Mandatory)]
         $AuditRecord
     )
 
-    if ($AuditRecord.transaction.remote_address) {
-        return [string]$AuditRecord.transaction.remote_address
-    }
-    if ($AuditRecord.transaction.client_ip) {
-        return [string]$AuditRecord.transaction.client_ip
+    $candidates = @(
+        $AuditRecord.transaction.remote_address,
+        $AuditRecord.transaction.client_ip,
+        $AuditRecord.transaction.remote_addr,
+        $AuditRecord.transaction.client.ip
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
     }
     return $null
 }
@@ -360,11 +374,16 @@ function Get-WafAuditRequestUri {
         $AuditRecord
     )
 
-    if ($AuditRecord.request.request_line) {
-        return [string]$AuditRecord.request.request_line
-    }
-    if ($AuditRecord.transaction.request.uri) {
-        return [string]$AuditRecord.transaction.request.uri
+    $candidates = @(
+        $AuditRecord.request.request_line,
+        $AuditRecord.transaction.request.request_line,
+        $AuditRecord.transaction.request.uri,
+        $AuditRecord.request.uri
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
     }
     return $null
 }

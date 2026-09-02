@@ -67,8 +67,9 @@ Describe "WAF Protection Tests" {
     }
 
     Context "Client IP in WAF audit log" {
-        # Negative control: drop REMOTEIP_INT_PROXY from docker-compose.test.yml
-        # and this It fails — audit client_ip stays the Traefik-to-WAF hop.
+        # Negative control: drop the CRS trust list (Apache REMOTEIP_INT_PROXY /
+        # nginx SET_REAL_IP_FROM) from the compose file and this It fails —
+        # audit client IP stays the Traefik-to-WAF hop.
         It "Should record Traefik ClientHost as REMOTE_ADDR on a deny" {
             $marker = "host-ip-$(Get-Random)"
             $denyUrl = "$BaseUrl/protected?id=1' OR '1'='1&marker=$marker"
@@ -87,7 +88,7 @@ Describe "WAF Protection Tests" {
             $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
             $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log $script:WafAuditLogPath should contain the deny"
             $auditClientIp = Get-WafAuditClientIp -AuditRecord $denyRecord
-            $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing REMOTEIP_INT_PROXY fails this."
+            $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing CRS X-Real-IP trust (REMOTEIP_INT_PROXY / SET_REAL_IP_FROM) fails this."
         }
     }
     
