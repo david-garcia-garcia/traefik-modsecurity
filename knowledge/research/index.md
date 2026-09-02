@@ -23,4 +23,4 @@ description: Official golangci-lint runner and GitHub Action this product can ad
 ## modsecurity
 priority: normal
 local: index_ext_modsecurity.md
-description: Official ModSecurity, OWASP CRS, and Apache/nginx sidecar HTTP status behavior this product relies on.
+description: Official ModSecurity, OWASP CRS, Apache/nginx sidecar HTTP status, and CRS rule inputs this product forwards to a WAF sidecar.
