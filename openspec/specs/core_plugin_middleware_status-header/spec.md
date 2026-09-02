@@ -71,11 +71,11 @@ When `modSecurityStatusRequestHeader` is set and the health tracker is already i
 - **WHEN** the header name is set and the health tracker is already in backoff
 - **THEN** the request header value SHALL be `unhealthy` and the plugin SHALL call `next`
 
-### Requirement: Allow path does not set the header
+### Requirement: Allow path writes ok
 
-When `modSecurityStatusRequestHeader` is set and the sidecar response status is below 300 (allow), the plugin SHALL NOT set that header.
+When `modSecurityStatusRequestHeader` is set and the sidecar response status is below 300 (allow), the plugin SHALL set that header to `ok`. The plugin SHALL NOT write `ok` on a WebSocket skip, an inbound cancel, a fail-open after a WAF failure, or an already-unhealthy pass-through.
 
-#### Scenario: Allowed request has no status header
+#### Scenario: Allowed request is ok
 
 - **WHEN** the header name is set and the sidecar returns 200
-- **THEN** the request SHALL have no value for that header
+- **THEN** the request header value SHALL be `ok`

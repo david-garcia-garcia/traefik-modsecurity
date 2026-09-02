@@ -113,6 +113,10 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		p.recordWafFailureAndReplyToClient(rw, req, next, fmt.Errorf("waf status %d", resp.StatusCode))
 		return
 	}
+	// Sidecar allow: mark ok for access logs, then Traefik continues.
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Set(p.modSecurityStatusRequestHeader, "ok")
+	}
 	next.ServeHTTP(rw, req)
 }
 

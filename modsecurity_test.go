@@ -144,15 +144,15 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "blocked",
 		},
 		{
-			name:                           "Does not add remediation header when request is allowed",
+			name:                           "Adds ok when the sidecar allows the request",
 			request:                        req.Clone(req.Context()),
 			wafResponse:                    response{StatusCode: 200, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
 			expectBody:                     "Response from service",
 			expectStatus:                   200,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
-			expectHeader:                   "",
-			expectHeaderValue:              "",
+			expectHeader:                   "X-Waf-Block",
+			expectHeaderValue:              "ok",
 		},
 		{
 			name:                           "Adds remediation header with different status codes",

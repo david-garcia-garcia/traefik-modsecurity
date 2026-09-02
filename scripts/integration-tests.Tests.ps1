@@ -186,7 +186,7 @@ Describe "Remediation Response Header Tests" {
             $remediationHeaderLogFound | Should -Be $true
         }
         
-        It "Should NOT log remediation header as request header for allowed requests" {
+        It "Should log ok in access logs for allowed requests" {
             # Make an allowed request to the remediation test endpoint
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/remediation-test"
             $response.StatusCode | Should -Be 200
@@ -217,18 +217,13 @@ Describe "Remediation Response Header Tests" {
                 }
             }
             
-            # Look for any request headers in successful requests to remediation-test
-            # Exclude requests that have error or unhealthy headers (these are not "allowed" requests)
-            $remediationHeaderInAllowedRequest = ($allLogEntries | Where-Object { 
-                $_.'request_X-Waf-Status' -and 
+            $okHeaderInAllowedRequest = ($allLogEntries | Where-Object { 
                 $_.RequestPath -eq "/remediation-test" -and
                 $_.DownstreamStatus -eq 200 -and
-                $_.'request_X-Waf-Status' -ne "error" -and
-                $_.'request_X-Waf-Status' -ne "unhealthy"
+                $_.'request_X-Waf-Status' -eq "ok"
             }).Count -gt 0
             
-            # Verify that remediation header is NOT added to allowed requests
-            $remediationHeaderInAllowedRequest | Should -Be $false
+            $okHeaderInAllowedRequest | Should -Be $true
         }
         
         It "Should log 'unhealthy' header when ModSecurity backend is unavailable" {
