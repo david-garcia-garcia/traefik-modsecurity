@@ -69,5 +69,5 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
-- The sidecar request uses `req.Context()`. A client disconnect cancels `httpClient.Do`. Today's error path still records that as a WAF failure when a health tracker is configured.
+- The sidecar request uses `req.Context()`. A client disconnect cancels `httpClient.Do`. That inbound-done error is not a WAF health failure. `timeoutMillis` (`Client.Timeout`) still is, because the inbound context stays live.
 - Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
