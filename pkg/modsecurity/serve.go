@@ -122,6 +122,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	for h, val := range req.Header {
 		proxyReq.Header[h] = val
 	}
+	// Incoming Host is on req.Host, not in the header map. Traefik already set X-Real-Ip / leftover XFF.
+	proxyReq.Host = req.Host
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {

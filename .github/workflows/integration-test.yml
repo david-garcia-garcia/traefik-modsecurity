@@ -12,10 +12,18 @@ permissions:
 
 jobs:
   integration-tests:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.stack }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: apache
+            compose_file: docker-compose.test.yml
+          - stack: nginx
+            compose_file: docker-compose.test.nginx.yml
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -47,29 +55,29 @@ jobs:
 
     - name: Verify Docker Compose file
       run: |
-        if [ ! -f "docker-compose.test.yml" ]; then
-          echo "❌ docker-compose.test.yml not found"
+        if [ ! -f "${{ matrix.compose_file }}" ]; then
+          echo "❌ ${{ matrix.compose_file }} not found"
           exit 1
         fi
         echo "✅ Docker Compose test file found"
         
         # Validate Docker Compose file
-        docker compose -f docker-compose.test.yml config
+        docker compose -f ${{ matrix.compose_file }} config
 
     - name: Pull Docker Images
       run: |
         echo "🔄 Pulling required Docker images..."
-        docker compose -f docker-compose.test.yml pull
+        docker compose -f ${{ matrix.compose_file }} pull
         echo "✅ Docker images pulled successfully"
 
     - name: Start Test Services
       run: |
         echo "🔄 Starting test services..."
-        docker compose -f docker-compose.test.yml up -d
+        docker compose -f ${{ matrix.compose_file }} up -d
         echo "✅ Test services started"
         
         echo "📋 Running containers:"
-        docker compose -f docker-compose.test.yml ps
+        docker compose -f ${{ matrix.compose_file }} ps
 
     - name: Wait for Services to be Ready
       shell: pwsh
@@ -166,34 +174,34 @@ jobs:
       if: failure()
       run: |
         echo "📋 Container Status:"
-        docker compose -f docker-compose.test.yml ps
+        docker compose -f ${{ matrix.compose_file }} ps
         
         echo ""
         echo "📝 Service Logs:"
         echo "==================== Traefik Logs ===================="
-        docker compose -f docker-compose.test.yml logs traefik --tail=50
+        docker compose -f ${{ matrix.compose_file }} logs traefik --tail=50
         
         echo ""
         echo "==================== WAF Logs ===================="
-        docker compose -f docker-compose.test.yml logs waf --tail=50
+        docker compose -f ${{ matrix.compose_file }} logs waf --tail=50
         
         echo ""
         echo "==================== Protected Service Logs ===================="
-        docker compose -f docker-compose.test.yml logs whoami-protected --tail=50
+        docker compose -f ${{ matrix.compose_file }} logs whoami-protected --tail=50
         
         echo ""
         echo "==================== Bypass Service Logs ===================="
-        docker compose -f docker-compose.test.yml logs whoami-bypass --tail=50
+        docker compose -f ${{ matrix.compose_file }} logs whoami-bypass --tail=50
 
         echo ""
         echo "==================== WebSocket echo Logs ===================="
-        docker compose -f docker-compose.test.yml logs echo-ws --tail=50
+        docker compose -f ${{ matrix.compose_file }} logs echo-ws --tail=50
 
     - name: Cleanup Test Environment
       if: always()
       run: |
         echo "🧹 Cleaning up test environment..."
-        docker compose -f docker-compose.test.yml down -v --remove-orphans
+        docker compose -f ${{ matrix.compose_file }} down -v --remove-orphans
         echo "✅ Cleanup completed"
 
   # Additional job to test the PowerShell runner script
@@ -236,6 +244,7 @@ jobs:
         # Check for required test files
         $requiredFiles = @(
             "./docker-compose.test.yml",
+            "./docker-compose.test.nginx.yml",
             "./scripts/integration-tests.Tests.ps1"
         )
         
@@ -249,3 +258,8 @@ jobs:
         }
         
         Write-Host "✅ All required files are present" -ForegroundColor Green
+    - name: Validate both Compose files
+      run: |
+        docker compose -f docker-compose.test.yml config >/dev/null
+        docker compose -f docker-compose.test.nginx.yml config >/dev/null
+        echo "✅ Both compose files validate"
