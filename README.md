@@ -59,10 +59,11 @@ See [docker-compose.yml](docker-compose.yml)
 
 This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
 
-The plugin checks that the response from the waf container hasn't an http code > 400 before forwarding the request to
-the real service.
+The plugin classifies the sidecar HTTP status:
 
-If it is > 400, then the error page is returned instead.
+- **2xx / 3xx** — allow: forward the request to the real service.
+- **4xx** — security block: copy the sidecar response (the WAF error page) to the client.
+- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
@@ -199,9 +200,9 @@ http:
           # Default: empty (no header added)
           # This header is added to the REQUEST (not response) for Traefik access logs
           # Header values:
-          # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
-          # - "unhealthy" when ModSecurity is down and backoff is enabled
-          # - "error" when communication with ModSecurity fails
+          # - "blocked" when the sidecar returns 4xx (security block)
+          # - "error" when the sidecar is unreachable or returns 5xx
+          # - "unhealthy" when ModSecurity is down and backoff is already tripped
           # - "cannotforward" when request forwarding fails
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
