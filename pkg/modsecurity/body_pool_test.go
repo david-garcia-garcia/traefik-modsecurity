@@ -5,26 +5,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 )
 
-// isolateBodyBufferPool swaps in a fresh pool so Get after the request sees only this test's Put.
-func isolateBodyBufferPool(t *testing.T) {
-	t.Helper()
-	original := bodyBufferPool
-	bodyBufferPool = &sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
-	t.Cleanup(func() {
-		bodyBufferPool = original
-	})
-}
-
 // newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that sets nextCalled and drains the body.
-func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (http.Handler, *bool) {
+func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (*Plugin, http.Handler, *bool) {
 	t.Helper()
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -51,23 +36,22 @@ func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (http.Handler, *
 	if err != nil {
 		t.Fatalf("ForRoute: %v", err)
 	}
-	return route, &nextCalled
+	return plugin, route, &nextCalled
 }
 
-// pooledBufferCap returns the capacity of the next buffer taken from bodyBufferPool.
-func pooledBufferCap() int {
-	buf := bodyBufferPool.Get().(*bytes.Buffer)
+// pooledBufferCap returns the capacity of the next buffer taken from this Plugin core's pool.
+func pooledBufferCap(p *Plugin) int {
+	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
 	return buf.Cap()
 }
 
 // TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer checks a ContentLength -1 read does not Put a grown buffer.
 func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
-	isolateBodyBufferPool(t)
 	const poolCap int64 = 1024
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("a"), 4096)
 
-	route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
+	plugin, route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = -1
 	req.Header.Del("Content-Length")
@@ -80,19 +64,18 @@ func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	if !*nextCalled {
 		t.Fatal("next was not called")
 	}
-	if got := pooledBufferCap(); int64(got) > poolCap {
+	if got := pooledBufferCap(plugin); int64(got) > poolCap {
 		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
 	}
 }
 
 // TestPlugin_ParsedLengthAbovePoolCapSkipsPool checks a large parsed length is not kept in the pool even if the header is small.
 func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
-	isolateBodyBufferPool(t)
 	const poolCap int64 = 1024
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("b"), 4096)
 
-	route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
+	plugin, route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 	req.Header.Set("Content-Length", "100")
@@ -105,7 +88,29 @@ func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
 	if !*nextCalled {
 		t.Fatal("next was not called")
 	}
-	if got := pooledBufferCap(); int64(got) > poolCap {
+	if got := pooledBufferCap(plugin); int64(got) > poolCap {
 		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	}
+}
+
+// TestPlugin_BodyBufferPoolIsPerCore checks two Plugin cores do not share a body buffer pool.
+func TestPlugin_BodyBufferPoolIsPerCore(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://127.0.0.1:9"
+	a, err := New("body-pool-a", cfg, NewLogger("body-pool-a", cfg))
+	if err != nil {
+		t.Fatalf("New a: %v", err)
+	}
+	t.Cleanup(a.Close)
+	b, err := New("body-pool-b", cfg, NewLogger("body-pool-b", cfg))
+	if err != nil {
+		t.Fatalf("New b: %v", err)
+	}
+	t.Cleanup(b.Close)
+	if a.bodyBufferPool == nil || b.bodyBufferPool == nil {
+		t.Fatal("New must own a body buffer pool")
+	}
+	if a.bodyBufferPool == b.bodyBufferPool {
+		t.Fatal("distinct Plugin cores must not share a body buffer pool")
 	}
 }

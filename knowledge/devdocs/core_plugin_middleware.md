@@ -3,7 +3,7 @@
 ## Language
 
 **Plugin core**:
-The shared object for one Traefik middleware name and prepared config. It owns the WAF HTTP client, logger, and optional health tracker.
+The shared object for one Traefik middleware name and prepared config. It owns the WAF HTTP client, logger, optional health tracker, and body buffer pool.
 _Avoid_: singleton, instance (ambiguous with Traefik `New`)
 
 **Route**:
@@ -31,8 +31,8 @@ The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; 
 _Avoid_: WAF page (ambiguous with `next`)
 
 **Body buffer pool**:
-The reuse pool of `bytes.Buffer` used for request bodies whose parsed size is at or under `maxBodySizeBytesForPool`.
-_Avoid_: body cache, request buffer (ambiguous with `MaxBytesReader`)
+The reuse pool of `bytes.Buffer` on one Plugin core, used for request bodies whose parsed size is at or under that core's `maxBodySizeBytesForPool`.
+_Avoid_: body cache, request buffer (ambiguous with `MaxBytesReader`), process-wide pool
 
 **Denied-verb body**:
 A request body whose method is listed in `denyVerbsWithBody`. The plugin rejects that request with HTTP 400.
@@ -58,7 +58,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`. Build that sidecar request with `http.NewRequestWithContext(req.Context(), …)` so a client disconnect or Traefik deadline cancels it. `timeoutMillis` still caps the call when the inbound context stays live. The shared WAF client does not follow `Location`; `Do` returns the sidecar's own 3xx.
 - After `http.NewRequestWithContext` and the `req.Header` copy, set `proxyReq.Host = req.Host`. Incoming Host is not in the header map. Copy Traefik’s headers as-is. Do not append `req.RemoteAddr` to `X-Forwarded-For`. Do not set `X-Real-IP`.
 - After `Do`, a sidecar `3xx` or `4xx` is copied with `forwardResponse`, then `discardSidecarBody`, then return. Allow and 5xx `discardSidecarBody` (256 KiB cap) so the shared client can reuse the TCP connection, then fail-open/502 or `next`. Do not buffer the sidecar body on the allow path. After the inbound body is read, restore `req.Body` once so pass and fail-open both still have it for Traefik.
-- Read the inbound body with `readInboundBody` (`pkg/modsecurity/body.go`). Choose the pool from `req.ContentLength` (not `Header.Get("Content-Length")`). Known length above `maxBodySizeBytesForPool` uses ad-hoc allocation. `-1` (unknown) still uses the pool. Defer the returned `release` from `ServeHTTP` so Put runs after `next`; do not Put inside the helper (`buf.Bytes()` aliases the pooled array). Put only when `buf.Cap()` is at or under that cap.
+- Read the inbound body with `readInboundBody` (`pkg/modsecurity/body.go`). The pool is created in `New` on that Plugin core (`p.bodyBufferPool`); do not use a package-level pool. Choose the pool from `req.ContentLength` (not `Header.Get("Content-Length")`). Known length above `maxBodySizeBytesForPool` uses ad-hoc allocation. `-1` (unknown) still uses the pool. Defer the returned `release` from `ServeHTTP` so Put runs after `next`; do not Put inside the helper (`buf.Bytes()` aliases the pooled array). Put only when `buf.Cap()` is at or under that cap.
 - When the method is in `denyVerbsWithBody` and the request has a body, return HTTP 400 before the sidecar and before `next`, including when the WAF is already unhealthy. Omitted `denyVerbsWithBody` uses the CreateConfig default list. An explicit empty slice denies nothing. Methods not on the list are inspected and forwarded.
 - On a sidecar `3xx` or `4xx` (security block), copy the WAF response and do not call `next`.
 - On a sidecar `5xx` or a transport error talking to the sidecar, set the status request header to `error` when configured, record a health failure, then fail-open or return 502. Do not `forwardResponse` a 5xx. Inbound `Canceled` is not that path.
@@ -100,4 +100,4 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - The sidecar request uses `req.Context()`. A client disconnect (`Canceled`) is not a WAF health failure. An inbound request deadline while waiting on the sidecar, and `timeoutMillis` (`Client.Timeout`), still are.
 - ModSecurity `SecRequestBodyLimit` / `SecRequestBodyNoFilesLimit` reject with **413**, not 5xx. That sidecar 413 is a security-class block (`forwardResponse`), not a WAF failure. This plugin’s own `maxBodySizeBytes` also returns 413 before the sidecar.
 - Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. `discardSidecarBody` after a 3xx or 4xx copy (then return) and before allow/`next` or 5xx fail-open. Do not add a config knob for the 256 KiB cap.
-- Do not decide the body buffer pool from the `Content-Length` header. net/http deletes that header on chunked HTTP/1, so `Header.Get` is empty while `req.ContentLength` is `-1`. A grown pooled buffer must not be Put back when `Cap()` exceeds `maxBodySizeBytesForPool`. `readInboundBody` returns a `release` func so Put stays on `ServeHTTP`, not on helper return.
+- Do not decide the body buffer pool from the `Content-Length` header. net/http deletes that header on chunked HTTP/1, so `Header.Get` is empty while `req.ContentLength` is `-1`. A grown pooled buffer must not be Put back when `Cap()` exceeds `maxBodySizeBytesForPool`. `readInboundBody` returns a `release` func so Put stays on `ServeHTTP`, not on helper return. Distinct Plugin cores must not share a pool; routes that share a core share that core's pool.

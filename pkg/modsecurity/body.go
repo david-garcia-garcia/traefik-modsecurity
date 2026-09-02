@@ -7,16 +7,17 @@ import (
 	"sync"
 )
 
-// bodyBufferPool reuses buffers for request bodies under the pool threshold.
-// The pointer lets tests swap the pool without copying sync.Pool.
-var bodyBufferPool = &sync.Pool{
-	New: func() interface{} {
-		return new(bytes.Buffer)
-	},
+// newBodyBufferPool returns a pool of bytes.Buffer for inbound body reads.
+func newBodyBufferPool() *sync.Pool {
+	return &sync.Pool{
+		New: func() interface{} {
+			return new(bytes.Buffer)
+		},
+	}
 }
 
 // readInboundBody copies req.Body for the sidecar and next.
-// Known length uses the pool only under the pool cap; -1 (unknown) still pools the read.
+// Known length uses this Plugin core's pool only under the pool cap; -1 (unknown) still pools the read.
 // The caller must defer release when it is non-nil so Put happens after ServeHTTP
 // (including next): buf.Bytes() aliases the pooled array.
 func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (body []byte, release func(), ok bool) {
@@ -38,11 +39,11 @@ func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (bod
 		return largeBody, nil, true
 	}
 
-	buf := bodyBufferPool.Get().(*bytes.Buffer)
+	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	release = func() {
 		if int64(buf.Cap()) <= p.maxBodySizeBytesForPool {
-			bodyBufferPool.Put(buf)
+			p.bodyBufferPool.Put(buf)
 		}
 	}
 

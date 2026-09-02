@@ -9,18 +9,20 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/health"
 )
 
-// Plugin is the shared core for one middleware name+config: WAF client, logger, and health tracker.
+// Plugin is the shared core for one middleware name+config: WAF client, logger, health tracker, and body buffer pool.
 type Plugin struct {
 	modSecurityUrl                 string
 	name                           string
 	httpClient                     *http.Client
 	logger                         *slog.Logger
 	healthTracker                  *health.Tracker
+	bodyBufferPool                 *sync.Pool
 	modSecurityStatusRequestHeader string
 	maxBodySizeBytes               int64
 	maxBodySizeBytesForPool        int64
@@ -95,6 +97,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		},
 		logger:                         logger,
 		healthTracker:                  healthTracker,
+		bodyBufferPool:                 newBodyBufferPool(),
 		modSecurityStatusRequestHeader: cfg.ModSecurityStatusRequestHeader,
 		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
 		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,

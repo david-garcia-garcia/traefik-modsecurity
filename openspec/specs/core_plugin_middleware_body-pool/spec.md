@@ -40,3 +40,12 @@ After a pooled body read, the plugin SHALL return the buffer to the reuse pool o
 
 - **WHEN** a pooled read finishes with buffer capacity at or under `maxBodySizeBytesForPool`
 - **THEN** the plugin MAY return that buffer to the reuse pool
+
+### Requirement: Body reuse pool is per Plugin core
+
+The reuse pool SHALL belong to the Plugin core created by `New`. Routes that share that core SHALL share that pool. Distinct Plugin cores SHALL NOT share a pool.
+
+#### Scenario: Distinct cores do not share a pool
+
+- **WHEN** two Plugin cores are constructed
+- **THEN** each core SHALL have its own body reuse pool
