@@ -91,6 +91,8 @@ REMOTEIP_INT_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
 
 `REMOTEIP_INT_PROXY` must include the network Traefik uses to reach the sidecar (Docker bridge is usually `172.16.0.0/12`). The image default `10.1.0.0/16` does not. Do **not** set `0.0.0.0/0`.
 
+The shipped `4.3.0-apache-alpine-202406090906` pin hardcodes `RemoteIPHeader X-Forwarded-For`, so `REMOTEIP_HEADER` alone does nothing. Compose also mounts [crs-apache/httpd-vhosts.conf](crs-apache/httpd-vhosts.conf) to set `RemoteIPHeader X-Real-IP`.
+
 ### nginx CRS (test compose is the reference)
 
 Use [docker-compose.test.nginx.yml](docker-compose.test.nginx.yml). The official image maps:

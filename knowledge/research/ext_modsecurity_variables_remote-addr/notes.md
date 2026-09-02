@@ -67,7 +67,7 @@ Pinned HEAD `coreruleset/modsecurity-crs-docker@5e3cda3ee7d0e77d70e550df7298c802
 - `apache/Dockerfile-alpine` / `apache/Dockerfile`: `REMOTEIP_HEADER='X-Forwarded-For'`, `REMOTEIP_INT_PROXY='10.1.0.0/16'`, uncomment `LoadModule remoteip_module`.
 - `apache/conf/extra/httpd-vhosts.conf`: `RemoteIPHeader ${REMOTEIP_HEADER}` and `RemoteIPInternalProxy ${REMOTEIP_INT_PROXY}`.
 
-This product’s Apache compose now sets `REMOTEIP_HEADER=X-Real-IP` and RFC1918 `REMOTEIP_INT_PROXY`. Image defaults alone (`X-Forwarded-For` + `10.1.0.0/16`) would miss typical `172.16.0.0/12` Docker bridges and would look at empty XFF.
+This product’s Apache compose now sets `REMOTEIP_HEADER=X-Real-IP` and RFC1918 `REMOTEIP_INT_PROXY`. The `4.3.0-apache-alpine-202406090906` pin still hardcodes `RemoteIPHeader X-Forwarded-For` in `httpd-vhosts.conf`, so compose also mounts `crs-apache/httpd-vhosts.conf`. Image defaults alone (`X-Forwarded-For` + `10.1.0.0/16`) would miss typical `172.16.0.0/12` Docker bridges and would look at empty XFF.
 
 Owner: [CRS Docker README — Apache ENV](https://github.com/coreruleset/modsecurity-crs-docker/blob/5e3cda3ee7d0e77d70e550df7298c80269776cde/README.md), `coreruleset/modsecurity-crs-docker@5e3cda3:apache/conf/extra/httpd-vhosts.conf`.
 
