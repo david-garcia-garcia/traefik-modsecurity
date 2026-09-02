@@ -61,66 +61,67 @@ func TestPlugin_AllowPathReusesSidecarConnection(t *testing.T) {
 	}
 }
 
-// TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor checks the mock WAF sees incoming Host and appended X-Forwarded-For.
-func TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor(t *testing.T) {
+// TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders checks Host is set and Traefik headers are copied as-is.
+func TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders(t *testing.T) {
 	tests := []struct {
-		name             string
-		host             string
-		remoteAddr       string
-		priorForwarded   string
-		wantHost         string
-		wantForwarded    string
-		wantForwardedSet bool
+		name           string
+		host           string
+		remoteAddr     string
+		realIP         string
+		priorForwarded string
+		wantHost       string
+		wantRealIP     string
+		wantForwarded  string
 	}{
 		{
-			name:             "original host and first hop",
-			host:             "app.example",
-			remoteAddr:       "203.0.113.9:54321",
-			wantHost:         "app.example",
-			wantForwarded:    "203.0.113.9",
-			wantForwardedSet: true,
+			name:          "host forwarded; remote addr does not invent xff",
+			host:          "app.example",
+			remoteAddr:    "203.0.113.9:54321",
+			wantHost:      "app.example",
+			wantForwarded: "",
 		},
 		{
-			name:             "appends peer to existing chain",
-			host:             "app.example",
-			remoteAddr:       "203.0.113.9:54321",
-			priorForwarded:   "198.51.100.10",
-			wantHost:         "app.example",
-			wantForwarded:    "198.51.100.10, 203.0.113.9",
-			wantForwardedSet: true,
+			name:       "copies incoming x-real-ip",
+			host:       "app.example",
+			remoteAddr: "203.0.113.9:54321",
+			realIP:     "198.51.100.10",
+			wantHost:   "app.example",
+			wantRealIP: "198.51.100.10",
 		},
 		{
-			name:             "ipv6 peer is unbracketed host",
-			host:             "app.example",
-			remoteAddr:       "[2001:db8::1]:54321",
-			wantHost:         "app.example",
-			wantForwarded:    "2001:db8::1",
-			wantForwardedSet: true,
+			name:           "copies incoming xff without appending remote addr",
+			host:           "app.example",
+			remoteAddr:     "203.0.113.9:54321",
+			priorForwarded: "198.51.100.10",
+			wantHost:       "app.example",
+			wantForwarded:  "198.51.100.10",
 		},
 		{
-			name:             "unparseable remote addr leaves existing xff",
-			host:             "app.example",
-			remoteAddr:       "not-a-host-port",
-			priorForwarded:   "198.51.100.10",
-			wantHost:         "app.example",
-			wantForwarded:    "198.51.100.10",
-			wantForwardedSet: true,
+			name:           "copies both headers; remote addr stays off xff",
+			host:           "app.example",
+			remoteAddr:     "[2001:db8::1]:54321",
+			realIP:         "198.51.100.10",
+			priorForwarded: "203.0.113.9",
+			wantHost:       "app.example",
+			wantRealIP:     "198.51.100.10",
+			wantForwarded:  "203.0.113.9",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var sawHost, sawForwarded string
+			var sawHost, sawForwarded, sawRealIP string
 			waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				sawHost = r.Host
 				sawForwarded = r.Header.Get("X-Forwarded-For")
+				sawRealIP = r.Header.Get("X-Real-Ip")
 				w.WriteHeader(http.StatusOK)
 			}))
 			t.Cleanup(waf.Close)
 
 			cfg := CreateConfig()
 			cfg.ModSecurityUrl = waf.URL
-			plugin, err := New("host-xff-test", cfg, NewLogger("host-xff-test", cfg))
+			plugin, err := New("host-copy-test", cfg, NewLogger("host-copy-test", cfg))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -140,6 +141,9 @@ func TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor(t *testing.T) {
 			if tt.priorForwarded != "" {
 				req.Header.Set("X-Forwarded-For", tt.priorForwarded)
 			}
+			if tt.realIP != "" {
+				req.Header.Set("X-Real-Ip", tt.realIP)
+			}
 			rec := httptest.NewRecorder()
 			route.ServeHTTP(rec, req)
 			if rec.Code != http.StatusOK {
@@ -151,8 +155,11 @@ func TestPlugin_SidecarRequestUsesIncomingHostAndForwardedFor(t *testing.T) {
 			if sawHost != tt.wantHost {
 				t.Fatalf("sidecar Host = %q, want %q", sawHost, tt.wantHost)
 			}
-			if tt.wantForwardedSet && sawForwarded != tt.wantForwarded {
+			if sawForwarded != tt.wantForwarded {
 				t.Fatalf("sidecar X-Forwarded-For = %q, want %q", sawForwarded, tt.wantForwarded)
+			}
+			if sawRealIP != tt.wantRealIP {
+				t.Fatalf("sidecar X-Real-Ip = %q, want %q", sawRealIP, tt.wantRealIP)
 			}
 		})
 	}

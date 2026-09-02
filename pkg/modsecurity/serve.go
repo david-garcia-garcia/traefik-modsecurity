@@ -3,7 +3,6 @@ package modsecurity
 import (
 	"bytes"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -123,9 +122,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	for h, val := range req.Header {
 		proxyReq.Header[h] = val
 	}
-	// Incoming Host is on req.Host, not in the header map. The peer is not in X-Forwarded-For yet.
+	// Incoming Host is on req.Host, not in the header map. Traefik already set X-Real-Ip / leftover XFF.
 	proxyReq.Host = req.Host
-	appendPeerToXForwardedFor(proxyReq.Header, req.RemoteAddr)
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
@@ -216,19 +214,4 @@ func forwardResponse(resp *http.Response, rw http.ResponseWriter) {
 	if _, err := io.Copy(rw, resp.Body); err != nil {
 		return
 	}
-}
-
-// appendPeerToXForwardedFor appends the host part of remoteAddr to header's X-Forwarded-For.
-// remoteAddr is the incoming peer as host:port. Parse failure leaves the header unchanged.
-func appendPeerToXForwardedFor(header http.Header, remoteAddr string) {
-	clientIP, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return
-	}
-	// Join any existing chain, then append this hop — same as ReverseProxy Director.
-	prior := header.Values("X-Forwarded-For")
-	if len(prior) > 0 {
-		clientIP = strings.Join(prior, ", ") + ", " + clientIP
-	}
-	header.Set("X-Forwarded-For", clientIP)
 }
