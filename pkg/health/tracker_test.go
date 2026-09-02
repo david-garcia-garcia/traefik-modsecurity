@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestNew_StartsWindowClockWhenWindowSet(t *testing.T) {
+	ht := New(time.Second, 10*time.Second, 5, slog.Default())
+	if ht.lastFailureReset.IsZero() {
+		t.Fatal("lastFailureReset must start at New when a window is set")
+	}
+}
+
+func TestNew_ZeroWindowLeavesClockUnset(t *testing.T) {
+	ht := New(time.Second, 0, 5, slog.Default())
+	if !ht.lastFailureReset.IsZero() {
+		t.Fatal("lastFailureReset must stay zero when the window is 0")
+	}
+}
+
 func TestNew_InitialisesFieldsCorrectly(t *testing.T) {
 	backoff := 5 * time.Second
 	window := 10 * time.Second

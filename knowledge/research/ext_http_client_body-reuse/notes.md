@@ -22,4 +22,4 @@ Extract: `.sources/golang-go-77370.md`
 
 ## This product
 
-Allow-path drain lives in `pkg/modsecurity/serve.go` (`drainSidecarBody`, 256 KiB). Usage: `knowledge/devdocs/core_plugin_middleware.md`.
+Allow, 5xx, and leftover-after-4xx-copy drain live in `pkg/modsecurity/serve.go` (`discardSidecarBody`, 256 KiB). Usage: `knowledge/devdocs/core_plugin_middleware.md`.
