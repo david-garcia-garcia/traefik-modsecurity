@@ -8,20 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 )
 
 // sidecarBodyDrainLimit is how many unread sidecar response bytes we discard
 // so http.Transport can return the TCP connection to the idle pool.
 const sidecarBodyDrainLimit = 256 << 10
-
-// bodyBufferPool reuses buffers for request bodies under the pool threshold.
-// The pointer lets tests swap the pool without copying sync.Pool.
-var bodyBufferPool = &sync.Pool{
-	New: func() interface{} {
-		return new(bytes.Buffer)
-	},
-}
 
 // ServeHTTP proxies req to ModSecurity, then either blocks or calls next.
 func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
@@ -51,57 +42,12 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}
 
 	// Read the inbound body for the sidecar and restore it for next.
-	var body []byte
-	if p.maxBodySizeBytes > 0 {
-		req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
+	body, releasePooledBuffer, ok := p.readInboundBody(rw, req)
+	if releasePooledBuffer != nil {
+		defer releasePooledBuffer()
 	}
-
-	// Known length uses the pool only under the pool cap; -1 (unknown) still pools the read.
-	usePool := true
-	if req.ContentLength >= 0 {
-		usePool = req.ContentLength <= p.maxBodySizeBytesForPool
-	}
-
-	if usePool {
-		buf := bodyBufferPool.Get().(*bytes.Buffer)
-		buf.Reset()
-		// Drop the buffer when it grew past the pool cap so the pool cannot retain it.
-		defer func() {
-			if int64(buf.Cap()) <= p.maxBodySizeBytesForPool {
-				bodyBufferPool.Put(buf)
-			}
-		}()
-
-		if _, err := io.Copy(buf, req.Body); err != nil {
-			if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-				p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-				if p.modSecurityStatusRequestHeader != "" {
-					req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-				}
-				http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
-				return
-			}
-			p.logger.Error("fail to read incoming request", "error", err)
-			http.Error(rw, "", http.StatusBadGateway)
-			return
-		}
-		body = buf.Bytes()
-	} else {
-		largeBody, err := io.ReadAll(req.Body)
-		if err != nil {
-			if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
-				p.logger.Error("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-				if p.modSecurityStatusRequestHeader != "" {
-					req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-				}
-				http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
-				return
-			}
-			p.logger.Error("fail to read incoming request", "error", err)
-			http.Error(rw, "", http.StatusBadGateway)
-			return
-		}
-		body = largeBody
+	if !ok {
+		return
 	}
 
 	// Build the WAF request and send it on the shared client.
