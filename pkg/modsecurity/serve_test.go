@@ -180,8 +180,8 @@ func TestPlugin_InboundCancelDoesNotTripHealth(t *testing.T) {
 	}
 }
 
-// TestPlugin_InboundDeadlineDoesNotTripHealth checks an inbound deadline is not a WAF health failure.
-func TestPlugin_InboundDeadlineDoesNotTripHealth(t *testing.T) {
+// TestPlugin_InboundDeadlineTripsHealth checks a request deadline while waiting on the sidecar counts as a WAF health failure.
+func TestPlugin_InboundDeadlineTripsHealth(t *testing.T) {
 	wafURL, started := startTestBlockingWAF(t)
 	plugin, route := newTestHealthRoute(t, "deadline-health", wafURL, 5000)
 
@@ -206,8 +206,8 @@ func TestPlugin_InboundDeadlineDoesNotTripHealth(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("ServeHTTP did not return after inbound deadline")
 	}
-	if plugin.IsUnhealthy() {
-		t.Fatal("inbound deadline must not mark the WAF unhealthy")
+	if !plugin.IsUnhealthy() {
+		t.Fatal("inbound deadline must mark the WAF unhealthy")
 	}
 }
 
