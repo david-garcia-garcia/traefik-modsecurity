@@ -8,10 +8,21 @@ import (
 	"testing"
 )
 
-// newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that sets nextCalled and drains the body.
-func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (*Plugin, http.Handler, *bool) {
+// bodyPoolHarness is one Plugin core, a 200 WAF, and a next that records the restored body.
+type bodyPoolHarness struct {
+	plugin     *Plugin
+	route      http.Handler
+	nextCalled bool
+	nextBody   []byte
+	wafBody    []byte
+}
+
+// newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that records the restored body.
+func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) *bodyPoolHarness {
 	t.Helper()
-	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := &bodyPoolHarness{}
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.wafBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "WAF OK")
 	}))
@@ -21,22 +32,24 @@ func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) (*Plugin, http.H
 	cfg.ModSecurityUrl = waf.URL
 	cfg.MaxBodySizeBytes = maxBody
 	cfg.MaxBodySizeBytesForPool = poolCap
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
 	plugin, err := New("body-pool-test", cfg, NewLogger("body-pool-test", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(plugin.Close)
+	h.plugin = plugin
 
-	nextCalled := false
 	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		nextCalled = true
-		_, _ = io.Copy(io.Discard, r.Body)
+		h.nextCalled = true
+		h.nextBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))
 	if err != nil {
 		t.Fatalf("ForRoute: %v", err)
 	}
-	return plugin, route, &nextCalled
+	h.route = route
+	return h
 }
 
 // pooledBufferCap returns the capacity of the next buffer taken from this Plugin core's pool.
@@ -51,20 +64,23 @@ func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("a"), 4096)
 
-	plugin, route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = -1
 	req.Header.Del("Content-Length")
 
 	rec := httptest.NewRecorder()
-	route.ServeHTTP(rec, req)
+	h.route.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	if !*nextCalled {
+	if !h.nextCalled {
 		t.Fatal("next was not called")
 	}
-	if got := pooledBufferCap(plugin); int64(got) > poolCap {
+	if !bytes.Equal(h.nextBody, body) || !bytes.Equal(h.wafBody, body) {
+		t.Fatalf("sidecar/next body mismatch: waf=%d next=%d want=%d", len(h.wafBody), len(h.nextBody), len(body))
+	}
+	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
 		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
 	}
 }
@@ -75,21 +91,137 @@ func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("b"), 4096)
 
-	plugin, route, nextCalled := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 	req.Header.Set("Content-Length", "100")
 
 	rec := httptest.NewRecorder()
-	route.ServeHTTP(rec, req)
+	h.route.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	if !*nextCalled {
+	if !h.nextCalled {
 		t.Fatal("next was not called")
 	}
-	if got := pooledBufferCap(plugin); int64(got) > poolCap {
+	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
 		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	}
+}
+
+// TestPlugin_SmallPooledReadReturnsBuffer checks a body under the pool cap is Put back.
+func TestPlugin_SmallPooledReadReturnsBuffer(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 8192
+	body := bytes.Repeat([]byte("s"), 200)
+
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+
+	rec := httptest.NewRecorder()
+	h.route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	got := pooledBufferCap(h.plugin)
+	if got == 0 {
+		t.Fatal("small pooled read must Put a buffer (Get after ServeHTTP allocated New with cap 0)")
+	}
+	if int64(got) > poolCap {
+		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	}
+}
+
+// TestPlugin_UnknownLengthOverMaxReturns413 checks a pooled read that hits MaxBytesReader is 413 and does not call next.
+func TestPlugin_UnknownLengthOverMaxReturns413(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 2048
+	body := bytes.Repeat([]byte("x"), 4096)
+
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
+	req.ContentLength = -1
+	req.Header.Del("Content-Length")
+
+	rec := httptest.NewRecorder()
+	h.route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", rec.Code)
+	}
+	if h.nextCalled {
+		t.Fatal("next must not be called on 413")
+	}
+	if req.Header.Get("X-Waf-Status") != "blocked" {
+		t.Fatalf("status header %q, want blocked", req.Header.Get("X-Waf-Status"))
+	}
+}
+
+// TestPlugin_HTTP1ChunkedAbovePoolCapDoesNotRetain sends a real HTTP/1 chunked POST through net/http.
+func TestPlugin_HTTP1ChunkedAbovePoolCapDoesNotRetain(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 8192
+	body := bytes.Repeat([]byte("c"), 4096)
+
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	srv := httptest.NewServer(h.route)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/test", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.ContentLength = -1
+	req.Header.Del("Content-Length")
+
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	if !h.nextCalled {
+		t.Fatal("next was not called")
+	}
+	if !bytes.Equal(h.nextBody, body) || !bytes.Equal(h.wafBody, body) {
+		t.Fatalf("sidecar/next body mismatch: waf=%d next=%d want=%d", len(h.wafBody), len(h.nextBody), len(body))
+	}
+	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
+		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	}
+}
+
+// TestPlugin_HTTP1ChunkedOverMaxReturns413 sends a chunked POST larger than maxBodySizeBytes.
+func TestPlugin_HTTP1ChunkedOverMaxReturns413(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 2048
+	body := bytes.Repeat([]byte("d"), 4096)
+
+	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	srv := httptest.NewServer(h.route)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/test", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.ContentLength = -1
+	req.Header.Del("Content-Length")
+
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", resp.StatusCode)
+	}
+	if h.nextCalled {
+		t.Fatal("next must not be called on 413")
 	}
 }
 

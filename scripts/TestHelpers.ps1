@@ -184,6 +184,92 @@ function Invoke-TcpHttpRequest {
 
 <#
 .SYNOPSIS
+    Sends an HTTP/1.1 POST with Transfer-Encoding: chunked and no Content-Length.
+
+.DESCRIPTION
+    Used to exercise the plugin pool path for unknown length (req.ContentLength == -1).
+    Invoke-WebRequest always sets Content-Length; this helper writes chunked framing on TCP.
+
+.PARAMETER TargetHost
+    Target host (default localhost).
+
+.PARAMETER Port
+    Target port (default 8000).
+
+.PARAMETER Path
+    Request path (e.g. /pool-test).
+
+.PARAMETER BodySizeBytes
+    Exact body size in bytes (filled with ASCII 'a').
+
+.PARAMETER ChunkSizeBytes
+    Chunk size for the transfer encoding (default 256).
+#>
+function Invoke-ChunkedHttpRequest {
+    param(
+        [string]$TargetHost = "localhost",
+        [int]$Port = 8000,
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [int]$BodySizeBytes,
+        [int]$ChunkSizeBytes = 256
+    )
+
+    if ($BodySizeBytes -lt 1) {
+        throw "BodySizeBytes must be positive, got $BodySizeBytes."
+    }
+    if ($ChunkSizeBytes -lt 1) {
+        throw "ChunkSizeBytes must be positive, got $ChunkSizeBytes."
+    }
+
+    $body = New-Object byte[] $BodySizeBytes
+    for ($i = 0; $i -lt $BodySizeBytes; $i++) {
+        $body[$i] = [byte][char]'a'
+    }
+
+    $tcp = New-Object System.Net.Sockets.TcpClient($TargetHost, $Port)
+    try {
+        $stream = $tcp.GetStream()
+        $header = "POST $Path HTTP/1.1`r`nHost: ${TargetHost}:${Port}`r`nTransfer-Encoding: chunked`r`nConnection: close`r`n`r`n"
+        $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($header)
+        $stream.Write($headerBytes, 0, $headerBytes.Length)
+
+        $offset = 0
+        $crlf = [System.Text.Encoding]::ASCII.GetBytes("`r`n")
+        while ($offset -lt $body.Length) {
+            $n = [Math]::Min($ChunkSizeBytes, $body.Length - $offset)
+            $sizeBytes = [System.Text.Encoding]::ASCII.GetBytes(("{0:x}`r`n" -f $n))
+            $stream.Write($sizeBytes, 0, $sizeBytes.Length)
+            $stream.Write($body, $offset, $n)
+            $stream.Write($crlf, 0, $crlf.Length)
+            $offset += $n
+        }
+        $end = [System.Text.Encoding]::ASCII.GetBytes("0`r`n`r`n")
+        $stream.Write($end, 0, $end.Length)
+        $stream.Flush()
+
+        $reader = New-Object System.IO.StreamReader($stream)
+        $responseText = $reader.ReadToEnd()
+        $reader.Close()
+        $stream.Close()
+
+        $status = 0
+        if ($responseText -match '(?m)^HTTP/\d\.\d\s+(\d{3})') {
+            $status = [int]$Matches[1]
+        }
+        return [pscustomobject]@{
+            StatusCode  = $status
+            RawResponse = $responseText
+        }
+    }
+    finally {
+        $tcp.Close()
+    }
+}
+
+<#
+.SYNOPSIS
     Waits for a service to become ready by checking its health endpoint
 
 .DESCRIPTION

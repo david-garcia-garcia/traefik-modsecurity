@@ -21,6 +21,12 @@ When the plugin reads a request body and `maxBodySizeBytesForPool` is set, it SH
 - **WHEN** a POST has `req.ContentLength` of `-1` and a body at or under `maxBodySizeBytes`
 - **THEN** the plugin SHALL read the body, forward it to the sidecar, and restore it for `next`
 
+#### Scenario: HTTP/1 chunked body above the pool cap is still forwarded
+
+- **WHEN** a POST is HTTP/1 `Transfer-Encoding: chunked` with a decoded body greater than `maxBodySizeBytesForPool` and at or under `maxBodySizeBytes`
+- **THEN** the plugin SHALL forward that body to the sidecar and to `next`
+- **AND** the plugin SHALL NOT return a buffer whose capacity exceeds `maxBodySizeBytesForPool`
+
 #### Scenario: Header spoof does not override parsed length
 
 - **WHEN** `req.ContentLength` is greater than `maxBodySizeBytesForPool`
