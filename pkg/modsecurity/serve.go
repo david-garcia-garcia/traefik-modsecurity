@@ -30,16 +30,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		return
 	}
 
-	// If the WAF is unhealthy just forward the request early.
-	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
-		}
-		next.ServeHTTP(rw, req)
-		return
-	}
-
-	// Check if we should enforce strict body validation for this HTTP method
+	// Withhold ignored-verb bodies from next before any forward, including fail-open.
 	if p.ignoreBodyForVerbsDeny && p.ignoreBodyForVerbs[req.Method] {
 		limitedBody := http.MaxBytesReader(rw, req.Body, 1)
 		testByte := make([]byte, 1)
@@ -49,13 +40,22 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			return
 		}
 	}
-
-	// Read the body when this method is not on the ignore list.
-	// Ignored verbs still consume framing so next cannot read an uninspected payload.
-	var body []byte
 	if p.ignoreBodyForVerbs[req.Method] {
 		discardIgnoredVerbBody(req)
-	} else {
+	}
+
+	// If the WAF is unhealthy just forward the request early.
+	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
+		}
+		next.ServeHTTP(rw, req)
+		return
+	}
+
+	// Read the body when this method is not on the ignore list.
+	var body []byte
+	if !p.ignoreBodyForVerbs[req.Method] {
 		if p.maxBodySizeBytes > 0 {
 			req.Body = http.MaxBytesReader(rw, req.Body, p.maxBodySizeBytes)
 		}

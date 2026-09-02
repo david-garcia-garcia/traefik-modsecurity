@@ -260,8 +260,9 @@ http:
           #
           # ⚠️  IMPORTANT: When a method is in this list, the request body is discarded.
           # It is not inspected by ModSecurity and it is not forwarded to the backend
-          # or the next middleware. Content-Length is cleared. Residual risk: an attack
-          # that exists only in that body is never seen by the WAF.
+          # or the next middleware, including when the WAF is unhealthy and the request
+          # fail-opens. Content-Length is cleared. Residual risk: an attack that exists
+          # only in that body is never seen by the WAF.
           # To inspect and forward a body on one of these methods, remove the method
           # from this list. To reject any body on these methods, set ignoreBodyForVerbsDeny.
           

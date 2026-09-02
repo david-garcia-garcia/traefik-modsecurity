@@ -20,6 +20,13 @@ When the request method is in `ignoreBodyForVerbs` and `ignoreBodyForVerbsDeny` 
 - **WHEN** a DELETE request carries a non-empty body and `ignoreBodyForVerbsDeny` is false
 - **THEN** ModSecurity SHALL receive no body and `next` SHALL read an empty body
 
+#### Scenario: GET with a body is withheld when the WAF is unhealthy
+
+- **WHEN** a GET request carries a non-empty body and `ignoreBodyForVerbsDeny` is false
+- **AND** the WAF health tracker is already unhealthy
+- **THEN** `next` SHALL read an empty body
+- **AND** the sidecar SHALL NOT receive that request
+
 ### Requirement: Deny still rejects a body on an ignored verb
 
 When `ignoreBodyForVerbsDeny` is true and the request method is in `ignoreBodyForVerbs`, the plugin SHALL reject a request that has a body with HTTP 400 and SHALL NOT call `next`.
@@ -27,6 +34,12 @@ When `ignoreBodyForVerbsDeny` is true and the request method is in `ignoreBodyFo
 #### Scenario: GET with a body is rejected when deny is true
 
 - **WHEN** a GET request carries a non-empty body and `ignoreBodyForVerbsDeny` is true
+- **THEN** the client SHALL receive HTTP 400 and `next` SHALL NOT be called
+
+#### Scenario: GET with a body is rejected when deny is true and the WAF is unhealthy
+
+- **WHEN** a GET request carries a non-empty body and `ignoreBodyForVerbsDeny` is true
+- **AND** the WAF health tracker is already unhealthy
 - **THEN** the client SHALL receive HTTP 400 and `next` SHALL NOT be called
 
 ### Requirement: Methods not on the ignore list still inspect and forward the body

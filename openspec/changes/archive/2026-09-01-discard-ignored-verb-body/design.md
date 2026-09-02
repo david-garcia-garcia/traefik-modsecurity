@@ -16,7 +16,7 @@ RFC 9110: GET/HEAD/DELETE content has no generally defined semantics. Framing st
 - Flipping `ignoreBodyForVerbsDeny` default.
 - Changing the default verb list.
 - Sending ignored-verb bodies to ModSecurity.
-- Discarding bodies on the unhealthy-WAF early forward or WebSocket skip.
+- Discarding bodies on the WebSocket skip.
 
 ## Decisions
 
@@ -29,7 +29,7 @@ RFC 9110: GET/HEAD/DELETE content has no generally defined semantics. Framing st
 
 - [Risk] Backends that relied on GET/DELETE bodies (Elasticsearch, GraphQL-over-GET) stop seeing that payload → Mitigation: documented as the existing README contract; operators can remove the verb from `ignoreBodyForVerbs` to inspect and forward.
 - [Risk] Drain of a huge ignored-verb body can block a worker → Mitigation: same as today's POST read; `MaxBytesReader` is not applied on the ignore path today. Do not add a new limit in this change (bound the ask). Operators who want reject use deny.
-- [Risk] Unhealthy early-forward still leaks ignored-verb bodies → Mitigation: noted as follow-up; out of scope.
+- Drain and deny run before the unhealthy early-forward so fail-open does not deliver an ignored-verb body to next.
 
 ## Migration Plan
 

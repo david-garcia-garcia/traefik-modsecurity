@@ -4,11 +4,13 @@
 - [x] 1.2 Add the DELETE sibling of 1.1 (same assertions). Confirm it fails.
 - [x] 1.3 Add a POST allow-path control: WAF and `next` both receive the body.
 - [x] 1.4 Add a deny=true GET-with-body case: HTTP 400 and `next` not called.
+- [x] 1.5 Add GET-with-body while the WAF is already unhealthy: `next` reads empty; sidecar is not called. Deny=true still 400s.
 
 ## 2. Discard on the ignore path
 
 - [x] 2.1 In `pkg/modsecurity/serve.go`, when the method is on `ignoreBodyForVerbs` and deny did not reject, consume `req.Body`, set `req.Body` to `http.NoBody`, set `ContentLength` to 0, and delete `Content-Length`.
-- [x] 2.2 Re-run the tests from §1 and confirm they pass.
+- [x] 2.2 Run deny and discard before the unhealthy early-forward so fail-open does not deliver an ignored-verb body.
+- [x] 2.3 Re-run the tests from §1 and confirm they pass.
 
 ## 3. Docs
 
