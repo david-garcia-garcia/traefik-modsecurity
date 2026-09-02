@@ -2,6 +2,8 @@ package modsecurity
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,6 +131,13 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
+		inboundErr := req.Context().Err()
+		// Client disconnect or Traefik cancel of this request. The client can do this; do not trip WAF health.
+		if errors.Is(inboundErr, context.Canceled) {
+			p.logger.Info("inbound request canceled; WAF call aborted", "error", err, "inbound", inboundErr)
+			http.Error(rw, "", http.StatusBadGateway)
+			return
+		}
 		p.failWafRequest(rw, req, next, body, err)
 		return
 	}
@@ -181,7 +190,7 @@ func (p *Plugin) failWafRequest(rw http.ResponseWriter, req *http.Request, next 
 		}
 	}
 
-	p.logger.Error("fail to send HTTP request to modsec", "error", cause)
+	p.logger.Error("fail to send HTTP request to modsec", "error", cause, "inbound", req.Context().Err())
 	http.Error(rw, "", http.StatusBadGateway)
 }
 
