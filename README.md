@@ -34,6 +34,7 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
 - [Demo](#demo)
 - [Usage (docker-compose.yml)](#usage-docker-composeyml)
 - [How it works](#how-it-works)
+- [Trust this middleware (client IP in WAF logs)](#trust-this-middleware-client-ip-in-waf-logs)
 - [Testing](#-testing)
 - [Configuration](#️-configuration)
 - [Local development](#local-development-docker-composelocalyml)
@@ -58,13 +59,58 @@ See [docker-compose.yml](docker-compose.yml)
 
 This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
 
-The plugin checks that the response from the waf container hasn't an http code > 400 before forwarding the request to
-the real service.
+The plugin classifies the sidecar HTTP status:
 
-If it is > 400, then the error page is returned instead.
+- **2xx / 3xx** — allow: forward the request to the real service.
+- **4xx** — security block: copy the sidecar response (the WAF error page) to the client.
+- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
 The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
 time.
+
+## Trust this middleware (client IP in WAF logs)
+
+Copying headers is not enough for ModSecurity to treat the visitor as the client. `REMOTE_ADDR` (audit logs, error logs, IP collections, and any IPS that parses those logs) stays the **Traefik-to-sidecar TCP hop** until CRS is told to trust Traefik.
+
+What this plugin sends to `modSecurityUrl`:
+
+- Sets the sidecar request `Host` to the incoming `Host`.
+- Copies Traefik’s headers as-is, including `X-Real-Ip` when Traefik already set it, and leftover `X-Forwarded-For` only if Traefik left one.
+- Does **not** append `RemoteAddr` to `X-Forwarded-For`.
+- Does **not** set `X-Real-IP`.
+
+Traefik’s entrypoint `forwardedheaders` is the source of truth (`X-Real-Ip`; leftover XFF only if the peer is trusted). CRS / ModSecurity does **not** read those headers as `REMOTE_ADDR` on its own.
+
+### Apache CRS (demo compose)
+
+Use [docker-compose.yml](docker-compose.yml) as the reference. The `waf` service sets:
+
+```yaml
+REMOTEIP_HEADER: X-Real-IP
+REMOTEIP_INT_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+```
+
+`REMOTEIP_INT_PROXY` must include the network Traefik uses to reach the sidecar (Docker bridge is usually `172.16.0.0/12`). The image default `10.1.0.0/16` does not. Do **not** set `0.0.0.0/0`.
+
+The shipped `4.3.0-apache-alpine-202406090906` pin hardcodes `RemoteIPHeader X-Forwarded-For`, so `REMOTEIP_HEADER` alone does nothing. Compose also mounts [crs-apache/httpd-vhosts.conf](crs-apache/httpd-vhosts.conf) to set `RemoteIPHeader X-Real-IP`.
+
+### nginx CRS (test compose is the reference)
+
+Use [docker-compose.test.nginx.yml](docker-compose.test.nginx.yml). The official image maps:
+
+```yaml
+REAL_IP_HEADER: X-Real-IP
+SET_REAL_IP_FROM: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+REAL_IP_RECURSIVE: on
+```
+
+Those become `real_ip_header X-Real-IP` and `set_real_ip_from` for the Traefik net. `SET_REAL_IP_FROM` is comma-separated. Do **not** set `0.0.0.0/0`.
+
+The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
+
+Operators who set Traefik `forwardedHeaders.trustedIPs` and want leftover XFF as `REMOTE_ADDR` configure that on CRS themselves (`REMOTEIP_HEADER=X-Forwarded-For` or `REAL_IP_HEADER=X-Forwarded-For`).
+
+Without this, every deny is attributed to the Traefik container IP. An IPS that blocks from the WAF log then bans Traefik, not the attacker.
 
 ## Testing
 
@@ -73,8 +119,11 @@ time.
 Run the complete test suite against real Docker services:
 
 ```bash
-# Run all tests
+# Run all tests (Apache CRS)
 ./Test-Integration.ps1
+
+# Same suite against nginx CRS
+./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
 
 # Keep services running for debugging
 ./Test-Integration.ps1 -SkipDockerCleanup
@@ -151,9 +200,9 @@ http:
           # Default: empty (no header added)
           # This header is added to the REQUEST (not response) for Traefik access logs
           # Header values:
-          # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
-          # - "unhealthy" when ModSecurity is down and backoff is enabled
-          # - "error" when communication with ModSecurity fails
+          # - "blocked" when the sidecar returns 4xx (security block)
+          # - "error" when the sidecar is unreachable or returns 5xx
+          # - "unhealthy" when ModSecurity is down and backoff is already tripped
           # - "cannotforward" when request forwarding fails
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
