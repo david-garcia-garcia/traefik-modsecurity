@@ -8,13 +8,25 @@ Classifies the ModSecurity sidecar HTTP status so a security block is distinct f
 
 ### Requirement: Sidecar success is a pass
 
-When the sidecar answers with a success status (below 400), the plugin SHALL call the next handler and SHALL NOT copy the sidecar response to the client.
+When the sidecar answers with a success status (below 300), the plugin SHALL call the next handler and SHALL NOT copy the sidecar response to the client.
 
 #### Scenario: 200 is forwarded to the backend
 
 - **WHEN** the sidecar responds with HTTP 200
 - **THEN** the plugin SHALL call the next handler
 - **AND** the client SHALL receive the next handler's response
+
+### Requirement: Sidecar 3xx is a security block
+
+When the sidecar answers with a 3xx status, the plugin SHALL treat the request as blocked: copy the sidecar response to the client, SHALL NOT call the next handler, and SHALL set `modSecurityStatusRequestHeader` to `blocked` when that header name is configured.
+
+#### Scenario: 302 is blocked
+
+- **WHEN** the sidecar responds with HTTP 302
+- **AND** `modSecurityStatusRequestHeader` is configured
+- **THEN** the client SHALL receive status 302 and the sidecar body
+- **AND** the request header SHALL be `blocked`
+- **AND** the next handler SHALL NOT run
 
 ### Requirement: Sidecar 4xx is a security block
 

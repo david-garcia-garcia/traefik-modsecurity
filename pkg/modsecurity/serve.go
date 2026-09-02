@@ -149,8 +149,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}()
 
-	// Block page must be copied before discard; then we are done with this request.
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+	// Security block (3xx redirect, 4xx deny): copy the sidecar page, then we are done.
+	if resp.StatusCode >= 300 && resp.StatusCode < 500 {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
