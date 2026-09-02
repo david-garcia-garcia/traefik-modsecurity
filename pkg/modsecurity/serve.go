@@ -128,8 +128,9 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
-		// Record WAF client failure; pass through when the shared tracker trips.
-		if p.healthTracker != nil {
+		// Record sidecar/transport failures only. Inbound cancel or deadline is not a WAF outage.
+		inboundLive := req.Context().Err() == nil
+		if p.healthTracker != nil && inboundLive {
 			if becameUnhealthy := p.healthTracker.RecordFailure(); becameUnhealthy && p.modSecurityStatusRequestHeader != "" {
 				req.Header.Set(p.modSecurityStatusRequestHeader, "error")
 			}
