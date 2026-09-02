@@ -12,4 +12,4 @@ Extract: `.sources/rfc9110-get-head-delete.md`
 
 ## This product
 
-`ignoreBodyForVerbs` defaults include those methods. The plugin still must consume framing bytes (or Traefik / the backend will). Discard-and-withhold matches “ignore content”; `ignoreBodyForVerbsDeny` is the optional 400. Usage: `knowledge/devdocs/core_plugin_middleware.md`.
+This product uses `denyVerbsWithBody` (default includes GET, HEAD, and DELETE). A body on those methods is HTTP 400. An explicit empty list inspects and forwards like POST. Usage: `knowledge/devdocs/core_plugin_middleware.md`.

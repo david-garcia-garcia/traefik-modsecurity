@@ -29,8 +29,7 @@ type Config struct {
 	ExpectContinueTimeoutMillis    int64    `json:"expectContinueTimeoutMillis,omitempty"`
 	MaxBodySizeBytes               int64    `json:"maxBodySizeBytes,omitempty"`
 	MaxBodySizeBytesForPool        int64    `json:"maxBodySizeBytesForPool,omitempty"`
-	IgnoreBodyForVerbs             []string `json:"ignoreBodyForVerbs,omitempty"`
-	IgnoreBodyForVerbsDeny         bool     `json:"ignoreBodyForVerbsDeny,omitempty"`
+	DenyVerbsWithBody              []string `json:"denyVerbsWithBody,omitempty"`
 	LogLevel                       string   `json:"logLevel,omitempty"`
 }
 
@@ -48,8 +47,7 @@ func CreateConfig() *Config {
 		ExpectContinueTimeoutMillis:    1000,
 		MaxBodySizeBytes:               8 * 1024 * 1024,
 		MaxBodySizeBytesForPool:        5 * 1024 * 1024,
-		IgnoreBodyForVerbs:             []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
-		IgnoreBodyForVerbsDeny:         false,
+		DenyVerbsWithBody:              []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
 		LogLevel:                       LogLevelInfo,
 	}
 }
@@ -84,8 +82,9 @@ func Prepare(cfg *Config, name string) error {
 	if cfg.MaxBodySizeBytesForPool == 0 {
 		cfg.MaxBodySizeBytesForPool = defaults.MaxBodySizeBytesForPool
 	}
-	if len(cfg.IgnoreBodyForVerbs) == 0 {
-		cfg.IgnoreBodyForVerbs = defaults.IgnoreBodyForVerbs
+	// Nil means omitted (use default). Explicit empty means deny nothing.
+	if cfg.DenyVerbsWithBody == nil {
+		cfg.DenyVerbsWithBody = defaults.DenyVerbsWithBody
 	}
 	// Reject negatives so a typo cannot drop a limit or disable a timeout.
 	if err := rejectNegative("timeoutMillis", cfg.TimeoutMillis); err != nil {

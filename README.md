@@ -253,24 +253,17 @@ http:
           # - 10485760 (10 MB) for file uploads
           # - 52428800 (50 MB) for large file processing
           
-          ignoreBodyForVerbs: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # OPTIONAL: HTTP methods whose request body is not sent to ModSecurity
+          denyVerbsWithBody: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
+          # OPTIONAL: HTTP methods that must not carry a request body
           # Default: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # The plugin still consumes that body so it cannot reach the backend.
+          # When a listed method has a body, the plugin returns HTTP 400. It does not
+          # call ModSecurity and it does not call the next handler, including when the
+          # WAF is already unhealthy. Methods not on this list are inspected and forwarded.
           #
-          # ⚠️  IMPORTANT: When a method is in this list, the request body is discarded.
-          # It is not inspected by ModSecurity and it is not forwarded to the backend
-          # or the next middleware, including when the WAF is unhealthy and the request
-          # fail-opens. Content-Length is cleared. Residual risk: an attack that exists
-          # only in that body is never seen by the WAF.
-          # To inspect and forward a body on one of these methods, remove the method
-          # from this list. To reject any body on these methods, set ignoreBodyForVerbsDeny.
-          
-          ignoreBodyForVerbsDeny: false
-          # OPTIONAL: Whether to reject requests with body for verbs in ignoreBodyForVerbs
-          # Default: false
-          # When true, reads one byte from the body and returns HTTP 400 if any data is present.
-          # When false (default), the body is discarded and not forwarded (see ignoreBodyForVerbs).
+          # Omitted uses this default. An explicit empty list denies nothing (GET-with-body
+          # is inspected like POST). To allow GET-with-body while keeping the other defaults,
+          # omit GET from the list. The old keys ignoreBodyForVerbs and ignoreBodyForVerbsDeny
+          # are removed; leftover YAML for those keys is ignored.
           
           maxBodySizeBytesForPool: 4194304
           # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
