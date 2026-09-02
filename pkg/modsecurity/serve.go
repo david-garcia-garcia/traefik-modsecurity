@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -11,8 +12,8 @@ import (
 	"sync"
 )
 
-// sidecarBodyDrainLimit is how many unread sidecar response bytes the allow
-// path discards so http.Transport can return the TCP connection to the idle pool.
+// sidecarBodyDrainLimit is how many unread sidecar response bytes we discard
+// so http.Transport can return the TCP connection to the idle pool.
 const sidecarBodyDrainLimit = 256 << 10
 
 // bodyBufferPool reuses buffers for request bodies under the pool threshold.
@@ -108,6 +109,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
+		// Traefik still needs this body for next (pass and fail-open). Sidecar got its own reader.
+		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
 	// Bind the sidecar request to the inbound context so a client disconnect cancels it.
@@ -132,26 +135,12 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	if err != nil {
 		inboundErr := req.Context().Err()
 		// Client disconnect or Traefik cancel of this request. The client can do this; do not trip WAF health.
-		inboundCanceled := errors.Is(inboundErr, context.Canceled)
-		if p.healthTracker != nil && !inboundCanceled {
-			if becameUnhealthy := p.healthTracker.RecordFailure(); becameUnhealthy && p.modSecurityStatusRequestHeader != "" {
-				req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-			}
-			if p.healthTracker.IsUnhealthy() {
-				if body != nil {
-					req.Body = io.NopCloser(bytes.NewReader(body))
-				}
-				next.ServeHTTP(rw, req)
-				return
-			}
-		}
-
-		if inboundCanceled {
+		if errors.Is(inboundErr, context.Canceled) {
 			p.logger.Info("inbound request canceled; WAF call aborted", "error", err, "inbound", inboundErr)
-		} else {
-			p.logger.Error("fail to send HTTP request to modsec", "error", err, "inbound", inboundErr)
+			http.Error(rw, "", http.StatusBadGateway)
+			return
 		}
-		http.Error(rw, "", http.StatusBadGateway)
+		p.recordWafFailureAndReplyToClient(rw, req, next, err)
 		return
 	}
 	defer func() {
@@ -160,26 +149,47 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}()
 
-	// Block: copy the WAF response and do not call next.
-	if resp.StatusCode >= 400 {
+	// Block page must be copied before discard; then we are done with this request.
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
 		forwardResponse(resp, rw)
+		discardSidecarBody(resp.Body)
 		return
 	}
+	discardSidecarBody(resp.Body)
 
-	// Pass: restore the body Traefik still needs for the backend.
-	if body != nil {
-		req.Body = io.NopCloser(bytes.NewReader(body))
+	// Sidecar 5xx is a WAF failure, not a security block.
+	if resp.StatusCode >= 500 {
+		p.recordWafFailureAndReplyToClient(rw, req, next, fmt.Errorf("waf status %d", resp.StatusCode))
+		return
 	}
-	// Discard leftover sidecar bytes so the shared client can reuse the connection.
-	drainSidecarBody(resp.Body)
 	next.ServeHTTP(rw, req)
 }
 
-// drainSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit.
-func drainSidecarBody(body io.Reader) {
+// recordWafFailureAndReplyToClient records a WAF communication failure and replies to the client (fail-open or 502).
+func (p *Plugin) recordWafFailureAndReplyToClient(rw http.ResponseWriter, req *http.Request, next http.Handler, cause error) {
+	// One write: every WAF failure is "error" (sidecar 5xx and transport).
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Set(p.modSecurityStatusRequestHeader, "error")
+	}
+
+	// Record the failure; pass through when the shared tracker trips.
+	if p.healthTracker != nil {
+		p.healthTracker.RecordFailure()
+		if p.healthTracker.IsUnhealthy() {
+			next.ServeHTTP(rw, req)
+			return
+		}
+	}
+
+	p.logger.Error("fail to send HTTP request to modsec", "error", cause, "inbound", req.Context().Err())
+	http.Error(rw, "", http.StatusBadGateway)
+}
+
+// discardSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit so Close can return the TCP connection to the pool.
+func discardSidecarBody(body io.Reader) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, sidecarBodyDrainLimit))
 }
 

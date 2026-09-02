@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,52 +15,84 @@ import (
 // testWhoamiSizedBody stands in for traefik/whoami's typical allow-path body.
 const testWhoamiSizedBody = "Hostname: dummy\nIP: 172.18.0.2\nRemoteAddr: 172.18.0.5:12345\nGET / HTTP/1.1\nHost: dummy\n"
 
-func TestPlugin_AllowPathReusesSidecarConnection(t *testing.T) {
-	var newConns atomic.Int64
-	waf := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, testWhoamiSizedBody)
-	}))
-	waf.Config.ConnState = func(_ net.Conn, state http.ConnState) {
-		if state == http.StateNew {
-			newConns.Add(1)
-		}
-	}
-	waf.Start()
-	t.Cleanup(waf.Close)
-
-	cfg := CreateConfig()
-	cfg.ModSecurityUrl = waf.URL
-	plugin, err := New("reuse-test", cfg, NewLogger("reuse-test", cfg))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(plugin.Close)
-
-	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "next")
-	}))
-	if err != nil {
-		t.Fatalf("ForRoute: %v", err)
+func TestPlugin_SidecarResponseReusesConnection(t *testing.T) {
+	tests := []struct {
+		name             string
+		wafStatus        int
+		wantClientStatus int
+		wantNext         bool
+	}{
+		{
+			name:             "allow 200",
+			wafStatus:        http.StatusOK,
+			wantClientStatus: http.StatusOK,
+			wantNext:         true,
+		},
+		{
+			name:             "block 403",
+			wafStatus:        http.StatusForbidden,
+			wantClientStatus: http.StatusForbidden,
+		},
+		{
+			name:             "failure 503",
+			wafStatus:        http.StatusServiceUnavailable,
+			wantClientStatus: http.StatusBadGateway,
+		},
 	}
 
-	const requests = 20
-	for i := 0; i < requests; i++ {
-		req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
-		rec := httptest.NewRecorder()
-		route.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("request %d: status %d", i, rec.Code)
-		}
-		if rec.Body.String() != "next" {
-			t.Fatalf("request %d: body %q, want next", i, rec.Body.String())
-		}
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var newConns atomic.Int64
+			waf := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				w.WriteHeader(tt.wafStatus)
+				_, _ = io.WriteString(w, testWhoamiSizedBody)
+			}))
+			waf.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+				if state == http.StateNew {
+					newConns.Add(1)
+				}
+			}
+			waf.Start()
+			t.Cleanup(waf.Close)
 
-	if got := newConns.Load(); got != 1 {
-		t.Fatalf("new sidecar connections = %d, want 1 across %d allows", got, requests)
+			cfg := CreateConfig()
+			cfg.ModSecurityUrl = waf.URL
+			plugin, err := New("reuse-test-"+tt.name, cfg, NewLogger("reuse-test-"+tt.name, cfg))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(plugin.Close)
+
+			route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "next")
+			}))
+			if err != nil {
+				t.Fatalf("ForRoute: %v", err)
+			}
+
+			const requests = 20
+			for i := 0; i < requests; i++ {
+				req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+				rec := httptest.NewRecorder()
+				route.ServeHTTP(rec, req)
+				if rec.Code != tt.wantClientStatus {
+					t.Fatalf("request %d: status %d, want %d", i, rec.Code, tt.wantClientStatus)
+				}
+				if tt.wantNext {
+					if rec.Body.String() != "next" {
+						t.Fatalf("request %d: body %q, want next", i, rec.Body.String())
+					}
+				} else if rec.Body.String() == "next" {
+					t.Fatalf("request %d: next ran, want sidecar-handled response", i)
+				}
+			}
+
+			if got := newConns.Load(); got != 1 {
+				t.Fatalf("new sidecar connections = %d, want 1 across %d requests", got, requests)
+			}
+		})
 	}
 }
 
@@ -235,6 +268,106 @@ func TestPlugin_UnreachableSidecarTripsHealth(t *testing.T) {
 	route.ServeHTTP(rec, req)
 	if !plugin.IsUnhealthy() {
 		t.Fatal("unreachable sidecar must mark the WAF unhealthy")
+	}
+}
+
+// TestPlugin_Sidecar413DoesNotTripHealth checks a sidecar oversize-body 413 is a block, not a WAF health failure.
+func TestPlugin_Sidecar413DoesNotTripHealth(t *testing.T) {
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = io.WriteString(w, "Request Entity Too Large")
+	}))
+	t.Cleanup(waf.Close)
+	plugin, route := newTestHealthRoute(t, "sidecar-413-health", waf.URL, 2000)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", rec.Code)
+	}
+	if rec.Body.String() != "Request Entity Too Large" {
+		t.Fatalf("body %q, want sidecar 413 page", rec.Body.String())
+	}
+	if plugin.IsUnhealthy() {
+		t.Fatal("sidecar 413 must not mark the WAF unhealthy")
+	}
+}
+
+// TestPlugin_Sidecar5xxTripsHealth checks sidecar 5xx statuses count as WAF health failures.
+func TestPlugin_Sidecar5xxTripsHealth(t *testing.T) {
+	statuses := []struct {
+		name   string
+		status int
+	}{
+		{name: "500", status: http.StatusInternalServerError},
+		{name: "503", status: http.StatusServiceUnavailable},
+	}
+	for _, tt := range statuses {
+		t.Run(tt.name, func(t *testing.T) {
+			waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, "sidecar down")
+			}))
+			t.Cleanup(waf.Close)
+			plugin, route := newTestHealthRoute(t, "sidecar-5xx-health-"+tt.name, waf.URL, 2000)
+
+			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+			rec := httptest.NewRecorder()
+			route.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d, want fail-open 200", rec.Code)
+			}
+			if !plugin.IsUnhealthy() {
+				t.Fatalf("sidecar %d must mark the WAF unhealthy", tt.status)
+			}
+		})
+	}
+}
+
+// TestPlugin_Sidecar5xxFailOpenRestoresBody checks fail-open still gives next the inbound body already read for the sidecar.
+func TestPlugin_Sidecar5xxFailOpenRestoresBody(t *testing.T) {
+	const inboundBody = "payload-for-backend"
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.TimeoutMillis = 2000
+	cfg.UnhealthyWafBackOffPeriodSecs = 30
+	cfg.UnhealthyWafFailureThreshold = 1
+	plugin, err := New("sidecar-5xx-restore-body", cfg, NewLogger("sidecar-5xx-restore-body", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+
+	var gotBody string
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Errorf("next ReadAll: %v", readErr)
+		}
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example/protected", strings.NewReader(inboundBody))
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want fail-open 200", rec.Code)
+	}
+	if gotBody != inboundBody {
+		t.Fatalf("next body %q, want %q", gotBody, inboundBody)
+	}
+	if !plugin.IsUnhealthy() {
+		t.Fatal("sidecar 503 must mark the WAF unhealthy")
 	}
 }
 
