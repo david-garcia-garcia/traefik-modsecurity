@@ -32,7 +32,7 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - Add a config knob on `Config` in `pkg/modsecurity` with a `json` tag and `omitempty`, set the default in `CreateConfig()`, apply zeros in `Prepare()`, then use it from `Plugin.ServeHTTP`.
 - Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
 - Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
-- After `http.NewRequest` and the `req.Header` copy, set `proxyReq.Host = req.Host` and append the peer from `req.RemoteAddr` to `X-Forwarded-For` (`appendPeerToXForwardedFor`). Incoming Host is not in the header map. Do not set `X-Real-IP`.
+- After `http.NewRequest` and the `req.Header` copy, set `proxyReq.Host = req.Host`. Incoming Host is not in the header map. Copy Traefik’s headers as-is. Do not append `req.RemoteAddr` to `X-Forwarded-For`. Do not set `X-Real-IP`.
 - On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
 - On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
@@ -71,5 +71,5 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
 - Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
 - Incoming Host lives on `req.Host`, not `req.Header`. A header-copy loop leaves the sidecar seeing the `ModSecurityUrl` host unless you assign `proxyReq.Host`.
-- `req.RemoteAddr` is `host:port`. Append only the host part to `X-Forwarded-For`. Parse failure leaves the existing chain. Traefik does not append this hop before the plugin.
-- CRS `REMOTE_ADDR` stays the Traefik-to-sidecar hop until the WAF httpd trusts that hop (`REMOTEIP_HEADER=X-Forwarded-For` and `REMOTEIP_INT_PROXY` covering Docker/RFC1918, as in `docker-compose.yml`). Do not set `0.0.0.0/0`. The plugin does not set `X-Real-IP`.
+- Do not invent an XFF hop from `req.RemoteAddr`. Traefik already set `X-Real-Ip` (and leftover XFF only if the peer is trusted). The plugin copies those headers and stops.
+- CRS `REMOTE_ADDR` stays the Traefik-to-sidecar hop until the WAF trusts Traefik via `X-Real-IP` (Apache `REMOTEIP_HEADER=X-Real-IP` + `REMOTEIP_INT_PROXY` in `docker-compose.yml`; nginx `REAL_IP_HEADER=X-Real-IP` + `SET_REAL_IP_FROM` in `docker-compose.test.nginx.yml`). Do not set `0.0.0.0/0`. The plugin does not set `X-Real-IP`.
