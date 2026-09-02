@@ -10,6 +10,11 @@ priority: normal
 local: ext_http_client_body-reuse/
 description: When Go's HTTP client can keep an HTTP/1 connection after Close.
 
+## Request context cancellation
+priority: normal
+local: ext_http_client_request-context/
+description: When Go's HTTP client cancels an in-flight request if Request.Context is canceled.
+
 ## Request.Host
 priority: normal
 local: ext_http_request_host/

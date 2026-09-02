@@ -108,7 +108,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		bodyReader = bytes.NewReader(body)
 	}
 
-	proxyReq, err := http.NewRequest(req.Method, url, bodyReader)
+	// Bind the sidecar request to the inbound context so a client disconnect cancels it.
+	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, bodyReader)
 	if err != nil {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, "cannotforward")
