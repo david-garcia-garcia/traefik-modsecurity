@@ -18,26 +18,26 @@ When the sidecar answers with a success status (below 300), the plugin SHALL cal
 
 ### Requirement: Sidecar 3xx is a security block
 
-When the sidecar answers with a 3xx status, the plugin SHALL treat the request as blocked: copy the sidecar response to the client, SHALL NOT call the next handler, and SHALL set `modSecurityStatusRequestHeader` to the decimal HTTP status code of the sidecar response when that header name is configured. The plugin SHALL NOT write the literal `blocked` on this path.
+When the sidecar answers with a 3xx status, the plugin SHALL treat the request as blocked: copy the sidecar response to the client, SHALL NOT call the next handler, and SHALL set `modSecurityStatusRequestHeader` to `blocked` when that header name is configured.
 
 #### Scenario: 302 is blocked
 
 - **WHEN** the sidecar responds with HTTP 302
 - **AND** `modSecurityStatusRequestHeader` is configured
 - **THEN** the client SHALL receive status 302 and the sidecar body
-- **AND** the request header SHALL be `302`
+- **AND** the request header SHALL be `blocked`
 - **AND** the next handler SHALL NOT run
 
 ### Requirement: Sidecar 4xx is a security block
 
-When the sidecar answers with a 4xx status, the plugin SHALL treat the request as blocked: copy the sidecar response to the client, SHALL NOT call the next handler, and SHALL set `modSecurityStatusRequestHeader` to the decimal HTTP status code of the sidecar response when that header name is configured. The plugin SHALL NOT write the literal `blocked` on this path.
+When the sidecar answers with a 4xx status, the plugin SHALL treat the request as blocked: copy the sidecar response to the client, SHALL NOT call the next handler, and SHALL set `modSecurityStatusRequestHeader` to `blocked` when that header name is configured.
 
 #### Scenario: 403 is blocked
 
 - **WHEN** the sidecar responds with HTTP 403
 - **AND** `modSecurityStatusRequestHeader` is configured
 - **THEN** the client SHALL receive status 403 and the sidecar body
-- **AND** the request header SHALL be `403`
+- **AND** the request header SHALL be `blocked`
 - **AND** the next handler SHALL NOT run
 
 #### Scenario: 406 is blocked
@@ -45,14 +45,14 @@ When the sidecar answers with a 4xx status, the plugin SHALL treat the request a
 - **WHEN** the sidecar responds with HTTP 406
 - **AND** `modSecurityStatusRequestHeader` is configured
 - **THEN** the client SHALL receive status 406
-- **AND** the request header SHALL be `406`
+- **AND** the request header SHALL be `blocked`
 
 #### Scenario: 413 oversize body is blocked
 
 - **WHEN** the sidecar responds with HTTP 413
 - **AND** `modSecurityStatusRequestHeader` is configured
 - **THEN** the client SHALL receive status 413 and the sidecar body
-- **AND** the request header SHALL be `413`
+- **AND** the request header SHALL be `blocked`
 - **AND** the next handler SHALL NOT run
 - **AND** the health tracker SHALL NOT record a failure
 

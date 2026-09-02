@@ -141,7 +141,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
 			expectHeader:                   "X-Waf-Block",
-			expectHeaderValue:              "403",
+			expectHeaderValue:              "blocked",
 		},
 		{
 			name:                           "Does not add remediation header when request is allowed",
@@ -163,7 +163,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectStatus:                   406,
 			modSecurityStatusRequestHeader: "X-Remediation-Info",
 			expectHeader:                   "X-Remediation-Info",
-			expectHeaderValue:              "406",
+			expectHeaderValue:              "blocked",
 		},
 		{
 			name:                           "Intercepts request when WAF returns redirect without Location",
@@ -174,7 +174,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectStatus:                   302,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
 			expectHeader:                   "X-Waf-Block",
-			expectHeaderValue:              "302",
+			expectHeaderValue:              "blocked",
 		},
 		{
 			name:                           "Intercepts when WAF rejects oversize body",
@@ -185,7 +185,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectStatus:                   413,
 			modSecurityStatusRequestHeader: "X-Waf-Block",
 			expectHeader:                   "X-Waf-Block",
-			expectHeaderValue:              "413",
+			expectHeaderValue:              "blocked",
 		},
 	}
 
@@ -294,7 +294,7 @@ func TestModsecurity_ServeHTTP_RedirectWithLocation(t *testing.T) {
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "bounce", string(body))
 	assert.Equal(t, notice.URL+"/blocked", resp.Header.Get("Location"))
-	assert.Equal(t, "302", req.Header.Get("X-Waf-Block"))
+	assert.Equal(t, "blocked", req.Header.Get("X-Waf-Block"))
 	assert.False(t, backendCalled)
 	assert.Equal(t, 0, noticeHits)
 }
@@ -702,7 +702,7 @@ func TestModsecurity_StatusHeader_SidecarError(t *testing.T) {
 	}
 }
 
-// TestModsecurity_StatusHeader_BodyTooLarge checks a local 413 writes toolarge, not blocked.
+// TestModsecurity_StatusHeader_BodyTooLarge checks a local 413 writes blocked (same token as a sidecar block).
 func TestModsecurity_StatusHeader_BodyTooLarge(t *testing.T) {
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -722,7 +722,7 @@ func TestModsecurity_StatusHeader_BodyTooLarge(t *testing.T) {
 		MaxBodySizeBytesForPool:        32,
 		ModSecurityStatusRequestHeader: "X-Waf-Status",
 	}
-	middleware, err := New(context.Background(), next, config, "status-header-toolarge")
+	middleware, err := New(context.Background(), next, config, "status-header-body-too-large")
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
 	}
@@ -742,8 +742,8 @@ func TestModsecurity_StatusHeader_BodyTooLarge(t *testing.T) {
 	if rw.Result().StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status: got %d, want 413", rw.Result().StatusCode)
 	}
-	if got := req.Header.Get("X-Waf-Status"); got != "toolarge" {
-		t.Fatalf("status header: got %q, want toolarge", got)
+	if got := req.Header.Get("X-Waf-Status"); got != "blocked" {
+		t.Fatalf("status header: got %q, want blocked", got)
 	}
 }
 

@@ -87,7 +87,7 @@ Describe "Chunked POST vs pool threshold" {
 
 Describe "MaxBodySizeBytes Status Header Tests" {
     Context "Pooled path body size enforcement (/protected)" {
-        It "Should mark 413 body-too-large responses as toolarge in access logs (usePool=true)" {
+        It "Should mark 413 body-too-large responses as blocked in access logs (usePool=true)" {
             # First, send a small request that should pass to verify the happy path.
             $smallBody = New-RequestBodyOfSizeBytes -TargetSizeBytes 512  # Below 1KB limit
             $smallResponse = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body $smallBody -TimeoutSec 10
@@ -106,7 +106,7 @@ Describe "MaxBodySizeBytes Status Header Tests" {
 
             $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /protected entry in access logs"
             $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
-            $latestEntry.'request_X-Waf-Status' | Should -Be "toolarge" -Because "Middleware body size enforcement should be logged as toolarge (pooled path)"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "blocked" -Because "Middleware body size enforcement should be logged as blocked (pooled path)"
         }
     }
 }
@@ -198,7 +198,7 @@ Describe "Body Size Limit Tests - usePool=false Path" {
             
             $latestEntry | Should -Not -BeNullOrEmpty -Because "We should have at least one /pool-test entry in access logs"
             $latestEntry.DownstreamStatus | Should -Be 413 -Because "Oversized request should be rejected before reaching backend"
-            $latestEntry.'request_X-Waf-Status' | Should -Be "toolarge" -Because "MaxBodySizeBytes enforcement in middleware should be logged as toolarge"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "blocked" -Because "MaxBodySizeBytes enforcement in middleware should be logged as blocked"
         }
     }
 }

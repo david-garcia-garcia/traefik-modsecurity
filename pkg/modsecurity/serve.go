@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -66,7 +65,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, bodyReader)
 	if err != nil {
 		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "cannotforward")
+			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
 		}
 		p.logger.Error("fail to prepare forwarded request", "error", err)
 		http.Error(rw, "", http.StatusBadGateway)
@@ -101,7 +100,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	// Security block (3xx redirect, 4xx deny): copy the sidecar page, then we are done.
 	if resp.StatusCode >= 300 && resp.StatusCode < 500 {
 		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, strconv.Itoa(resp.StatusCode))
+			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
 		forwardResponse(resp, rw)
 		discardSidecarBody(resp.Body)
@@ -122,7 +121,7 @@ func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.R
 	if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
 		p.logger.Warn("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
 		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "toolarge")
+			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
 		}
 		http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 		return

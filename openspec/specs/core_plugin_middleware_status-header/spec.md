@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the values written on the optional request status header so Traefik access logs can tell a sidecar block from a local reject from a broken WAF.
+Defines the coarse WAF-status tokens written on the optional request status header so Traefik access logs can tell a block from a broken WAF from fail-open. The header is not an HTTP status code.
 
 ## Requirements
 
@@ -15,32 +15,37 @@ When `modSecurityStatusRequestHeader` is empty, the plugin SHALL NOT add a statu
 - **WHEN** `modSecurityStatusRequestHeader` is empty and the sidecar returns 403
 - **THEN** the request SHALL have no plugin-owned status header
 
-### Requirement: Sidecar block writes the HTTP status code
+### Requirement: Security block writes blocked
 
-When `modSecurityStatusRequestHeader` is set and the sidecar response status is a security block (`3xx` or `4xx`), the plugin SHALL set that header on the request to the decimal HTTP status code of the sidecar response (for example `403` or `406`). The plugin SHALL NOT write the literal `blocked` on this path. A sidecar `5xx` is a WAF failure and SHALL write `error`, not the status code.
+When `modSecurityStatusRequestHeader` is set and the sidecar response is a security block (`3xx` or `4xx`), the plugin SHALL set that header to `blocked`. The plugin SHALL NOT write an HTTP status code on this header.
 
-#### Scenario: 403 block is the status string
+#### Scenario: 403 is blocked
 
 - **WHEN** the header name is set and the sidecar returns 403
-- **THEN** the request header value SHALL be `403`
+- **THEN** the request header value SHALL be `blocked`
 
-#### Scenario: 406 block is distinguishable from 403
+#### Scenario: 406 is blocked
 
 - **WHEN** the header name is set and the sidecar returns 406
-- **THEN** the request header value SHALL be `406`
+- **THEN** the request header value SHALL be `blocked`
 
-### Requirement: Local body-too-large writes toolarge
+#### Scenario: 302 is blocked
 
-When `modSecurityStatusRequestHeader` is set and the plugin rejects the request because the body exceeds `maxBodySizeBytes`, the plugin SHALL set that header to `toolarge` and SHALL return 413. The plugin SHALL NOT write `blocked` or a sidecar status code on this path.
+- **WHEN** the header name is set and the sidecar returns 302
+- **THEN** the request header value SHALL be `blocked`
 
-#### Scenario: Over-limit body is toolarge
+### Requirement: Local body-too-large writes blocked
+
+When `modSecurityStatusRequestHeader` is set and the plugin rejects the request because the body exceeds `maxBodySizeBytes`, the plugin SHALL set that header to `blocked` and SHALL return 413.
+
+#### Scenario: Over-limit body is blocked
 
 - **WHEN** the header name is set and the request body exceeds `maxBodySizeBytes`
-- **THEN** the request header value SHALL be `toolarge` and the client status SHALL be 413
+- **THEN** the request header value SHALL be `blocked` and the client status SHALL be 413
 
-### Requirement: Sidecar communication failure writes error
+### Requirement: WAF failure writes error
 
-When `modSecurityStatusRequestHeader` is set and the outbound call to `ModSecurityUrl` fails, the plugin SHALL set that header to `error`. The plugin SHALL write `error` on every such failure, including when no health tracker is configured and including failures that do not trip the tracker.
+When `modSecurityStatusRequestHeader` is set and the plugin cannot complete a sidecar inspection, the plugin SHALL set that header to `error`. That includes: the outbound call to `ModSecurityUrl` fails, the sidecar returns `5xx`, and the forwarded sidecar request cannot be built. The plugin SHALL write `error` on every such failure, including when no health tracker is configured and including failures that do not trip the tracker. The plugin SHALL NOT write `cannotforward`.
 
 #### Scenario: Failure with no tracker is error
 
@@ -52,19 +57,19 @@ When `modSecurityStatusRequestHeader` is set and the outbound call to `ModSecuri
 - **WHEN** the header name is set, a health tracker is configured, and a sidecar call fails without marking the WAF newly unhealthy
 - **THEN** the request header value SHALL be `error`
 
-### Requirement: Existing unhealthy and cannot-forward tokens stay
+#### Scenario: Cannot build the sidecar request is error
 
-When `modSecurityStatusRequestHeader` is set and the health tracker is already in backoff, the plugin SHALL set that header to `unhealthy` and SHALL call `next`. When the plugin cannot build the forwarded sidecar request, it SHALL set that header to `cannotforward`.
+- **WHEN** the header name is set and the plugin cannot build the forwarded sidecar request
+- **THEN** the request header value SHALL be `error`
+
+### Requirement: Already unhealthy writes unhealthy
+
+When `modSecurityStatusRequestHeader` is set and the health tracker is already in backoff, the plugin SHALL set that header to `unhealthy` and SHALL call `next`.
 
 #### Scenario: Already unhealthy is unhealthy
 
 - **WHEN** the header name is set and the health tracker is already in backoff
 - **THEN** the request header value SHALL be `unhealthy` and the plugin SHALL call `next`
-
-#### Scenario: Cannot build the sidecar request is cannotforward
-
-- **WHEN** the header name is set and the plugin cannot build the forwarded sidecar request
-- **THEN** the request header value SHALL be `cannotforward`
 
 ### Requirement: Allow path does not set the header
 

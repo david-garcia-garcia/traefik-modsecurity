@@ -152,8 +152,8 @@ func TestPlugin_UnknownLengthOverMaxReturns413(t *testing.T) {
 	if h.nextCalled {
 		t.Fatal("next must not be called on 413")
 	}
-	if req.Header.Get("X-Waf-Status") != "toolarge" {
-		t.Fatalf("status header %q, want toolarge", req.Header.Get("X-Waf-Status"))
+	if req.Header.Get("X-Waf-Status") != "blocked" {
+		t.Fatalf("status header %q, want blocked", req.Header.Get("X-Waf-Status"))
 	}
 }
 
