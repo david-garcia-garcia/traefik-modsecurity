@@ -9,3 +9,10 @@ phase: explore
 findings: P3 1 (shared req still lets TestModsecurity_ServeHTTP pass)
 fixed: none
 skipped: zero-window ServeHTTP; extra-header matrix
+
+## propose (2026-09-02T19:17:01Z)
+phase: propose
+findings: none
+fixed: none
+skipped: none
+change: close-remaining-waf-test-gaps

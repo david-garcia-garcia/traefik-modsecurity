@@ -1,29 +1,29 @@
-Developer review: in progress — 2026-09-02T19:13:57Z
+Developer review: in progress — 2026-09-02T19:17:01Z
 
 ## What this changes
-**Operators.** None.
+**Operators.** None. (`go.yml` Test will use `-race` after implement; not landed yet.)
 
 **Admin users.** None.
 
-**Developers.** Explore only: remaining holes are shared `req` in `TestModsecurity_ServeHTTP`, missing `rejectNegative` cases, and no concurrent mixed-body `ServeHTTP` under `-race`. Zero-window ServeHTTP is not reachable after `Prepare`.
+**Developers.** OpenSpec change `close-remaining-waf-test-gaps` is apply-ready: clone shared `TestModsecurity_ServeHTTP` rows, remaining `Prepare` negatives, concurrent mixed-body `ServeHTTP`, `go.yml` `-race`.
 
 **End users.** None.
 
 ## Motivation
-Without this PR, `TestModsecurity_ServeHTTP` can still pass while two rows share one `*http.Request`, `Prepare` negatives besides timeout/body size stay untested, and the body-pool alias of `buf.Bytes()` has no concurrent mixed-size race guard in CI.
+Without this PR, two table rows still share one `*http.Request`, several `rejectNegative` fields have no test, and the body-pool alias has no concurrent mixed-size race guard in CI.
 
 ## Merge readiness
-Explore written; propose and tests have not started. Apache integration on PR 30 is still running.
+Propose complete; tests not implemented yet.
 
 Priority: P3 — spec, docs, tests, or internal clarity — no current user or operator harm
-Reviewed head: 2778b2e
+Reviewed head: 04ac1f8
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | Explore done; CI still has one in-progress job; no product tests landed |
-| CI proof | 3/6 | Five checks succeeded; Integration Tests (apache) in progress |
+| Overall readiness | 3/6 | Apply-ready OpenSpec; no product tests landed |
+| CI proof | 3/6 | Latest push not re-measured this card |
 | Local tests proof | N/A | Before implement |
 | Review resolution | 6/6 | No PR comments |
 
@@ -31,22 +31,24 @@ Owner decision: Required. See Decision needed.
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Branch | 2026-09-02-test-coverage pushed | origin |
-| OpenSpec | none | no change folder yet |
+| OpenSpec | close-remaining-waf-test-gaps | `openspec/changes/close-remaining-waf-test-gaps/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/30 | pr-host |
-| CI | in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33671779217 | apache still running; others success |
+| CI | not seen | new propose commit pending |
 | Local tests | none | handoff.yaml |
 | PR comments | no comments | inventory |
 | Security | None. | no codereview.md |
 | Performance | None. | no codereview.md |
 
 ## Specs
-None.
+- [build_ci_github_go-test](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-02-test-coverage/openspec/changes/close-remaining-waf-test-gaps/proposal.md) — added
+- [core_plugin_middleware_prepare-validation](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-02-test-coverage/openspec/changes/close-remaining-waf-test-gaps/proposal.md) — modified
+- [core_plugin_middleware_body-pool](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-02-test-coverage/openspec/changes/close-remaining-waf-test-gaps/proposal.md) — modified
 
 ## Follow-up issues
 None.
 
 ## How this fits together
-`TestModsecurity_ServeHTTP` was run and passed (`go test -count=1 -run TestModsecurity_ServeHTTP$`) despite two rows sharing `req`. Explore decided clone those rows, add remaining `rejectNegative` tests, add concurrent mixed-body ServeHTTP, and pass `-race` on `go.yml` only.
+Change `close-remaining-waf-test-gaps` on PR 30. `openspec validate close-remaining-waf-test-gaps --type change --strict` passed.
 
 ## Decision needed
 | Question | Decision | By |
@@ -55,11 +57,11 @@ None.
 | Will sibling worktrees add these tests first? | assumed — ignore sibling trees; close holes on this branch against `origin/main` | explore |
 
 ## Before merge
-- [ ] Propose and implement the remaining tests
+- [ ] Implement the four tasks
 - [ ] Wait for CI on the test commits
 
 ## Findings
-- [P3] Shared `req` contamination still present — `TestModsecurity_ServeHTTP` PASS 2026-09-02. Path: `modsecurity_test.go` rows that pass `request: req`. Reply none.
+None.
 
 ## Agent review details
 
@@ -72,25 +74,24 @@ None.
 ### Review metrics
 | Metric | Value | Why it matters |
 | --- | --- | --- |
-| Specs in this PR | none | Explore; no OpenSpec change yet |
-| Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | New stub PR |
-| Reviewed head | 2778b2ed33e5fba81e33a0b4b3d663576a0ed75a | Pre-explore commit |
+| Specs in this PR | 1 added / 2 modified | Same list as Specs |
+| Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | No comments |
+| Reviewed head | 04ac1f8 (pre-propose OpenSpec commit) | Propose artifacts uncommitted at card write |
 
 ### Stored data model
 None.
 
 ### Technical review
-Best possible solution: Close only the holes still missing on `origin/main`.
+Best possible solution: Tests and `go.yml -race` against `origin/main`, no runtime change.
 
-Do we have a high-confidence way to reproduce? Yes, `TestModsecurity_ServeHTTP` still passes with shared `req`.
+Do we have a high-confidence way to reproduce? Yes.
 
-Is this the best way to solve the issue? Yes — tests and `go.yml -race`, not product behavior changes.
+Is this the best way to solve the issue? Yes.
 
 ### Evidence
 What I checked:
-- `go test -count=1 -run TestModsecurity_ServeHTTP$` PASS
-- `Prepare` maps window 0 → 10 (`pkg/modsecurity/config.go`)
-- `health.New` window 0 covered in `pkg/health/tracker_test.go`
+- `openspec validate close-remaining-waf-test-gaps --type change --strict` passed
+- FindSpecHost fold prepare-validation and body-pool; new `build_ci_github_go-test`
 
 ### Rank-up moves
 None.
