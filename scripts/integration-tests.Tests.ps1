@@ -65,6 +65,56 @@ Describe "WAF Protection Tests" {
             Test-MaliciousPatterns -BaseUrl "$BaseUrl/protected" -Patterns $maliciousPatterns
         }
     }
+
+    Context "Client IP in WAF audit log" {
+        # Negative control: drop the CRS trust list (Apache REMOTEIP_INT_PROXY /
+        # nginx SET_REAL_IP_FROM) from the compose file and this It fails —
+        # audit client IP stays the Traefik-to-WAF hop.
+        It "Should record Traefik ClientHost as REMOTE_ADDR on a deny" {
+            $marker = "host-ip-$(Get-Random)"
+            $denyUrl = "$BaseUrl/protected?id=1' OR '1'='1&marker=$marker"
+            $response = Invoke-SafeWebRequest -Uri $denyUrl
+            $response.StatusCode | Should -BeGreaterOrEqual 400 -Because "CRS should deny the SQL-injection query"
+
+            Start-Sleep -Seconds 2
+
+            $accessEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $traefikEntry = $accessEntries | Where-Object { $_.RequestPath -like "*$marker*" } | Select-Object -First 1
+            $traefikEntry | Should -Not -BeNullOrEmpty -Because "Traefik access.log should contain the deny request"
+            $sourceIp = Get-TraefikClientHost -AccessLogEntry $traefikEntry
+            $sourceIp | Should -Not -BeNullOrEmpty -Because "Traefik ClientHost (or ClientAddr) is the expected source IP"
+
+            $auditRecords = Get-WafAuditLogRecords -WafContainerName $script:wafContainer
+            $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
+            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log should contain the deny"
+            $auditClientIp = Get-WafAuditClientIp -AuditRecord $denyRecord
+            $auditClientIp | Should -Be $sourceIp -Because "Audit REMOTE_ADDR must be the IP Traefik saw, not the Traefik-to-WAF hop. Missing CRS X-Real-IP trust (REMOTEIP_INT_PROXY / SET_REAL_IP_FROM) fails this."
+        }
+    }
+
+    Context "Client Host in WAF audit log" {
+        # Negative control: drop proxyReq.Host = req.Host in ServeHTTP and this It
+        # fails — audit Host stays the sidecar URL host (waf / waf:8080).
+        It "Should record the incoming Host on a deny" {
+            $marker = "host-hdr-$(Get-Random)"
+            $wantHost = "app.example.test"
+            $requestLine = "GET /protected?id=1%27+OR+%271%27%3D%271&marker=$marker HTTP/1.1"
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine $requestLine -Headers @{
+                Host = $wantHost
+                Connection = "close"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] [45]\d\d' -Because "CRS should deny the SQL-injection query sent with a distinctive Host"
+
+            Start-Sleep -Seconds 2
+
+            $auditRecords = Get-WafAuditLogRecords -WafContainerName $script:wafContainer
+            $denyRecord = $auditRecords | Where-Object { (Get-WafAuditRequestUri -AuditRecord $_) -like "*$marker*" } | Select-Object -First 1
+            $denyRecord | Should -Not -BeNullOrEmpty -Because "WAF audit log should contain the deny"
+            $auditHost = Get-WafAuditHost -AuditRecord $denyRecord
+            $auditHost | Should -Be $wantHost -Because "Audit Host must be the incoming Host, not the sidecar URL host. Missing proxyReq.Host = req.Host leaves waf or waf:8080."
+            $auditHost | Should -Not -BeIn @("waf", "waf:8080", "localhost", "localhost:8000") -Because "Sidecar URL host or the TCP target must not replace the incoming Host"
+        }
+    }
     
     Context "Legitimate Request Handling" {
         It "Should allow normal GET requests" {
@@ -485,58 +535,47 @@ Describe "MaxBodySizeBytes Configuration Tests" {
 
 # Body Size Limit Tests moved to scripts/integration-tests.BodySize.Tests.ps1
 
-Describe "IgnoreBodyForVerbsForce Configuration Tests" {
+Describe "DenyVerbsWithBody Configuration Tests" {
     Context "Strict Body Validation" {
-        It "Should reject GET requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test GET request with body (should be rejected)
+        It "Should reject GET requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
 
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method GET -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "GET requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "GET requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should reject HEAD requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test HEAD request with body (should be rejected)
+        It "Should reject HEAD requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method HEAD -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "HEAD requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "HEAD requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should reject DELETE requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test DELETE request with body (should be rejected)
+        It "Should reject DELETE requests with body for the default denyVerbsWithBody list" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method DELETE -Body $body -TimeoutSec 10
-            $response.StatusCode | Should -Be 400 -Because "DELETE requests with body should be rejected when ignoreBodyForVerbsDeny is enabled"
+            $response.StatusCode | Should -Be 400 -Because "DELETE requests with body should be rejected by default denyVerbsWithBody"
         }
         
-        It "Should allow GET requests without body when ignoreBodyForVerbsDeny is enabled" {
-            # Test GET request without body (should be allowed)
+        It "Should allow GET requests without body" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test"
             $response.StatusCode | Should -Be 200 -Because "GET requests without body should be allowed"
         }
         
-        It "Should allow POST requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test POST request with body (should be allowed - POST is not in ignoreBodyForVerbs)
+        It "Should allow POST requests with body" {
             $body = "test data"
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method POST -Body $body
-            $response.StatusCode | Should -Be 200 -Because "POST requests with body should be allowed (POST is not in ignoreBodyForVerbs)"
+            $response.StatusCode | Should -Be 200 -Because "POST is not in denyVerbsWithBody"
         }
         
-        It "Should allow PUT requests with body when ignoreBodyForVerbsDeny is enabled" {
-            # Test PUT request with body (should be allowed - PUT is not in ignoreBodyForVerbs)
-            # Note: This might be blocked by ModSecurity, but the important thing is that
-            # it's not blocked by our body validation (which would return 400)
+        It "Should allow PUT requests with body" {
             $body = "test data"
             
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/force-test" -Method PUT -Body $body -TimeoutSec 10
             $statusCode = [int]$response.StatusCode
 
-            # 200  -> body validation allowed and ModSecurity allowed (ideal)
-            # 403  -> body validation allowed, ModSecurity blocked (acceptable)
-            # 400  -> body validation wrongly rejected by our validation layer (NOT acceptable)
-            $statusCode | Should -Not -Be 400 -Because "PUT is not in ignoreBodyForVerbs; our body validation must not reject it"
+            $statusCode | Should -Not -Be 400 -Because "PUT is not in denyVerbsWithBody; body validation must not reject it"
         }
     }
 }

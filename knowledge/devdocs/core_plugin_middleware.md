@@ -10,13 +10,37 @@ _Avoid_: singleton, instance (ambiguous with Traefik `New`)
 The thin `http.Handler` returned by one Traefik `New`. It holds `next` and a pointer to the Plugin core.
 _Avoid_: middleware instance
 
+**Security block**:
+A sidecar `3xx` or `4xx` that is copied to the client. The next handler is not called.
+_Avoid_: deny (ModSecurity action name)
+
+**WAF failure**:
+A transport error talking to the sidecar, or a sidecar `5xx`. Not a security block.
+_Avoid_: outage (operator slang)
+
 **WebSocket handshake**:
 An HTTP/1.1 GET whose `Connection` list includes the token `upgrade` and whose `Upgrade` value matches `websocket` (case-insensitive).
 _Avoid_: Upgrade header (a lone `Upgrade` is not a handshake)
 
+**Sidecar request**:
+The HTTP request `ServeHTTP` builds and sends to `ModSecurityUrl`.
+_Avoid_: WAF request (ambiguous with the incoming client request)
+
 **Sidecar response**:
 The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; on block it copies that response to the client.
 _Avoid_: WAF page (ambiguous with `next`)
+
+**Denied-verb body**:
+A request body whose method is listed in `denyVerbsWithBody`. The plugin rejects that request with HTTP 400.
+_Avoid_: ignored-verb body, ignoreBodyForVerbs
+
+**WAF base URL**:
+The prepared `ModSecurityUrl`: an absolute `http` or `https` origin (scheme + host and optional port) with no path. `ServeHTTP` concatenates it with the request URI.
+_Avoid_: sidecar path, WAF endpoint path
+
+**Allow**:
+A sidecar HTTP status below 300.
+_Avoid_: pass
 
 ## Overview
 
@@ -26,10 +50,13 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 
 - Keep the Traefik catalog fields in `.traefik.yml`: `type: middleware`, `import: github.com/david-garcia-garcia/traefik-modsecurity`.
 - Add a config knob on `Config` in `pkg/modsecurity` with a `json` tag and `omitempty`, set the default in `CreateConfig()`, apply zeros in `Prepare()`, then use it from `Plugin.ServeHTTP`.
-- Reject an empty `ModSecurityUrl` in `Prepare`. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
-- Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`.
-- On the pass path, restore `req.Body` when you read it, drain the sidecar response body (up to 256 KiB) so the shared client can reuse the TCP connection, then call `next.ServeHTTP`. Traefik still needs the request body for the backend. Do not forward the sidecar body to the client.
-- On a WAF status `>= 400`, copy the WAF response with `forwardResponse` and do not call `next`.
+- Reject an empty `ModSecurityUrl` in `Prepare`. Parse it as an absolute `http`/`https` WAF base URL with a host and no path; trim a lone trailing slash. Reject every numeric config field that is negative. `logLevel` is optional; empty becomes `info`; anything other than `debug|info|warn|error` fails Prepare.
+- Keep `New` free of network I/O. Observed: `New` calls `Prepare`, `reclaim.Open`, and `ForRoute`. The first outbound call is `httpClient.Do` in `ServeHTTP`. Build that sidecar request with `http.NewRequestWithContext(req.Context(), …)` so a client disconnect or Traefik deadline cancels it. `timeoutMillis` still caps the call when the inbound context stays live. The shared WAF client does not follow `Location`; `Do` returns the sidecar's own 3xx.
+- After `http.NewRequestWithContext` and the `req.Header` copy, set `proxyReq.Host = req.Host`. Incoming Host is not in the header map. Copy Traefik’s headers as-is. Do not append `req.RemoteAddr` to `X-Forwarded-For`. Do not set `X-Real-IP`.
+- After `Do`, a sidecar `3xx` or `4xx` is copied with `forwardResponse`, then `discardSidecarBody`, then return. Allow and 5xx `discardSidecarBody` (256 KiB cap) so the shared client can reuse the TCP connection, then fail-open/502 or `next`. Do not buffer the sidecar body on the allow path. After the inbound body is read, restore `req.Body` once so pass and fail-open both still have it for Traefik.
+- When the method is in `denyVerbsWithBody` and the request has a body, return HTTP 400 before the sidecar and before `next`, including when the WAF is already unhealthy. Omitted `denyVerbsWithBody` uses the CreateConfig default list. An explicit empty slice denies nothing. Methods not on the list are inspected and forwarded.
+- On a sidecar `3xx` or `4xx` (security block), copy the WAF response and do not call `next`.
+- On a sidecar `5xx` or a transport error talking to the sidecar, set the status request header to `error` when configured, record a health failure, then fail-open or return 502. Do not `forwardResponse` a 5xx. Inbound `Canceled` is not that path.
 - Log request-path events on the core slog logger (`p.logger.Error` / `Info` / `Debug`), not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet
@@ -64,4 +91,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.
-- Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. Drain with `drainSidecarBody` on the allow path. Do not add a config knob for the 256 KiB cap.
+- `Prepare` fails construction on a negative numeric field and on a `ModSecurityUrl` that is not a WAF base URL. A trailing slash is trimmed so concatenation does not produce `//path`.
+- The sidecar request uses `req.Context()`. A client disconnect (`Canceled`) is not a WAF health failure. An inbound request deadline while waiting on the sidecar, and `timeoutMillis` (`Client.Timeout`), still are.
+- ModSecurity `SecRequestBodyLimit` / `SecRequestBodyNoFilesLimit` reject with **413**, not 5xx. That sidecar 413 is a security-class block (`forwardResponse`), not a WAF failure. This plugin’s own `maxBodySizeBytes` also returns 413 before the sidecar.
+- Closing the sidecar response without reading it (Go 1.26 / Traefik v3.7.12) drops the TCP connection. `discardSidecarBody` after a 3xx or 4xx copy (then return) and before allow/`next` or 5xx fail-open. Do not add a config knob for the 256 KiB cap.

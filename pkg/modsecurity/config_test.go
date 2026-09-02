@@ -72,6 +72,63 @@ func TestPrepare_LogLevelRejectsUnknown(t *testing.T) {
 	}
 }
 
+func TestPrepare_ZeroTimeoutMillisDefaults(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.TimeoutMillis = 0
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TimeoutMillis != 2000 {
+		t.Fatalf("TimeoutMillis = %d, want 2000", cfg.TimeoutMillis)
+	}
+}
+
+func TestPrepare_RejectsNegativeTimeoutMillis(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.TimeoutMillis = -1
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for timeoutMillis=-1")
+	}
+}
+
+func TestPrepare_RejectsNegativeMaxBodySizeBytes(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.MaxBodySizeBytes = -1
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for maxBodySizeBytes=-1")
+	}
+}
+
+func TestPrepare_RejectsURLWithoutScheme(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "waf:80"
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for modSecurityUrl=waf:80")
+	}
+}
+
+func TestPrepare_RejectsURLWithPath(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf:80/modsec"
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for modSecurityUrl with path")
+	}
+}
+
+func TestPrepare_TrimsTrailingSlashOnURL(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf:80/"
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ModSecurityUrl != "http://waf:80" {
+		t.Fatalf("ModSecurityUrl = %q, want http://waf:80", cfg.ModSecurityUrl)
+	}
+}
+
 func TestNewLogger_InfoHidesDebug(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf"
@@ -84,6 +141,30 @@ func TestNewLogger_InfoHidesDebug(t *testing.T) {
 	}
 	if !logger.Enabled(context.Background(), slog.LevelInfo) {
 		t.Fatal("info logger must enable info")
+	}
+}
+
+func TestPrepare_NilDenyVerbsWithBodyGetsDefault(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.DenyVerbsWithBody = nil
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.DenyVerbsWithBody) == 0 {
+		t.Fatal("nil denyVerbsWithBody must become the CreateConfig default")
+	}
+}
+
+func TestPrepare_EmptyDenyVerbsWithBodyStaysEmpty(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.DenyVerbsWithBody = []string{}
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DenyVerbsWithBody == nil || len(cfg.DenyVerbsWithBody) != 0 {
+		t.Fatalf("empty denyVerbsWithBody = %v, want empty non-nil", cfg.DenyVerbsWithBody)
 	}
 }
 

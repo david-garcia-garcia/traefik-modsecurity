@@ -31,6 +31,10 @@
 .EXAMPLE
     ./Test-Integration.ps1 -SkipWait
     Runs tests assuming services are already running
+
+.EXAMPLE
+    ./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
+    Runs the same suite against the nginx CRS reference stack
 #>
 
 [CmdletBinding()]
