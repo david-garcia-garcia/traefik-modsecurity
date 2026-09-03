@@ -12,5 +12,5 @@
 
 ## 3. Verify
 
-- [ ] 3.1 Run Pester locally if Docker is available (`./Test-Integration.ps1 -Stack apache-drain` and `-Stack apache-whoami` at least). Record pass/fail/not-run on `handoff.yaml` `localTests`.
+- [x] 3.1 Run Pester locally if Docker is available (`./Test-Integration.ps1 -Stack apache-drain` and `-Stack apache-whoami` at least). Record pass/fail/not-run on `handoff.yaml` `localTests`.
 - [x] 3.2 Confirm `.github/workflows/integration-test.yml` still runs only `./scripts/integration-tests.Tests.ps1`.

@@ -34,20 +34,20 @@
 ## Open questions
 
 - Q: What HTTP status does labeled whoami return on drain GET `/protected` with `Range: bytes=10240-`?
-  Decision: assumed — expect 200 and a whoami body (`Hostname`). traefik/whoami writes a generated text page and does not implement Range/206; a drain 416 would be a leftover sidecar copy, not app partial content. Implement will assert success (not 416) plus whoami markers (`Hostname` and/or `X-Waf-Status` allow). If measure shows 206, accept 200 or 206.
-  By: explore
+  Decision: resolved — apache-drain Pester passed 200 (or 206) plus `Hostname` in the body. `./Test-Integration.ps1 -Stack apache-drain` filtered Legitimate Request Handling.
+  By: implement
 
 - Q: Does nginx dummy 416 on `Range: bytes=10240-`?
-  Decision: assumed — assert 416 on `apache-whoami` only (`Test-IsWhoamiOrigin` and stack name `apache-whoami`). Skip `nginx-whoami` unless implement measures 416. Apache whoami is the documented dummy failure (`httpd-vhosts.drain.conf` comments; inspect-only design).
-  By: explore
+  Decision: assumed — still skip `nginx-whoami` (not measured this run). `apache-whoami` Range 416 is resolved (Pester passed).
+  By: implement
 
 - Q: Does a 12–16 MiB POST to `/large-body-test` return 200 on drain, or CRS 413?
-  Decision: assumed — assert not 5xx (AH01084 class). Do not require 200. Compose sets `MODSEC_REQ_BODY_LIMIT=10485760` (10 MiB) and `MODSEC_REQ_BODY_NOFILES_LIMIT=1048576` (1 MiB) in `docker-compose.test.yml` / `docker-compose.test.nginx.yml`. A 12–16 MiB `data=aaa…` body is over both; CRS Reject is 413 (`knowledge/research/ext_modsecurity_http-status_deny-vs-error`). 413 is not 5xx. Prefer 200 only if implement measures 200. Do not change compose limits.
-  By: explore
+  Decision: resolved — apache-drain 16 MiB POST was not 5xx (It passed in 73ms; exact 200 vs 413 not printed). Assertion stays not-5xx.
+  By: implement
 
 - Q: Is apache-whoami 12–16 MiB POST stably 5xx (dummy AH01084)?
-  Decision: assumed — skip whoami large-POST contrast unless implement measures a stable 5xx. CRS 413 likely happens before ProxyPass, so dummy 5xx may never appear at 12–16 MiB. Drain not-5xx is the pin. Do not flake `nginx-whoami`.
-  By: explore
+  Decision: resolved — skip remains. Not measured; drain not-5xx is the pin.
+  By: implement
 
 - Q: Who already owns client identity for these tests?
   Decision: resolved — Traefik `ClientHost` plus CRS `X-Real-IP` / `REMOTEIP_INT_PROXY` / nginx `real_ip` overlays. This ticket does not add or reconstruct identity.
