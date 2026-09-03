@@ -11,4 +11,4 @@ JobName: 2026-09-03-improve-test-coverage
 | codereview | [x] | [x] | 2026-09-03T05:55:37.912Z |
 | devdocsimpact | [x] | [x] | 2026-09-03T06:32:30.823Z |
 | archive | [x] | [x] | 2026-09-03T06:32:30.823Z |
-| pullrequest | [ ] | [ ] | |
+| pullrequest | [x] | [x] | 2026-09-03T06:39:37.875Z |

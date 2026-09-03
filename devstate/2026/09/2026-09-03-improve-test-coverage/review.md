@@ -48,3 +48,10 @@ phase: archive
 findings: nginx resume flake on CI
 fixed: docker stop -t 0, Wait-ForThresholdRouteInspecting, Wait-ForWafAllowPath
 skipped: none
+
+## pullrequest (2026-09-03)
+
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
