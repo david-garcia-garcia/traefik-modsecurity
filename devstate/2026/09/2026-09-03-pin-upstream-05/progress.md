@@ -5,7 +5,7 @@ JobName: 2026-09-03-pin-upstream-05
 | Phase | Work | Card | At |
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-03T04:16:34Z |
-| explore | [ ] | [ ] | |
+| explore | [x] | [x] | 2026-09-03T04:18:03Z |
 | propose | [ ] | [ ] | |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
