@@ -29,3 +29,8 @@ description: Official owasp/modsecurity-crs reverse-proxy BACKEND/BACKEND_WS wir
 priority: normal
 local: ext_modsecurity_variables_host/
 description: How ModSecurity and CRS read the HTTP Host header.
+
+## WebSocket inspection
+priority: normal
+local: ext_modsecurity_websocket-inspection/
+description: Whether libmodsecurity and OWASP CRS inspect a WebSocket handshake versus frames, and whether Upgrade skips rules.
