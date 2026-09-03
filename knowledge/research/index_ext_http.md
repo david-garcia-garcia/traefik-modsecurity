@@ -30,6 +30,11 @@ priority: normal
 local: ext_http_client_timeout/
 description: How Client.Timeout treats zero and negative durations.
 
+## Go http.MaxBytesReader
+priority: normal
+local: ext_http_maxbytesreader/
+description: How Go net/http MaxBytesReader treats a limit of 0 and what error a Read beyond the limit returns.
+
 ## Request context cancellation
 priority: normal
 local: ext_http_client_request-context/
