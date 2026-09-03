@@ -26,38 +26,20 @@ function Get-WafContainerName {
 }
 
 function Get-DummyContainerName {
-    # Unlabeled CRS origin (traefik/whoami). Present on *-whoami stacks; absent on *-drain.
+    # Regression guard: unlabeled CRS BACKEND used to be named *-dummy-1.
     docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-dummy-1" } | Select-Object -First 1
 }
 
 function Get-IntegrationStackComposeFiles {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+        [ValidateSet('apache-drain', 'nginx-drain')]
         [string]$Stack
     )
     switch ($Stack) {
-        'apache-whoami' { @('./docker-compose.test.yml') }
-        'nginx-whoami' { @('./docker-compose.test.nginx.yml') }
-        'apache-drain' { @('./docker-compose.test.yml', './docker-compose.test.apache-drain.yml') }
-        'nginx-drain' { @('./docker-compose.test.nginx.yml', './docker-compose.test.nginx-drain.yml') }
+        'apache-drain' { @('./docker-compose.test.yml') }
+        'nginx-drain' { @('./docker-compose.test.nginx.yml') }
     }
-}
-
-function Get-IntegrationOriginKind {
-    $stack = $env:INTEGRATION_STACK
-    if ($stack -like '*-drain') { return 'drain' }
-    if ($stack -like '*-whoami') { return 'whoami' }
-    if (Get-DummyContainerName) { return 'whoami' }
-    return 'drain'
-}
-
-function Test-IsDrainOrigin {
-    return (Get-IntegrationOriginKind) -eq 'drain'
-}
-
-function Test-IsWhoamiOrigin {
-    return (Get-IntegrationOriginKind) -eq 'whoami'
 }
 
 function Get-BombardierCommand {

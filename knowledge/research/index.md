@@ -5,6 +5,11 @@ priority: normal
 local: index_ext_http.md
 description: Official HTTP and WebSocket handshake rules this product relies on.
 
+## nginx
+priority: normal
+local: index_ext_nginx.md
+description: Official nginx HTTP filter and proxy behavior this product relies on.
+
 ## traefik
 priority: normal
 local: index_ext_traefik.md

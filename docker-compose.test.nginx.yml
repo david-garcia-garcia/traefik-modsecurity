@@ -31,7 +31,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=5
       - ANOMALY_OUTBOUND=4
-      - BACKEND=http://dummy
       - MODSEC_RULE_ENGINE=On
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
@@ -51,15 +50,14 @@ services:
       # This 4.3.0 pin applies real_ip only in location / (too late for ModSecurity).
       # Http-level overlay rewrites REMOTE_ADDR from X-Real-IP before CRS runs.
       - ./crs-nginx/realip.conf:/etc/nginx/conf.d/zz-realip.conf:ro
+      - ./crs-nginx/drain-origin.conf:/etc/nginx/conf.d/zz-drain-origin.conf:ro
+      - ./crs-nginx/proxy_backend.drain.conf.template:/etc/nginx/templates/includes/proxy_backend.conf.template:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 12
       start_period: 20s
-
-  dummy:
-    image: traefik/whoami
 
   # Backend for file-provider reclaim routers (/reclaim-a, /reclaim-b). No Docker labels.
   whoami-reclaim:

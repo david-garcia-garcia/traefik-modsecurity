@@ -8,11 +8,9 @@
     This script starts the Docker Compose services, waits for them to be ready,
     runs the Pester integration tests, and then cleans up the services.
 
-    Four stacks (CRS engine × origin):
-      apache-whoami  docker-compose.test.yml
-      nginx-whoami   docker-compose.test.nginx.yml
-      apache-drain   docker-compose.test.yml + docker-compose.test.apache-drain.yml
-      nginx-drain    docker-compose.test.nginx.yml + docker-compose.test.nginx-drain.yml
+    Two stacks (Apache and nginx CRS, inspect-only sidecar):
+      apache-drain   docker-compose.test.yml
+      nginx-drain    docker-compose.test.nginx.yml
 
 .PARAMETER SkipDockerCleanup
     Skip stopping Docker services after tests complete (useful for debugging)
@@ -27,26 +25,26 @@
     Path to a single Docker Compose file (ignored when -Stack or -AllStacks is set)
 
 .PARAMETER Stack
-    Named stack: apache-whoami, nginx-whoami, apache-drain, nginx-drain
+    Named stack: apache-drain, nginx-drain
 
 .PARAMETER AllStacks
-    Run the four stacks in sequence (compose down between each)
+    Run both stacks in sequence (compose down between each)
 
 .EXAMPLE
     ./Test-Integration.ps1
-    Apache + dummy whoami origin (default)
+    Apache CRS stack (default)
 
 .EXAMPLE
     ./Test-Integration.ps1 -Stack apache-drain
-    Apache inspect-only drain origin
+    Apache CRS stack
 
 .EXAMPLE
     ./Test-Integration.ps1 -AllStacks
-    All four stacks, including bombardier benches when bombardier is installed
+    Both stacks, including bombardier benches when bombardier is installed
 
 .EXAMPLE
     ./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
-    Same as -Stack nginx-whoami
+    Same as -Stack nginx-drain
 #>
 
 [CmdletBinding()]
@@ -55,7 +53,7 @@ param(
     [switch]$SkipWait,
     [string]$TestPath = "./scripts/*.Tests.ps1",
     [string]$ComposeFile = "./docker-compose.test.yml",
-    [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+    [ValidateSet('apache-drain', 'nginx-drain')]
     [string]$Stack,
     [switch]$AllStacks,
     # Pester filter options (Pester v5)
@@ -70,14 +68,12 @@ $ErrorActionPreference = "Stop"
 function Get-IntegrationStackComposeFiles {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+        [ValidateSet('apache-drain', 'nginx-drain')]
         [string]$Stack
     )
     switch ($Stack) {
-        'apache-whoami' { @('./docker-compose.test.yml') }
-        'nginx-whoami' { @('./docker-compose.test.nginx.yml') }
-        'apache-drain' { @('./docker-compose.test.yml', './docker-compose.test.apache-drain.yml') }
-        'nginx-drain' { @('./docker-compose.test.nginx.yml', './docker-compose.test.nginx-drain.yml') }
+        'apache-drain' { @('./docker-compose.test.yml') }
+        'nginx-drain' { @('./docker-compose.test.nginx.yml') }
     }
 }
 
@@ -125,8 +121,8 @@ function Get-StackNameFromComposeFiles {
     $joined = ($Files -join ' ')
     if ($joined -match 'apache-drain') { return 'apache-drain' }
     if ($joined -match 'nginx-drain') { return 'nginx-drain' }
-    if ($joined -match 'nginx') { return 'nginx-whoami' }
-    return 'apache-whoami'
+    if ($joined -match 'nginx') { return 'nginx-drain' }
+    return 'apache-drain'
 }
 
 function Test-ServiceHealth {
@@ -380,7 +376,7 @@ try {
 
     $runs = @()
     if ($AllStacks) {
-        foreach ($name in @('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')) {
+        foreach ($name in @('apache-drain', 'nginx-drain')) {
             $runs += @{ Name = $name; Files = @(Get-IntegrationStackComposeFiles -Stack $name) }
         }
     } elseif ($Stack) {
