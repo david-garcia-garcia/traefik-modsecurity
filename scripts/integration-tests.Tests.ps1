@@ -651,17 +651,7 @@ Describe "WAF Health Tracker Threshold Tests" {
 
         It "Should trip unhealthy after threshold failures and bypass WAF" {
             try {
-                docker stop $script:wafContainer | Out-Null
-                Start-Sleep -Seconds 2
-
-                # Trigger 3 failures to reach threshold (middleware: threshold=3, window=30s, backoff=10s)
-                1..3 | ForEach-Object {
-                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
-                    Start-Sleep -Milliseconds 500
-                }
-
-                # Next request should be pass-through (200); request gets X-Waf-Status: unhealthy (visible in access log)
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $response = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $response.StatusCode | Should -Be 200 -Because "after threshold we bypass WAF and get backend response"
                 Start-Sleep -Seconds 2
                 $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
@@ -678,13 +668,7 @@ Describe "WAF Health Tracker Threshold Tests" {
 
         It "Should reject GET with body after fail-open trip" {
             try {
-                docker stop $script:wafContainer | Out-Null
-                Start-Sleep -Seconds 2
-                1..3 | ForEach-Object {
-                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
-                    Start-Sleep -Milliseconds 500
-                }
-                $passThrough = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $passThrough = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before the deny-verb check"
 
                 $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -Method GET -Body "test data" -TimeoutSec 10
@@ -699,13 +683,7 @@ Describe "WAF Health Tracker Threshold Tests" {
 
         It "Should consult the sidecar again after backoff elapses" {
             try {
-                docker stop $script:wafContainer | Out-Null
-                Start-Sleep -Seconds 2
-                1..3 | ForEach-Object {
-                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
-                    Start-Sleep -Milliseconds 500
-                }
-                $passThrough = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $passThrough = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before backoff resume"
 
                 docker start $script:wafContainer | Out-Null

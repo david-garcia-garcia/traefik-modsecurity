@@ -171,6 +171,36 @@ function Wait-ForWafHealthy {
 
 <#
 .SYNOPSIS
+    Stops the CRS container and trips /threshold-test fail-open (threshold 3).
+
+.DESCRIPTION
+    Shared setup for threshold Its. Stops the WAF, sends three requests, then
+    one more that must be pass-through. Callers assert the returned status.
+
+.PARAMETER BaseUrl
+    Traefik entry URL (e.g. http://localhost:8000).
+
+.PARAMETER WafContainerName
+    CRS container to stop (from Get-WafContainerName).
+#>
+function Invoke-ThresholdTestFailOpenTrip {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseUrl,
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+    docker stop $WafContainerName | Out-Null
+    Start-Sleep -Seconds 2
+    1..3 | ForEach-Object {
+        try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
+        Start-Sleep -Milliseconds 500
+    }
+    return Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+}
+
+<#
+.SYNOPSIS
     Makes HTTP requests with comprehensive error handling
 
 .DESCRIPTION
