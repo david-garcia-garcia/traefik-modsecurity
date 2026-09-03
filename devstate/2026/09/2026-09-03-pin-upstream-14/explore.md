@@ -50,8 +50,8 @@
   By: explore
 
 - Q: Fold KeePass PUT scenarios into existing spec leaves, or create a new leaf?
-  Decision: assumed — fold. `core_plugin_middleware_deny-verbs-with-body` already requires methods not on the list to inspect and forward (POST only today). `core_plugin_middleware_sidecar-response` already requires 3xx/4xx copy. Adding PUT + 228565 + sidecar 400/413 is a small adjustment. Confirm with FindSpecHost at propose.
-  By: explore
+  Decision: resolved — fold. FindSpecHost: `core_plugin_middleware_deny-verbs-with-body` and `core_plugin_middleware_sidecar-response` (high). ADDED scenarios only.
+  By: propose
 
 - Q: Should the tests also assert the 5 MiB pool cap path?
   Decision: assumed — no. Bound the ask to the starter file. 228565 is under both caps; extra pool assertions are out of scope.

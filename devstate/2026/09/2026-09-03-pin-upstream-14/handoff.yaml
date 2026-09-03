@@ -11,5 +11,5 @@ localTests: none
 requirement: requirement.md
 comments: none
 explore: explore.md
-change: none
+change: pin-keepass-webdav-put-tests
 pr: { id: 34, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/34 }

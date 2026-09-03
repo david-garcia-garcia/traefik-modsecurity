@@ -9,3 +9,9 @@ phase: explore
 findings: starter tests already pass; no plugin-half bug
 fixed: none
 skipped: docs P2, live CRS-docker, pool-cap extra asserts
+
+## propose (2026-09-03T04:19:31.5800255Z)
+phase: propose
+findings: fold two spec leaves; change pin-keepass-webdav-put-tests valid
+fixed: none
+skipped: none
