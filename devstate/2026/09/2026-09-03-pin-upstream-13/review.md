@@ -1,5 +1,15 @@
 # Review journal
 
+## implement (2026-09-03)
+phase: implement
+findings: none
+fixed: landed upstream_issue_13_test.go
+skipped: race suite (CGO off locally)
+head: 87701800e77d27487482e75cd9e8c263bea712bd
+pr: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/36
+ci: in progress (33714903453)
+localTests: passed
+
 ## propose (2026-09-03)
 phase: propose
 findings: none

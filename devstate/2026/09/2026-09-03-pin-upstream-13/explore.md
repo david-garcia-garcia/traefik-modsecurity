@@ -51,4 +51,4 @@ Measured 2026-09-03 (`go test ./pkg/modsecurity/ -count=1 -timeout 60s -run "Tes
 
 - Q: Does build_testing_go need a usage update for `upstream_issue_*_test.go`?
   Decision: assumed — yes, one Key files line at implement/devdocsimpact if the file lands. No new Language term.
-  By: explore
+  By: implement
