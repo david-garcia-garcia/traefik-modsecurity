@@ -1,0 +1,10 @@
+# Knowledge
+- created knowledge/research/ext_cloudflare_waf_websocket/
+- created knowledge/research/ext_aws_waf_websocket/
+- created knowledge/research/ext_azure_waf_websocket/
+- created knowledge/research/ext_modsecurity_websocket-inspection/
+- created knowledge/research/ext_coraza_waf_websocket/
+- created knowledge/research/ext_google_cloud-armor_websocket/
+- created knowledge/research/ext_fastly_ngwaf_websocket/
+- created knowledge/research/ext_haproxy_http_websocket/
+- created knowledge/research/ext_traefik_waf_websocket/
