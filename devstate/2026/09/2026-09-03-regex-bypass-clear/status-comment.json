@@ -1,5 +1,5 @@
 {
-  "commentId": "local",
+  "commentId": "pr-body",
   "issueKey": "2026-09-03-regex-bypass-clear",
   "markerValue": "[sgsi-dev-ticket-status:2026-09-03-regex-bypass-clear]",
   "issueHost": "local"
