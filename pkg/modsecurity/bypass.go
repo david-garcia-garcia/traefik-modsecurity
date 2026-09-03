@@ -31,6 +31,7 @@ func compileBypassByMethod(rules []BypassRule) (compiledBypass, error) {
 	var anyParts []string
 	alwaysAny := false
 
+	// Bucket each rule: method-only, path-only, both, or match-every-request.
 	for _, rule := range rules {
 		method := strings.ToUpper(strings.TrimSpace(rule.Method))
 		pattern := rule.PathRegexp
@@ -55,6 +56,7 @@ func compileBypassByMethod(rules []BypassRule) (compiledBypass, error) {
 		byMethodParts[method] = append(byMethodParts[method], grouped)
 	}
 
+	// Compile the path-only fallback used when the method is not in the map.
 	anyRegexp, err := joinBypassPatterns(anyParts)
 	if err != nil {
 		return compiledBypass{}, err
@@ -63,6 +65,7 @@ func compileBypassByMethod(rules []BypassRule) (compiledBypass, error) {
 		anyRegexp = matchAllBypassPath
 	}
 
+	// One compiled regexp per method that has path patterns.
 	byMethod := make(map[string]*regexp.Regexp, len(byMethodParts)+len(alwaysMethod))
 	for method := range byMethodParts {
 		re, err := compiledMethodRegexp(alwaysAny, alwaysMethod[method], byMethodParts[method], anyParts)
@@ -71,6 +74,7 @@ func compileBypassByMethod(rules []BypassRule) (compiledBypass, error) {
 		}
 		byMethod[method] = re
 	}
+	// Method-only rules that had no path patterns still need a map entry.
 	for method := range alwaysMethod {
 		if _, exists := byMethod[method]; exists {
 			continue
@@ -85,7 +89,7 @@ func compileBypassByMethod(rules []BypassRule) (compiledBypass, error) {
 	return compiledBypass{byMethod: byMethod, anyMethod: anyRegexp}, nil
 }
 
-// compiledMethodRegexp returns the one regexp used for a single HTTP method.
+// compiledMethodRegexp returns match-all when the method skips every path, else joins that method's patterns with path-only patterns.
 func compiledMethodRegexp(alwaysAny, methodAlways bool, methodParts, anyParts []string) (*regexp.Regexp, error) {
 	if alwaysAny || methodAlways {
 		return matchAllBypassPath, nil

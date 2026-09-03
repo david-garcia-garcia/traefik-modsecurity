@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// TestPlugin_BypassRules asserts method/path match, miss, method-only, path-only, header token, and inspect-when-empty.
 func TestPlugin_BypassRules(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -141,6 +142,7 @@ func TestPlugin_BypassRules(t *testing.T) {
 	}
 }
 
+// TestPlugin_BypassRules_GetWithBodyIsNot400 asserts a bypassed GET with a body is not reject by denyVerbsWithBody.
 func TestPlugin_BypassRules_GetWithBodyIsNot400(t *testing.T) {
 	var wafCalled atomic.Bool
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -181,6 +183,7 @@ func TestPlugin_BypassRules_GetWithBodyIsNot400(t *testing.T) {
 	}
 }
 
+// TestNew_InvalidBypassPathRegexp asserts an unclosed group in pathRegexp fails plugin construction.
 func TestNew_InvalidBypassPathRegexp(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf"
@@ -194,6 +197,7 @@ func TestNew_InvalidBypassPathRegexp(t *testing.T) {
 	}
 }
 
+// TestCompileBypassByMethod_OneRegexpPerMethod asserts two GET rules compile to one GET map entry, not two.
 func TestCompileBypassByMethod_OneRegexpPerMethod(t *testing.T) {
 	compiled, err := compileBypassByMethod([]BypassRule{
 		{Method: http.MethodGet, PathRegexp: `/a`},

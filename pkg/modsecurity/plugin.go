@@ -85,7 +85,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		healthTracker = health.New(backoff, window, cfg.UnhealthyWafFailureThreshold, logger)
 	}
 
-	pathBypass, err := compileBypassByMethod(cfg.BypassRules)
+	compiledBypass, err := compileBypassByMethod(cfg.BypassRules)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
 		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,
 		denyVerbsWithBody:              createMethodSet(cfg.DenyVerbsWithBody),
-		compiledBypass:                 pathBypass,
+		compiledBypass:                 compiledBypass,
 	}, nil
 }
 
