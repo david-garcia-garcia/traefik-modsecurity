@@ -1,0 +1,17 @@
+issueKey: 2026-09-03-pin-upstream-11
+jobName: 2026-09-03-pin-upstream-11
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: 40ef635f5420947fa9da8a0811f55d0ad399108be7f0900f9b15bc3f0755fc0a
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: pin-upstream-issue-11
+pr:
+  id: 35
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/35

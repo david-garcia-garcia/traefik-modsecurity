@@ -14,19 +14,45 @@ jobs:
   integration-tests:
     name: Integration Tests (${{ matrix.stack }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      INTEGRATION_STACK: ${{ matrix.stack }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - stack: apache
+          - stack: apache-whoami
             compose_file: docker-compose.test.yml
-          - stack: nginx
+            override_file: ""
+          - stack: nginx-whoami
             compose_file: docker-compose.test.nginx.yml
+            override_file: ""
+          - stack: apache-drain
+            compose_file: docker-compose.test.yml
+            override_file: docker-compose.test.apache-drain.yml
+          - stack: nginx-drain
+            compose_file: docker-compose.test.nginx.yml
+            override_file: docker-compose.test.nginx-drain.yml
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Install bombardier
+      run: go install github.com/codesenberg/bombardier@latest
+
+    - name: Set compose args
+      run: |
+        ARGS="-f ${{ matrix.compose_file }}"
+        if [ -n "${{ matrix.override_file }}" ]; then
+          ARGS="$ARGS -f ${{ matrix.override_file }}"
+        fi
+        echo "COMPOSE_ARGS=$ARGS" >> "$GITHUB_ENV"
 
     - name: Setup Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -59,25 +85,33 @@ jobs:
           echo "❌ ${{ matrix.compose_file }} not found"
           exit 1
         fi
-        echo "✅ Docker Compose test file found"
+        if [ -n "${{ matrix.override_file }}" ] && [ ! -f "${{ matrix.override_file }}" ]; then
+          echo "❌ ${{ matrix.override_file }} not found"
+          exit 1
+        fi
+        echo "✅ Docker Compose test file(s) found"
         
         # Validate Docker Compose file
-        docker compose -f ${{ matrix.compose_file }} config
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS config
 
     - name: Pull Docker Images
       run: |
         echo "🔄 Pulling required Docker images..."
-        docker compose -f ${{ matrix.compose_file }} pull
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS pull
         echo "✅ Docker images pulled successfully"
 
     - name: Start Test Services
       run: |
         echo "🔄 Starting test services..."
-        docker compose -f ${{ matrix.compose_file }} up -d
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS up -d
         echo "✅ Test services started"
         
         echo "📋 Running containers:"
-        docker compose -f ${{ matrix.compose_file }} ps
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS ps
 
     - name: Wait for Services to be Ready
       shell: pwsh
@@ -141,6 +175,7 @@ jobs:
       shell: pwsh
       run: |
         Write-Host "🧪 Running Pester integration tests..." -ForegroundColor Cyan
+        Write-Host "INTEGRATION_STACK=$env:INTEGRATION_STACK" -ForegroundColor Gray
         
         # Import Pester module
         Import-Module Pester -Force
@@ -174,34 +209,41 @@ jobs:
       if: failure()
       run: |
         echo "📋 Container Status:"
-        docker compose -f ${{ matrix.compose_file }} ps
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS ps
         
         echo ""
         echo "📝 Service Logs:"
         echo "==================== Traefik Logs ===================="
-        docker compose -f ${{ matrix.compose_file }} logs traefik --tail=50
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS logs traefik --tail=50
         
         echo ""
         echo "==================== WAF Logs ===================="
-        docker compose -f ${{ matrix.compose_file }} logs waf --tail=50
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS logs waf --tail=50
         
         echo ""
         echo "==================== Protected Service Logs ===================="
-        docker compose -f ${{ matrix.compose_file }} logs whoami-protected --tail=50
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS logs whoami-protected --tail=50
         
         echo ""
         echo "==================== Bypass Service Logs ===================="
-        docker compose -f ${{ matrix.compose_file }} logs whoami-bypass --tail=50
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS logs whoami-bypass --tail=50
 
         echo ""
         echo "==================== WebSocket echo Logs ===================="
-        docker compose -f ${{ matrix.compose_file }} logs echo-ws --tail=50
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS logs echo-ws --tail=50
 
     - name: Cleanup Test Environment
       if: always()
       run: |
         echo "🧹 Cleaning up test environment..."
-        docker compose -f ${{ matrix.compose_file }} down -v --remove-orphans
+        # shellcheck disable=SC2086
+        docker compose $COMPOSE_ARGS down -v --remove-orphans
         echo "✅ Cleanup completed"
 
   # Additional job to test the PowerShell runner script
@@ -245,6 +287,11 @@ jobs:
         $requiredFiles = @(
             "./docker-compose.test.yml",
             "./docker-compose.test.nginx.yml",
+            "./docker-compose.test.apache-drain.yml",
+            "./docker-compose.test.nginx-drain.yml",
+            "./crs-apache/httpd-vhosts.conf",
+            "./crs-apache/httpd-vhosts.drain.conf",
+            "./crs-nginx/drain-origin.conf",
             "./scripts/integration-tests.Tests.ps1"
         )
         
@@ -258,8 +305,10 @@ jobs:
         }
         
         Write-Host "✅ All required files are present" -ForegroundColor Green
-    - name: Validate both Compose files
+    - name: Validate all Compose stacks
       run: |
         docker compose -f docker-compose.test.yml config >/dev/null
         docker compose -f docker-compose.test.nginx.yml config >/dev/null
-        echo "✅ Both compose files validate"
+        docker compose -f docker-compose.test.yml -f docker-compose.test.apache-drain.yml config >/dev/null
+        docker compose -f docker-compose.test.nginx.yml -f docker-compose.test.nginx-drain.yml config >/dev/null
+        echo "✅ All four compose stacks validate"

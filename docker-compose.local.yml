@@ -30,7 +30,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=10
       - ANOMALY_OUTBOUND=5
-      - BACKEND=http://dummy
       # New in CRS 4
       - REPORTING_LEVEL=2
 
@@ -53,11 +52,8 @@ services:
       - REMOTEIP_HEADER=X-Real-IP
       - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
     volumes:
-      - ./crs-apache/httpd-vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
+      - ./crs-apache/httpd-vhosts.drain.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
 
-
-  dummy:
-    image: traefik/whoami
 
   website-with-waf:
     image: traefik/whoami
