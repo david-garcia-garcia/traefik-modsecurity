@@ -11,7 +11,7 @@ localTests: none
 requirement: requirement.md
 comments: none
 explore: explore.md
-change: none
+change: pin-upstream-authelia-405
 pr:
   id: 36
   url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/36

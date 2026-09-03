@@ -1,5 +1,15 @@
 # Review journal
 
+## propose (2026-09-03)
+phase: propose
+findings: none
+fixed: none
+skipped: none
+head: 0c1286cdd476a70ec2240f6fb69fe9da839c18ea
+change: pin-upstream-authelia-405
+pr: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/36
+ci: not seen (new head)
+
 ## explore (2026-09-03)
 phase: explore
 findings: plugin-invented 405 not reproduced; starter test pass
