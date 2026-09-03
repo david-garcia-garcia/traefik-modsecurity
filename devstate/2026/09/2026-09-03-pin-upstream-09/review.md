@@ -1,3 +1,12 @@
+## implement (2026-09-03)
+
+phase: implement
+findings: none
+fixed: none
+skipped: none
+
+Landed upstream_issue_09_test.go. go test ./... passed. CI queued.
+
 ## propose (2026-09-03)
 
 phase: propose
