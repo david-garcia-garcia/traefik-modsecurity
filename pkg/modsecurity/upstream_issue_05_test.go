@@ -42,72 +42,112 @@ func startIssue05AllowWAF(t *testing.T) *httptest.Server {
 	return waf
 }
 
-// TestPlugin_UpstreamIssue05_IsWebsocketDoesNotPanic maps
+// TestPlugin_UpstreamIssue05_EmptyHeadersDoNotPanic maps
 // acouvreur/traefik-modsecurity-plugin#5: Yaegi blamed isWebsocket at
-// v1.1.0 line 56. Header.Values on a missing or nil map is a nil slice;
-// range is safe. The printed request was a normal GET with no Upgrade.
-func TestPlugin_UpstreamIssue05_IsWebsocketDoesNotPanic(t *testing.T) {
+// v1.1.0 line 56. Header.Values on a missing or nil map is a nil slice.
+// The plugin no longer classifies a handshake; ServeHTTP still must not panic.
+func TestPlugin_UpstreamIssue05_EmptyHeadersDoNotPanic(t *testing.T) {
+	waf := startIssue05AllowWAF(t)
+	_, route := newIssue05AllowRoute(t, "issue-05-empty-headers", waf.URL)
+
 	tests := []struct {
 		name string
-		req  *http.Request
-		want bool
+		prep func(*http.Request)
 	}{
 		{
 			name: "reporter font GET no Upgrade",
-			req: &http.Request{
-				Method: http.MethodGet,
-				Body:   http.NoBody,
-				Header: http.Header{},
+			prep: func(req *http.Request) {
+				req.Header = http.Header{}
 			},
-			want: false,
 		},
 		{
 			name: "nil Header map",
-			req: &http.Request{
-				Method: http.MethodGet,
-				Body:   http.NoBody,
+			prep: func(req *http.Request) {
+				req.Header = nil
 			},
-			want: false,
 		},
 		{
 			name: "Upgrade key absent",
-			req: &http.Request{
-				Method: http.MethodGet,
-				Header: http.Header{"Connection": []string{"keep-alive"}},
+			prep: func(req *http.Request) {
+				req.Header = http.Header{"Connection": []string{"keep-alive"}}
 			},
-			want: false,
 		},
 		{
 			name: "forged Upgrade without Connection token",
-			req: &http.Request{
-				Method: http.MethodGet,
-				Header: http.Header{"Upgrade": []string{"websocket"}},
+			prep: func(req *http.Request) {
+				req.Header = http.Header{"Upgrade": []string{"websocket"}}
 			},
-			want: false,
-		},
-		{
-			name: "real GET handshake",
-			req: &http.Request{
-				Method: http.MethodGet,
-				Header: http.Header{
-					"Upgrade":    []string{"websocket"},
-					"Connection": []string{"upgrade"},
-				},
-			},
-			want: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					t.Fatalf("isWebsocket panicked: %v", rec)
+					t.Fatalf("ServeHTTP panicked: %v", rec)
 				}
 			}()
-			if got := isWebsocket(tt.req); got != tt.want {
-				t.Fatalf("isWebsocket = %v, want %v", got, tt.want)
+			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+			tt.prep(req)
+			rec := httptest.NewRecorder()
+			route.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d, want 200", rec.Code)
 			}
 		})
+	}
+}
+
+// TestPlugin_ServeHTTP_HandshakeHitsSidecar checks a handshake-shaped GET is
+// inspected. Sidecar 403 is copied; next is not called.
+func TestPlugin_ServeHTTP_HandshakeHitsSidecar(t *testing.T) {
+	sidecarHits := 0
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sidecarHits++
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "blocked")
+	}))
+	t.Cleanup(waf.Close)
+
+	nextHits := 0
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.TimeoutMillis = 5000
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("handshake-inspect", cfg, NewLogger("handshake-inspect", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextHits++
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "next")
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://example/ws-echo", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "upgrade")
+	req.Header.Set("X-Waf-Status", "ok")
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if sidecarHits != 1 {
+		t.Fatalf("sidecar hits %d, want 1", sidecarHits)
+	}
+	if nextHits != 0 {
+		t.Fatalf("next hits %d, want 0", nextHits)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", rec.Code)
+	}
+	if rec.Body.String() != "blocked" {
+		t.Fatalf("body %q, want blocked", rec.Body.String())
+	}
+	if got := req.Header.Get("X-Waf-Status"); got != "blocked" {
+		t.Fatalf("status header %q, want blocked", got)
 	}
 }
 

@@ -705,11 +705,23 @@ Describe "Plugin reclaim logs" -Tag Reclaim {
 }
 
 Describe "WebSocket through WAF middleware" {
-    Context "Live upgrade" {
-        It "Should complete a handshake and echo a text frame" {
-            $payload = "ws-echo-$(Get-Random)"
-            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message $payload
-            $echoed | Should -Be $payload -Because "a real WebSocket through Traefik and the plugin must stay usable after 101"
+    Context "Live communication after handshake inspect" {
+        It "Should echo two text frames on one connection" {
+            $first = "ws-echo-a-$(Get-Random)"
+            $second = "ws-echo-b-$(Get-Random)"
+            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message @($first, $second)
+            $echoed | Should -Be @($first, $second) -Because "inspecting the handshake GET must still leave a working WebSocket tunnel (send, echo, send, echo, close), not 101-only"
+        }
+
+        It "Should still block SQLi on GET /protected with Upgrade websocket" {
+            $headers = @{
+                "Upgrade"                = "websocket"
+                "Connection"             = "Upgrade"
+                "Sec-WebSocket-Key"      = "dGhlIHNhbXBsZSBub25jZQ=="
+                "Sec-WebSocket-Version"   = "13"
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected?id=1' OR '1'='1" -Headers $headers
+            $response.StatusCode | Should -Be 403 -Because "Upgrade headers must not skip CRS on an ordinary GET"
         }
     }
 }

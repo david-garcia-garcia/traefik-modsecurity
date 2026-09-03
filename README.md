@@ -241,7 +241,7 @@ http:
 
           bypassRules: []
           # OPTIONAL: Skip the sidecar for matching method+path patterns (no body buffer, no WAF hop)
-          # Default: empty (inspect every request, subject to WebSocket and unhealthy skips)
+          # Default: empty (inspect every request, subject to already-unhealthy backoff)
           # Each entry:
           #   method: HTTP method (case-insensitive). Empty = any method
           #   pathRegexp: Go RE2 regexp, unanchored MatchString against req.URL.Path
@@ -256,6 +256,9 @@ http:
           #     pathRegexp: ^/admin/
           #   - pathRegexp: ^/healthz$
           # When modSecurityStatusRequestHeader is set, matching requests get "bypassrule"
+          # WebSocket handshake GETs are inspected like any other GET. After a sidecar allow,
+          # Traefik tunnels frames; this plugin does not see them. If CRS false-positives a
+          # real WebSocket path, add a bypassRules entry (or omit this middleware on that router).
           
           #-------------------------------
           # Advanced Transport Configuration
