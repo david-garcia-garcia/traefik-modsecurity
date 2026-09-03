@@ -11,3 +11,15 @@ phase: explore
 findings: other WAFs inspect handshake HTTP; skip-on-Upgrade is this plugin's outlier; status-header spoof reproduced
 fixed: none (no product code)
 skipped: implement until drop-isWebsocket is confirmed
+
+## propose (2026-09-03T07:26:39.991Z)
+phase: propose
+findings: none
+fixed: OpenSpec change inspect-websocket-handshake
+skipped: none
+
+## implement (2026-09-03T07:26:39.991Z)
+phase: implement
+findings: none
+fixed: dropped isWebsocket; Del status header; two-frame WebSocket echo integration
+skipped: none

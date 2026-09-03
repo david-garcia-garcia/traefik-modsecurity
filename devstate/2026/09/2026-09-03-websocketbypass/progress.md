@@ -6,8 +6,8 @@ JobName: 2026-09-03-websocketbypass
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-03T06:49:49.534Z |
 | explore | [x] | [x] | 2026-09-03T06:56:03.062Z |
-| propose | [x] | [ ] | |
-| implement | [x] | [ ] | |
+| propose | [x] | [x] | 2026-09-03T07:26:39.991Z |
+| implement | [x] | [x] | 2026-09-03T07:26:39.991Z |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |
 | archive | [ ] | [ ] | |
