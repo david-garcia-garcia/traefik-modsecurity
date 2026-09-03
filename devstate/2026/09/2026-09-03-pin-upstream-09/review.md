@@ -1,3 +1,12 @@
+## explore (2026-09-03)
+
+phase: explore
+findings: none
+fixed: none
+skipped: none
+
+Starter TestUpstreamIssue09 already passes. Change name pin-upstream-issue-09. Spec leaf assumed new core_plugin_middleware_maxbodysize.
+
 ## prepare (2026-09-03)
 
 phase: prepare
