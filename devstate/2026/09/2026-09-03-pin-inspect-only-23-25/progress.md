@@ -8,7 +8,7 @@ JobName: 2026-09-03-pin-inspect-only-23-25
 | explore | [x] | [x] | 2026-09-03T05:29:16Z |
 | propose | [x] | [x] | 2026-09-03T05:31:21Z |
 | implement | [x] | [x] | 2026-09-03T05:33:53Z |
-| codereview | [x] | [ ] | |
-| devdocsimpact | [x] | [ ] | |
-| archive | [x] | [ ] | |
-| pullrequest | [ ] | [ ] | |
+| codereview | [x] | [x] | 2026-09-03T05:36:13Z |
+| devdocsimpact | [x] | [x] | 2026-09-03T05:36:13Z |
+| archive | [x] | [x] | 2026-09-03T05:36:13Z |
+| pullrequest | [x] | [x] | 2026-09-03T05:43:17Z |

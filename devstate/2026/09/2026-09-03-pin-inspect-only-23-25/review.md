@@ -1,3 +1,33 @@
+## pullrequest (2026-09-03T05:43:17Z)
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
+card: PR #38 summary (commentId: pr-body)
+ci: run 33719556962 succeeded (apache-drain, nginx-drain, apache-whoami, nginx-whoami)
+verdict: ready for review
+
+## archive (2026-09-03T05:36:13Z)
+phase: archive
+findings: none
+fixed: synced core_crs_sidecar_inspect-only to openspec/specs/; moved change to archive
+skipped: none
+card: PR #38 summary (commentId: pr-body)
+
+## devdocsimpact (2026-09-03T05:36:13Z)
+phase: devdocsimpact
+findings: stale-usage Integration Key files (produced in implement)
+fixed: knowledge/devdocs/build_testing_integration.md
+skipped: none
+card: PR #38 summary (commentId: pr-body)
+
+## codereview (2026-09-03T05:36:13Z)
+phase: codereview
+findings: Performance judgement 16 MiB fixture
+fixed: none
+skipped: Performance 1 judgement
+card: PR #38 summary (commentId: pr-body)
+
 ## implement (2026-09-03T05:33:53Z)
 phase: implement
 findings: local apache-drain and apache-whoami pins passed
