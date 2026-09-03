@@ -10,6 +10,6 @@ src: aa41074f22a9170ffb23a9d220ea6fdd6c4156654e8ca7964565f0d1b3a23f65
 localTests: none
 requirement: requirement.md
 comments: none
-explore: none
+explore: explore.md
 change: none
 pr: { id: 42, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/42 }

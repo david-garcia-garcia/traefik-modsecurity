@@ -5,3 +5,9 @@ phase: prepare
 findings: none
 fixed: none
 skipped: auto-anchor of pathRegexp (human: operator writes ^)
+
+## explore (2026-09-03)
+phase: explore
+findings: unanchored MatchString reproduced; `/health` matches `/healthz` and `/index.php/health`; Go Path is not slash-normalized
+fixed: none
+skipped: auto-anchor; matcher/RawPath guard
