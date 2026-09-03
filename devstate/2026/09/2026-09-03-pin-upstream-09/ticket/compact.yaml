@@ -1,0 +1,6 @@
+host: local
+ref: none
+title: Pin that acouvreur/traefik-modsecurity-plugin#9 (MaxBytesReader limit 0 → every POST 413) does not happen here
+url: none
+number: none
+issueKey: 2026-09-03-pin-upstream-09

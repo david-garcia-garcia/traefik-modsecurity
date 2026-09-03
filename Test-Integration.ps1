@@ -8,6 +8,12 @@
     This script starts the Docker Compose services, waits for them to be ready,
     runs the Pester integration tests, and then cleans up the services.
 
+    Four stacks (CRS engine × origin):
+      apache-whoami  docker-compose.test.yml
+      nginx-whoami   docker-compose.test.nginx.yml
+      apache-drain   docker-compose.test.yml + docker-compose.test.apache-drain.yml
+      nginx-drain    docker-compose.test.nginx.yml + docker-compose.test.nginx-drain.yml
+
 .PARAMETER SkipDockerCleanup
     Skip stopping Docker services after tests complete (useful for debugging)
 
@@ -15,22 +21,32 @@
     Skip waiting for services to be ready (assumes they're already running)
 
 .PARAMETER TestPath
-    Path to the Pester test file (defaults to ./scripts/integration-tests.Tests.ps1)
+    Path to the Pester test file (defaults to ./scripts/*.Tests.ps1)
 
 .PARAMETER ComposeFile
-    Path to the Docker Compose file (defaults to ./docker-compose.test.yml)
+    Path to a single Docker Compose file (ignored when -Stack or -AllStacks is set)
+
+.PARAMETER Stack
+    Named stack: apache-whoami, nginx-whoami, apache-drain, nginx-drain
+
+.PARAMETER AllStacks
+    Run the four stacks in sequence (compose down between each)
 
 .EXAMPLE
     ./Test-Integration.ps1
-    Runs the full integration test suite
+    Apache + dummy whoami origin (default)
 
 .EXAMPLE
-    ./Test-Integration.ps1 -SkipDockerCleanup
-    Runs tests but leaves Docker services running for debugging
+    ./Test-Integration.ps1 -Stack apache-drain
+    Apache inspect-only drain origin
 
 .EXAMPLE
-    ./Test-Integration.ps1 -SkipWait
-    Runs tests assuming services are already running
+    ./Test-Integration.ps1 -AllStacks
+    All four stacks, including bombardier benches when bombardier is installed
+
+.EXAMPLE
+    ./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
+    Same as -Stack nginx-whoami
 #>
 
 [CmdletBinding()]
@@ -39,6 +55,9 @@ param(
     [switch]$SkipWait,
     [string]$TestPath = "./scripts/*.Tests.ps1",
     [string]$ComposeFile = "./docker-compose.test.yml",
+    [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+    [string]$Stack,
+    [switch]$AllStacks,
     # Pester filter options (Pester v5)
     # - FullName supports wildcards and matches Describe/Context/It names
     [string]$PesterFullNameFilter,
@@ -47,6 +66,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-IntegrationStackComposeFiles {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+        [string]$Stack
+    )
+    switch ($Stack) {
+        'apache-whoami' { @('./docker-compose.test.yml') }
+        'nginx-whoami' { @('./docker-compose.test.nginx.yml') }
+        'apache-drain' { @('./docker-compose.test.yml', './docker-compose.test.apache-drain.yml') }
+        'nginx-drain' { @('./docker-compose.test.nginx.yml', './docker-compose.test.nginx-drain.yml') }
+    }
+}
 
 # Colors for output
 $Colors = @{
@@ -75,6 +108,25 @@ function Write-Warning {
 function Write-Error {
     param([string]$Message)
     Write-Host "❌ $Message" -ForegroundColor $Colors.Error
+}
+
+function Get-ComposeDashF {
+    param([string[]]$Files)
+    $out = @()
+    foreach ($f in $Files) {
+        $out += '-f'
+        $out += $f
+    }
+    return $out
+}
+
+function Get-StackNameFromComposeFiles {
+    param([string[]]$Files)
+    $joined = ($Files -join ' ')
+    if ($joined -match 'apache-drain') { return 'apache-drain' }
+    if ($joined -match 'nginx-drain') { return 'nginx-drain' }
+    if ($joined -match 'nginx') { return 'nginx-whoami' }
+    return 'apache-whoami'
 }
 
 function Test-ServiceHealth {
@@ -131,15 +183,16 @@ function Test-DockerCompose {
 }
 
 function Start-TestServices {
-    param([string]$ComposeFile)
+    param([string[]]$ComposeFiles)
     
-    Write-Step "Starting Docker Compose services using $ComposeFile..."
+    $dashF = Get-ComposeDashF $ComposeFiles
+    Write-Step "Starting Docker Compose services using $($ComposeFiles -join ', ')..."
     try {
         # Stop any existing containers first
-        docker compose -f $ComposeFile down -v --remove-orphans 2>$null | Out-Null
+        docker compose @dashF down -v --remove-orphans 2>$null | Out-Null
         
         # Start fresh containers
-        $output = docker compose -f $ComposeFile up -d 2>&1
+        $output = docker compose @dashF up -d 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Docker Compose Output:" -ForegroundColor $Colors.Gray
             Write-Host $output -ForegroundColor $Colors.Gray
@@ -149,7 +202,7 @@ function Start-TestServices {
         
         # Show running containers for verification
         Write-Host "`nRunning containers:" -ForegroundColor $Colors.Info
-        docker compose -f $ComposeFile ps
+        docker compose @dashF ps | Out-Host
         
     }
     catch {
@@ -159,6 +212,8 @@ function Start-TestServices {
 }
 
 function Wait-ForAllServices {
+    param([string[]]$ComposeFiles)
+
     Write-Step "Waiting for all services to become ready..."
     
     $services = @(
@@ -175,12 +230,106 @@ function Wait-ForAllServices {
     if ($servicesReady -contains $false) {
         Write-Error "One or more services failed to start properly"
         Write-Host "`nContainer logs for debugging:" -ForegroundColor $Colors.Warning
-        docker compose -f $ComposeFile logs --tail=20
+        $dashF = Get-ComposeDashF $ComposeFiles
+        docker compose @dashF logs --tail=20 | Out-Host
         return $false
     }
     
     Write-Success "All services are ready for testing!"
     return $true
+}
+
+function Invoke-IntegrationStack {
+    param(
+        [string[]]$ComposeFiles,
+        [string]$StackName
+    )
+
+    $code = 1
+    foreach ($f in $ComposeFiles) {
+        if (-not (Test-Path -LiteralPath $f)) {
+            Write-Error "Docker Compose file not found: $f"
+            return 1
+        }
+    }
+
+    $env:INTEGRATION_STACK = $StackName
+    Write-Host ""
+    Write-Host "Stack: $StackName" -ForegroundColor $Colors.Info
+    Write-Host "Compose: $($ComposeFiles -join ', ')" -ForegroundColor $Colors.Gray
+
+    try {
+        Start-TestServices -ComposeFiles $ComposeFiles
+
+        $hasPesterFilters = [bool]$PesterFullNameFilter -or ($PesterTagFilter -and $PesterTagFilter.Count -gt 0)
+        if (-not $SkipWait) {
+            if ($hasPesterFilters) {
+                Write-Warning "Pester filters detected; skipping runner-level readiness checks (tests will wait for their own required services)"
+            } else {
+                if (-not (Wait-ForAllServices -ComposeFiles $ComposeFiles)) {
+                    return 1
+                }
+            }
+        } else {
+            Write-Warning "Skipping service readiness check (assuming services are already running)"
+        }
+
+        Write-Step "Running Pester integration tests..."
+        Write-Host ""
+    
+        $pesterConfig = New-PesterConfiguration
+        $pesterConfig.Run.Path = $TestPath
+        $pesterConfig.Output.Verbosity = 'Detailed'
+        $pesterConfig.Run.Exit = $false
+        $pesterConfig.Run.PassThru = $true
+
+        if ($PesterFullNameFilter) {
+            $pesterConfig.Filter.FullName = $PesterFullNameFilter
+        }
+        if ($PesterTagFilter -and $PesterTagFilter.Count -gt 0) {
+            $pesterConfig.Filter.Tag = $PesterTagFilter
+        }
+        
+        $result = Invoke-Pester -Configuration $pesterConfig
+        
+        Write-Host ""
+        if ($result -and $result.FailedCount -eq 0) {
+            Write-Success "All integration tests passed for $StackName"
+            Write-Host "📊 Test Summary: $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" -ForegroundColor $Colors.Info
+            $code = 0
+        } elseif ($result) {
+            Write-Error "$($result.FailedCount) test(s) failed out of $($result.TotalCount) total tests ($StackName)"
+            Write-Host "📊 Test Summary: $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" -ForegroundColor $Colors.Warning
+            $code = 1
+        } else {
+            Write-Warning "Could not determine test results"
+            $code = 1
+        }
+    }
+    catch {
+        Write-Error "Failed to run Pester tests: $($_.Exception.Message)"
+        $code = 1
+    }
+    finally {
+        if (-not $SkipDockerCleanup) {
+            Write-Step "Cleaning up Docker services ($StackName)..."
+            try {
+                $dashF = Get-ComposeDashF $ComposeFiles
+                docker compose @dashF down -v --remove-orphans 2>$null | Out-Null
+                Write-Success "Docker services stopped and cleaned up"
+            }
+            catch {
+                Write-Warning "Failed to clean up Docker services: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Warning "Skipping Docker cleanup (services left running for debugging)"
+            $dashFDisplay = (Get-ComposeDashF $ComposeFiles) -join ' '
+            Write-Host "To manually stop services, run: docker compose $dashFDisplay down -v" -ForegroundColor $Colors.Gray
+            Write-Host "To view logs, run: docker compose $dashFDisplay logs" -ForegroundColor $Colors.Gray
+        }
+    }
+
+    return $code
 }
 
 # Main execution
@@ -191,15 +340,17 @@ try {
     Write-Host "=====================================================" -ForegroundColor $Colors.Info
     Write-Host ""
 
-    # Verify files exist
-    if (-not (Test-Path $ComposeFile)) {
-        Write-Error "Docker Compose file not found: $ComposeFile"
+    if ($AllStacks -and $Stack) {
+        Write-Error "Use either -Stack or -AllStacks, not both"
         exit 1
     }
     
-    if (-not (Test-Path $TestPath)) {
-        Write-Error "Test file not found: $TestPath"
-        exit 1
+    if (-not (Test-Path $TestPath) -and -not (Get-Item $TestPath -ErrorAction SilentlyContinue)) {
+        $matches = @(Get-Item $TestPath -ErrorAction SilentlyContinue)
+        if ($matches.Count -eq 0) {
+            Write-Error "Test file not found: $TestPath"
+            exit 1
+        }
     }
 
     # Check if Pester is available
@@ -227,92 +378,42 @@ try {
         exit 1
     }
 
-    # Start Docker services
-    Start-TestServices -ComposeFile $ComposeFile
-
-    $hasPesterFilters = [bool]$PesterFullNameFilter -or ($PesterTagFilter -and $PesterTagFilter.Count -gt 0)
-    if (-not $SkipWait) {
-        if ($hasPesterFilters) {
-            Write-Warning "Pester filters detected; skipping runner-level readiness checks (tests will wait for their own required services)"
-        } else {
-            # Wait for services to be ready (legacy pre-flight)
-            if (-not (Wait-ForAllServices)) {
-                exit 1
-            }
+    $runs = @()
+    if ($AllStacks) {
+        foreach ($name in @('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')) {
+            $runs += @{ Name = $name; Files = @(Get-IntegrationStackComposeFiles -Stack $name) }
         }
+    } elseif ($Stack) {
+        $runs += @{ Name = $Stack; Files = @(Get-IntegrationStackComposeFiles -Stack $Stack) }
     } else {
-        Write-Warning "Skipping service readiness check (assuming services are already running)"
+        $files = @($ComposeFile)
+        $runs += @{ Name = (Get-StackNameFromComposeFiles -Files $files); Files = $files }
     }
 
-    # Run Pester tests
-    Write-Step "Running Pester integration tests..."
-    Write-Host ""
-    
-    try {
-        $pesterConfig = New-PesterConfiguration
-        $pesterConfig.Run.Path = $TestPath
-        $pesterConfig.Output.Verbosity = 'Detailed'
-        $pesterConfig.Run.Exit = $false
-        $pesterConfig.Run.PassThru = $true
-
-        if ($PesterFullNameFilter) {
-            $pesterConfig.Filter.FullName = $PesterFullNameFilter
-        }
-        if ($PesterTagFilter -and $PesterTagFilter.Count -gt 0) {
-            $pesterConfig.Filter.Tag = $PesterTagFilter
-        }
-        
-        # Run tests with timeout protection
-        $result = Invoke-Pester -Configuration $pesterConfig
-        
-        Write-Host ""
-        if ($result -and $result.FailedCount -eq 0) {
-            Write-Success "All integration tests passed! 🎉"
-            Write-Host "📊 Test Summary: $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" -ForegroundColor $Colors.Info
-            $exitCode = 0
-        } elseif ($result) {
-            Write-Error "$($result.FailedCount) test(s) failed out of $($result.TotalCount) total tests"
-            Write-Host "📊 Test Summary: $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" -ForegroundColor $Colors.Warning
-            $exitCode = 1
-        } else {
-            Write-Warning "Could not determine test results"
+    $failedStacks = @()
+    foreach ($run in $runs) {
+        $code = [int](@(Invoke-IntegrationStack -ComposeFiles $run.Files -StackName $run.Name)[-1])
+        if ($code -ne 0) {
+            $failedStacks += $run.Name
             $exitCode = 1
         }
     }
-    catch {
-        Write-Error "Failed to run Pester tests: $($_.Exception.Message)"
-        $exitCode = 1
+    if ($failedStacks.Count -gt 0) {
+        Write-Error "Failed stacks: $($failedStacks -join ', ')"
     }
 }
 catch {
     Write-Error "Unexpected error: $($_.Exception.Message)"
     $exitCode = 1
 }
-finally {
-    # Cleanup Docker services
-    if (-not $SkipDockerCleanup) {
-        Write-Step "Cleaning up Docker services..."
-        try {
-            docker compose -f $ComposeFile down -v --remove-orphans 2>$null
-            Write-Success "Docker services stopped and cleaned up"
-        }
-        catch {
-            Write-Warning "Failed to clean up Docker services: $($_.Exception.Message)"
-        }
-    } else {
-        Write-Warning "Skipping Docker cleanup (services left running for debugging)"
-        Write-Host "To manually stop services, run: docker compose -f $ComposeFile down -v" -ForegroundColor $Colors.Gray
-        Write-Host "To view logs, run: docker compose -f $ComposeFile logs" -ForegroundColor $Colors.Gray
-    }
-    
-    Write-Host ""
-    Write-Host "=====================================================" -ForegroundColor $Colors.Info
-    if ($exitCode -eq 0) {
-        Write-Host "🏁 Integration tests completed successfully!" -ForegroundColor $Colors.Success
-    } else {
-        Write-Host "🏁 Integration tests completed with failures!" -ForegroundColor $Colors.Error
-    }
-    Write-Host ""
+
+Write-Host ""
+Write-Host "=====================================================" -ForegroundColor $Colors.Info
+if ($exitCode -eq 0) {
+    Write-Host "🏁 Integration tests completed successfully!" -ForegroundColor $Colors.Success
+} else {
+    Write-Host "🏁 Integration tests completed with failures!" -ForegroundColor $Colors.Error
 }
+Write-Host ""
 
 exit $exitCode

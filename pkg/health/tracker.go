@@ -24,13 +24,18 @@ type Tracker struct {
 
 // New creates a new Tracker. When failureThreshold < 0,
 // the tracker never trips (opt-out). When failureWindow is 0, the counter never resets.
+// When failureWindow is greater than 0, the first tumbling window starts now.
 func New(backoffTimeout, failureWindow time.Duration, failureThreshold int, logger *slog.Logger) *Tracker {
-	return &Tracker{
+	ht := &Tracker{
 		backoffTimeout:   backoffTimeout,
 		failureWindow:    failureWindow,
 		failureThreshold: failureThreshold,
 		logger:           logger,
 	}
+	if failureWindow > 0 {
+		ht.lastFailureReset = time.Now()
+	}
+	return ht
 }
 
 // RecordFailure records a failure and returns true if the tracker just tripped to unhealthy.

@@ -28,7 +28,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=10
       - ANOMALY_OUTBOUND=5
-      - BACKEND=http://dummy
       # New in CRS 4
       - REPORTING_LEVEL=2
 
@@ -37,10 +36,21 @@ services:
       #######################################################
 
       - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG=/var/log/modsec_audit.log
+      - MODSEC_AUDIT_ENGINE=RelevantOnly
       - MODSEC_RULE_ENGINE=On
-
-  dummy:
-    image: traefik/whoami
+      # Traefik is the only TCP peer of this sidecar. Trust its Docker/RFC1918
+      # networks so mod_remoteip rewrites REMOTE_ADDR from X-Real-IP, which
+      # Traefik already set. The plugin does not invent XFF.
+      # Image default 10.1.0.0/16 misses typical 172.16.0.0/12 bridges; deny
+      # logs and any IPS that parse them would then show Traefik's IP.
+      # Do not set 0.0.0.0/0. nginx CRS reference: docker-compose.test.nginx.yml
+      # This 4.3.0 pin hardcodes RemoteIPHeader X-Forwarded-For; REMOTEIP_HEADER
+      # is ignored. The volume overlay sets RemoteIPHeader X-Real-IP.
+      - REMOTEIP_HEADER=X-Real-IP
+      - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+    volumes:
+      - ./crs-apache/httpd-vhosts.drain.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
 
   website-with-waf:
     image: traefik/whoami

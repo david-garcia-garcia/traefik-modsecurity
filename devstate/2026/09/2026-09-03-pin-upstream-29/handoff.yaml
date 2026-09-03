@@ -1,0 +1,15 @@
+issueKey: 2026-09-03-pin-upstream-29
+jobName: 2026-09-03-pin-upstream-29
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: 18b940d52f306a02e4a5f3dbd5ff2a8bc7c19c5b833f48c75a72005f1579ad97
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: pin-allow-path-backend-headers
+pr: { id: 33, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/33 }

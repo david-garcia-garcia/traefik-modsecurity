@@ -1,0 +1,17 @@
+issueKey: 2026-09-03-remove-2nd-hop
+jobName: 2026-09-03-remove-2nd-hop
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified-with-gaps
+src: 2950614206b7af6ab47eb2114de9de475c88eda578261c780cff7c65ec0ed106
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: inspect-only-crs-sidecar
+pr:
+  id: 31
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/31

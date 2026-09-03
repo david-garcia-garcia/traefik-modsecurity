@@ -33,7 +33,9 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
 
 - [Demo](#demo)
 - [Usage (docker-compose.yml)](#usage-docker-composeyml)
+- [Architecture](#architecture)
 - [How it works](#how-it-works)
+- [Trust this middleware (client IP in WAF logs)](#trust-this-middleware-client-ip-in-waf-logs)
 - [Testing](#-testing)
 - [Configuration](#️-configuration)
 - [Local development](#local-development-docker-composelocalyml)
@@ -54,17 +56,89 @@ See [docker-compose.yml](docker-compose.yml)
    owasp/modsecurity
 4. You can you bypass the WAF and check attacks at http://localhost/bypass?test=../etc
 
+## Architecture
+
+Every request goes through Traefik. This plugin sends a **copy** to the WAF. If the WAF allows it, Traefik forwards the original request to **your** application. If the WAF blocks it, the client gets that block and your app is never called.
+
+The `whoami` containers in the demo are only sample websites. Swap them for your real services.
+
+```mermaid
+flowchart LR
+  Client --> Traefik
+  Traefik -->|"copy"| WAF[WAF]
+  Traefik -->|"if allowed"| App[Your application]
+  WAF -.-> Dummy["dummy whoami\noptional"]
+```
+
+| Box | What it is |
+| --- | --- |
+| Traefik | Reverse proxy. Runs this plugin. |
+| WAF | ModSecurity CRS container. Looks at the copy and says allow or block. |
+| Your application | The real site or API. Demo uses `whoami` as a placeholder. |
+| dummy whoami | **Optional.** An extra dummy site so the WAF image has something to talk to. It is **not** your application. The demo does not use it. |
+
+### What to expect (speed)
+
+Treat them as a ballpark, not a promise.
+
+| Setup | GET | POST |
+| --- | --- | --- |
+| Apache + dummy whoami | ~5000 req/s (10 ms) | ~1150 req/s (43 ms) |
+| Apache, no dummy | ~5200 req/s (10 ms) | ~1350 req/s (37 ms) |
+| nginx + dummy whoami | ~4000 req/s (13 ms) | ~1950 req/s (26 ms) |
+| nginx, no dummy | ~3600 req/s (14 ms) | ~2550 req/s (20 ms) |
+
 ## How it works
 
-This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
+The plugin classifies the sidecar HTTP status (see [Architecture](#architecture) for the service layout):
 
-The plugin checks that the response from the waf container hasn't an http code of 400 or higher before forwarding the request to
-the real service.
+- **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
+- **3xx / 4xx** — security block: copy the sidecar response to the client, omitting hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server`. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible. When `modSecurityStatusRequestHeader` is set, write `blocked`.
+- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
-If the status is 400 or higher, the sidecar error-page body is returned to the client instead. Hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server` are not copied from the sidecar. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible.
+## Trust this middleware (client IP in WAF logs)
 
-The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
-time.
+Copying headers is not enough for ModSecurity to treat the visitor as the client. `REMOTE_ADDR` (audit logs, error logs, IP collections, and any IPS that parses those logs) stays the **Traefik-to-sidecar TCP hop** until CRS is told to trust Traefik.
+
+What this plugin sends to `modSecurityUrl`:
+
+- Sets the sidecar request `Host` to the incoming `Host`.
+- Copies Traefik’s headers as-is, including `X-Real-Ip` when Traefik already set it, and leftover `X-Forwarded-For` only if Traefik left one.
+- Does **not** append `RemoteAddr` to `X-Forwarded-For`.
+- Does **not** set `X-Real-IP`.
+
+Traefik’s entrypoint `forwardedheaders` is the source of truth (`X-Real-Ip`; leftover XFF only if the peer is trusted). CRS / ModSecurity does **not** read those headers as `REMOTE_ADDR` on its own.
+
+### Apache CRS (demo compose)
+
+Use [docker-compose.yml](docker-compose.yml) as the reference. The `waf` service sets:
+
+```yaml
+REMOTEIP_HEADER: X-Real-IP
+REMOTEIP_INT_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+```
+
+`REMOTEIP_INT_PROXY` must include the network Traefik uses to reach the sidecar (Docker bridge is usually `172.16.0.0/12`). The image default `10.1.0.0/16` does not. Do **not** set `0.0.0.0/0`.
+
+The shipped `4.3.0-apache-alpine-202406090906` pin hardcodes `RemoteIPHeader X-Forwarded-For`, so `REMOTEIP_HEADER` alone does nothing. Compose also mounts [crs-apache/httpd-vhosts.conf](crs-apache/httpd-vhosts.conf) to set `RemoteIPHeader X-Real-IP`.
+
+### nginx CRS (test compose is the reference)
+
+Use [docker-compose.test.nginx.yml](docker-compose.test.nginx.yml). The official image maps:
+
+```yaml
+REAL_IP_HEADER: X-Real-IP
+SET_REAL_IP_FROM: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+REAL_IP_RECURSIVE: on
+```
+
+Those become `real_ip_header X-Real-IP` and `set_real_ip_from` for the Traefik net. `SET_REAL_IP_FROM` is comma-separated. Do **not** set `0.0.0.0/0`.
+
+The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
+
+Operators who set Traefik `forwardedHeaders.trustedIPs` and want leftover XFF as `REMOTE_ADDR` configure that on CRS themselves (`REMOTEIP_HEADER=X-Forwarded-For` or `REAL_IP_HEADER=X-Forwarded-For`).
+
+Without this, every deny is attributed to the Traefik container IP. An IPS that blocks from the WAF log then bans Traefik, not the attacker.
 
 ## Testing
 
@@ -73,8 +147,11 @@ time.
 Run the complete test suite against real Docker services:
 
 ```bash
-# Run all tests
+# Run all tests (Apache CRS)
 ./Test-Integration.ps1
+
+# Same suite against nginx CRS
+./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
 
 # Keep services running for debugging
 ./Test-Integration.ps1 -SkipDockerCleanup
@@ -145,18 +222,38 @@ http:
           # When ModSecurity is down, this plugin can temporarily bypass it
           # Set to 0 to disable bypass (always return 502 when WAF is down)
           # Set to 30+ seconds for production environments with automatic failover
+          # Omitted unhealthyWafFailureThreshold defaults to 5 (one error does not trip)
+          # Omitted unhealthyWafFailureWindowSecs defaults to 10 (tumbling window)
+          # Set unhealthyWafFailureThreshold: 1 to trip on the first sidecar error
           
           modSecurityStatusRequestHeader: "X-Waf-Status"
           # OPTIONAL: Header name to add to requests for logging purposes
           # Default: empty (no header added)
           # This header is added to the REQUEST (not response) for Traefik access logs
-          # Header values:
-          # - HTTP status code (e.g., "403") when request is blocked by ModSecurity
-          # - "unhealthy" when ModSecurity is down and backoff is enabled
-          # - "error" when communication with ModSecurity fails
-          # - "cannotforward" when request forwarding fails
+          # Header values (coarse WAF status for access logs; not HTTP status codes):
+          # - "ok" when the sidecar allows the request
+          # - "blocked" when the sidecar returns 3xx/4xx, or this plugin rejects an oversize body
+          # - "error" when the sidecar is unreachable, returns 5xx, or the sidecar request cannot be built
+          # - "unhealthy" when ModSecurity is down and backoff is already tripped
+          # - "bypassrule" when a bypassRules entry matched (sidecar was not called)
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
+
+          bypassRules: []
+          # OPTIONAL: Skip the sidecar for matching method+path patterns (no body buffer, no WAF hop)
+          # Default: empty (inspect every request, subject to WebSocket and unhealthy skips)
+          # Each entry:
+          #   method: HTTP method (case-insensitive). Empty = any method
+          #   pathRegexp: Go RE2 regexp matched against the URL path (not the query). Empty = any path
+          # Both set: both must match. MatchString is unanchored (`health` matches `/unhealthy`);
+          # write `^/health$` for an exact path.
+          # Invalid pathRegexp fails plugin construction.
+          # Example:
+          # bypassRules:
+          #   - method: GET
+          #     pathRegexp: ^/admin/
+          #   - pathRegexp: /healthz
+          # When modSecurityStatusRequestHeader is set, matching requests get "bypassrule"
           
           #-------------------------------
           # Advanced Transport Configuration
@@ -204,49 +301,29 @@ http:
           # - 10485760 (10 MB) for file uploads
           # - 52428800 (50 MB) for large file processing
           
-          ignoreBodyForVerbs: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # OPTIONAL: HTTP methods for which request body should not be read
+          denyVerbsWithBody: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
+          # OPTIONAL: HTTP methods that must not carry a request body
           # Default: ["HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"]
-          # Performance optimization: skips body reading for methods that don't use it
-          # These methods either never have a body or ignore it per HTTP specification
-          # 
-          # ⚠️  IMPORTANT: When a method is in this list, the request body is COMPLETELY IGNORED
-          # and will NOT reach the backend service or next middleware. The body is consumed
-          # but not processed, making it unavailable for downstream handlers.
-          # 
-          # Benefits:
-          # - Faster processing for methods that don't need body inspection
-          # - Reduced allocations and GC pressure
-          # - Body is consumed but not forwarded (saves bandwidth to backend)
-          
-          ignoreBodyForVerbsDeny: false
-          # OPTIONAL: Whether to reject requests with body for verbs in ignoreBodyForVerbs
-          # Default: false
-          # Security feature: enforces HTTP compliance by rejecting requests that have a body
-          # when the HTTP method should not have one according to the specification. It will attempt to 
-          # read the first byte of the request body stream to decide.
-          # 
-          # When enabled (true):
-          # - Attempts to read 1 byte from the request body
-          # - If any data is found, returns HTTP 400 Bad Request
-          # - Prevents malformed requests from reaching the backend
-          # - Helps detect potential attacks or misconfigured clients
-          # 
-          # When disabled (false):
-          # - Simply ignores the body without validation
-          # - More permissive but less secure
-          # - May allow non-compliant requests to pass through
+          # When a listed method has a body, the plugin returns HTTP 400. It does not
+          # call ModSecurity and it does not call the next handler, including when the
+          # WAF is already unhealthy. Methods not on this list are inspected and forwarded.
+          #
+          # Omitted uses this default. An explicit empty list denies nothing (GET-with-body
+          # is inspected like POST). To allow GET-with-body while keeping the other defaults,
+          # omit GET from the list. The old keys ignoreBodyForVerbs and ignoreBodyForVerbsDeny
+          # are removed; leftover YAML for those keys is ignored.
           
           maxBodySizeBytesForPool: 4194304
           # OPTIONAL: Threshold above which to use ad-hoc allocation instead of pool
-          # Default: 4194304 (4 MB)
+          # Default: 5242880 (5 MB)
           # Memory optimization: prevents pool pollution with large buffers
           # 
           # How it works:
-          # - Checks Content-Length header before reading body
-          # - If Content-Length <= threshold: uses pooled bytes.Buffer
-          # - If Content-Length > threshold: uses io.ReadAll with ad-hoc allocation
-          # - Large requests don't store body to avoid memory issues
+          # - Uses req.ContentLength (the parsed size; -1 means unknown, e.g. chunked)
+          # - If ContentLength >= 0 and <= threshold: uses pooled bytes.Buffer
+          # - If ContentLength > threshold: uses io.ReadAll with ad-hoc allocation
+          # - If ContentLength is -1: still uses the pool for the read
+          # - After a pooled read, the buffer is returned only when its capacity is <= threshold
           # 
           # Benefits:
           # - Keeps pool efficient for common small requests

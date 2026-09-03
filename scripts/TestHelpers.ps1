@@ -25,6 +25,116 @@ function Get-WafContainerName {
     return $name
 }
 
+function Get-DummyContainerName {
+    # Unlabeled CRS origin (traefik/whoami). Present on *-whoami stacks; absent on *-drain.
+    docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-dummy-1" } | Select-Object -First 1
+}
+
+function Get-IntegrationStackComposeFiles {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+        [string]$Stack
+    )
+    switch ($Stack) {
+        'apache-whoami' { @('./docker-compose.test.yml') }
+        'nginx-whoami' { @('./docker-compose.test.nginx.yml') }
+        'apache-drain' { @('./docker-compose.test.yml', './docker-compose.test.apache-drain.yml') }
+        'nginx-drain' { @('./docker-compose.test.nginx.yml', './docker-compose.test.nginx-drain.yml') }
+    }
+}
+
+function Get-IntegrationOriginKind {
+    $stack = $env:INTEGRATION_STACK
+    if ($stack -like '*-drain') { return 'drain' }
+    if ($stack -like '*-whoami') { return 'whoami' }
+    if (Get-DummyContainerName) { return 'whoami' }
+    return 'drain'
+}
+
+function Test-IsDrainOrigin {
+    return (Get-IntegrationOriginKind) -eq 'drain'
+}
+
+function Test-IsWhoamiOrigin {
+    return (Get-IntegrationOriginKind) -eq 'whoami'
+}
+
+function Get-BombardierCommand {
+    $cmd = Get-Command bombardier -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $candidates = @()
+    if ($env:GOPATH) {
+        $candidates += (Join-Path $env:GOPATH 'bin/bombardier.exe')
+        $candidates += (Join-Path $env:GOPATH 'bin/bombardier')
+    }
+    $goPath = $null
+    try { $goPath = (& go env GOPATH 2>$null | Select-Object -First 1) } catch { }
+    if ($goPath) {
+        $candidates += (Join-Path $goPath 'bin/bombardier.exe')
+        $candidates += (Join-Path $goPath 'bin/bombardier')
+    }
+    foreach ($p in $candidates) {
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
+    }
+    return $null
+}
+
+function Invoke-AllowPathBombardier {
+    param(
+        [string]$Url = 'http://localhost:8000/protected',
+        [ValidateSet('GET', 'POST')]
+        [string]$Method = 'GET',
+        [string]$Body = 'name=john&email=john@example.com',
+        [int]$Connections = 50,
+        [string]$Duration = '15s'
+    )
+    $bin = Get-BombardierCommand
+    if (-not $bin) { return $null }
+
+    $argList = @('-c', "$Connections", '-d', $Duration, '-m', $Method, '--http1')
+    if ($Method -eq 'POST') {
+        $argList += @('-b', $Body, '-H', 'Content-Type: application/x-www-form-urlencoded')
+    }
+    $argList += $Url
+
+    $output = & $bin @argList 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "bombardier exited $LASTEXITCODE`n$output"
+    }
+
+    $reqs = $null
+    $latencyMs = $null
+    $xx2 = $null
+    $xx5 = $null
+    if ($output -match 'Reqs/sec\s+([\d.]+)') { $reqs = [double]$Matches[1] }
+    if ($output -match 'Latency\s+([\d.]+)(us|ms|s)') {
+        $n = [double]$Matches[1]
+        switch ($Matches[2]) {
+            'us' { $latencyMs = $n / 1000.0 }
+            'ms' { $latencyMs = $n }
+            's' { $latencyMs = $n * 1000.0 }
+        }
+    }
+    if ($output -match '2xx\s*-\s*(\d+)') { $xx2 = [int]$Matches[1] }
+    if ($output -match '5xx\s*-\s*(\d+)') { $xx5 = [int]$Matches[1] }
+
+    $stack = $env:INTEGRATION_STACK
+    if (-not $stack) { $stack = 'unknown' }
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $lat = if ($null -ne $latencyMs) { $latencyMs.ToString('0.00', $inv) } else { 'n/a' }
+    $rps = if ($null -ne $reqs) { $reqs.ToString('0.00', $inv) } else { 'n/a' }
+    Write-Host "BENCH stack=$stack method=$Method rps=$rps latency_ms=$lat xx2=$xx2 xx5=$xx5" -ForegroundColor Magenta
+
+    return [pscustomobject]@{
+        Output     = $output
+        ReqsPerSec = $reqs
+        LatencyMs  = $latencyMs
+        Status2xx  = $xx2
+        Status5xx  = $xx5
+    }
+}
+
 function Wait-ForWafHealthy {
     param(
         [Parameter(Mandatory)]
@@ -38,10 +148,18 @@ function Wait-ForWafHealthy {
     $health = $null
 
     do {
-        $health = docker inspect --format "{{.State.Health.Status}}" $ContainerName 2>$null
+        $health = docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" $ContainerName 2>$null
         if ($health -eq "healthy") {
             Write-Host "✅ WAF container is healthy" -ForegroundColor Green
             return $true
+        }
+        # nginx CRS (and some custom images) may omit HEALTHCHECK. Running is enough.
+        if ($health -eq "none") {
+            $running = docker inspect --format "{{.State.Running}}" $ContainerName 2>$null
+            if ($running -eq "true") {
+                Write-Host "✅ WAF container is running (no Docker HEALTHCHECK)" -ForegroundColor Green
+                return $true
+            }
         }
 
         Start-Sleep -Seconds $PollSeconds
@@ -176,6 +294,92 @@ function Invoke-TcpHttpRequest {
 
 <#
 .SYNOPSIS
+    Sends an HTTP/1.1 POST with Transfer-Encoding: chunked and no Content-Length.
+
+.DESCRIPTION
+    Used to exercise the plugin pool path for unknown length (req.ContentLength == -1).
+    Invoke-WebRequest always sets Content-Length; this helper writes chunked framing on TCP.
+
+.PARAMETER TargetHost
+    Target host (default localhost).
+
+.PARAMETER Port
+    Target port (default 8000).
+
+.PARAMETER Path
+    Request path (e.g. /pool-test).
+
+.PARAMETER BodySizeBytes
+    Exact body size in bytes (filled with ASCII 'a').
+
+.PARAMETER ChunkSizeBytes
+    Chunk size for the transfer encoding (default 256).
+#>
+function Invoke-ChunkedHttpRequest {
+    param(
+        [string]$TargetHost = "localhost",
+        [int]$Port = 8000,
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [int]$BodySizeBytes,
+        [int]$ChunkSizeBytes = 256
+    )
+
+    if ($BodySizeBytes -lt 1) {
+        throw "BodySizeBytes must be positive, got $BodySizeBytes."
+    }
+    if ($ChunkSizeBytes -lt 1) {
+        throw "ChunkSizeBytes must be positive, got $ChunkSizeBytes."
+    }
+
+    $body = New-Object byte[] $BodySizeBytes
+    for ($i = 0; $i -lt $BodySizeBytes; $i++) {
+        $body[$i] = [byte][char]'a'
+    }
+
+    $tcp = New-Object System.Net.Sockets.TcpClient($TargetHost, $Port)
+    try {
+        $stream = $tcp.GetStream()
+        $header = "POST $Path HTTP/1.1`r`nHost: ${TargetHost}:${Port}`r`nTransfer-Encoding: chunked`r`nConnection: close`r`n`r`n"
+        $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($header)
+        $stream.Write($headerBytes, 0, $headerBytes.Length)
+
+        $offset = 0
+        $crlf = [System.Text.Encoding]::ASCII.GetBytes("`r`n")
+        while ($offset -lt $body.Length) {
+            $n = [Math]::Min($ChunkSizeBytes, $body.Length - $offset)
+            $sizeBytes = [System.Text.Encoding]::ASCII.GetBytes(("{0:x}`r`n" -f $n))
+            $stream.Write($sizeBytes, 0, $sizeBytes.Length)
+            $stream.Write($body, $offset, $n)
+            $stream.Write($crlf, 0, $crlf.Length)
+            $offset += $n
+        }
+        $end = [System.Text.Encoding]::ASCII.GetBytes("0`r`n`r`n")
+        $stream.Write($end, 0, $end.Length)
+        $stream.Flush()
+
+        $reader = New-Object System.IO.StreamReader($stream)
+        $responseText = $reader.ReadToEnd()
+        $reader.Close()
+        $stream.Close()
+
+        $status = 0
+        if ($responseText -match '(?m)^HTTP/\d\.\d\s+(\d{3})') {
+            $status = [int]$Matches[1]
+        }
+        return [pscustomobject]@{
+            StatusCode  = $status
+            RawResponse = $responseText
+        }
+    }
+    finally {
+        $tcp.Close()
+    }
+}
+
+<#
+.SYNOPSIS
     Waits for a service to become ready by checking its health endpoint
 
 .DESCRIPTION
@@ -288,6 +492,136 @@ function Get-TraefikAccessLogEntries {
     }
 
     return $entries
+}
+
+# Default Apache path. Get-WafAuditLogPath reads MODSEC_AUDIT_LOG from the running container
+# so nginx (/tmp/modsecurity/modsec_audit.log) does not need a second helper.
+$script:WafAuditLogPath = "/var/log/modsec_audit.log"
+
+function Get-WafAuditLogPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    if ($env:WAF_AUDIT_LOG_PATH) {
+        return $env:WAF_AUDIT_LOG_PATH
+    }
+    $fromContainer = docker exec $WafContainerName printenv MODSEC_AUDIT_LOG 2>$null
+    if ($LASTEXITCODE -eq 0 -and $fromContainer) {
+        return ([string]$fromContainer).Trim()
+    }
+    return $script:WafAuditLogPath
+}
+
+# Get-TraefikClientHost returns the peer IP Traefik logged (ClientHost, else ClientAddr host).
+function Get-TraefikClientHost {
+    param(
+        [Parameter(Mandatory)]
+        $AccessLogEntry
+    )
+
+    if ($AccessLogEntry.ClientHost) {
+        return [string]$AccessLogEntry.ClientHost
+    }
+    $clientAddr = [string]$AccessLogEntry.ClientAddr
+    if ($clientAddr -match '^\[(.+)\]:\d+$') {
+        return $Matches[1]
+    }
+    if ($clientAddr -match '^(.+):\d+$') {
+        return $Matches[1]
+    }
+    return $clientAddr
+}
+
+# Get-WafAuditLogRecords reads JSON audit lines from the waf container (not Traefik access.log).
+function Get-WafAuditLogRecords {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WafContainerName
+    )
+
+    $auditLogPath = Get-WafAuditLogPath -WafContainerName $WafContainerName
+    $auditLogContent = docker exec $WafContainerName cat $auditLogPath 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read WAF audit log $auditLogPath from container: $WafContainerName"
+    }
+
+    $logLines = $auditLogContent -split "`n" | Where-Object { $_.Trim() -ne "" }
+    $records = @()
+    foreach ($line in $logLines) {
+        try {
+            $records += ($line | ConvertFrom-Json)
+        } catch {
+            # Skip malformed JSON lines
+        }
+    }
+    return $records
+}
+
+# Get-WafAuditClientIp returns REMOTE_ADDR as logged.
+# Apache CRS 4.3 JSON: transaction.remote_address. nginx CRS 4.3 JSON: transaction.client_ip.
+function Get-WafAuditClientIp {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.transaction.remote_address,
+        $AuditRecord.transaction.client_ip,
+        $AuditRecord.transaction.remote_addr,
+        $AuditRecord.transaction.client.ip
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
+# Get-WafAuditRequestUri returns the request line used to match a deny to its audit record.
+function Get-WafAuditRequestUri {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.request.request_line,
+        $AuditRecord.transaction.request.request_line,
+        $AuditRecord.transaction.request.uri,
+        $AuditRecord.request.uri
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
+}
+
+# Get-WafAuditHost returns the Host CRS logged.
+# Apache CRS 4.3 JSON: request.headers.Host. nginx CRS 4.3 JSON: transaction.request.headers.Host.
+function Get-WafAuditHost {
+    param(
+        [Parameter(Mandatory)]
+        $AuditRecord
+    )
+
+    $candidates = @(
+        $AuditRecord.request.headers.Host,
+        $AuditRecord.transaction.request.headers.Host,
+        $AuditRecord.request.headers.host,
+        $AuditRecord.transaction.request.headers.host
+    )
+    foreach ($value in $candidates) {
+        if ($value) {
+            return [string]$value
+        }
+    }
+    return $null
 }
 
 function New-RequestBodyOfSizeBytes {

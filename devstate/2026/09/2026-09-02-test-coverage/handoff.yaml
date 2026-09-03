@@ -1,0 +1,17 @@
+issueKey: 2026-09-02-test-coverage
+jobName: 2026-09-02-test-coverage
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified-with-gaps
+src: f07f6437aad82898ffbb02ca437426f1d1b65ea594201cf811e7a16846ce781f
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: close-remaining-waf-test-gaps
+pr:
+  id: 30
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/30
