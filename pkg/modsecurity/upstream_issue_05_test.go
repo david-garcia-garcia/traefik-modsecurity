@@ -162,13 +162,8 @@ func TestPlugin_UpstreamIssue05_NilBodyPanicsOnServeHTTP(t *testing.T) {
 // TestPlugin_UpstreamIssue05_InboundCancelDoesNotNilDeref checks a client abort
 // (canceled inbound context) is an error return, not a plugin panic.
 func TestPlugin_UpstreamIssue05_InboundCancelDoesNotNilDeref(t *testing.T) {
-	started := make(chan struct{})
-	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-r.Context().Done()
-	}))
-	t.Cleanup(waf.Close)
-	_, route := newIssue05AllowRoute(t, "issue-05-cancel", waf.URL)
+	wafURL, started := startTestBlockingWAF(t)
+	_, route := newIssue05AllowRoute(t, "issue-05-cancel", wafURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "http://example/build/fonts/fa-light-300.c92b45dd.ttf", nil)
@@ -205,13 +200,8 @@ func TestPlugin_UpstreamIssue05_InboundCancelDoesNotNilDeref(t *testing.T) {
 // Go may panic http.ErrAbortHandler when the handler writes after reset;
 // that is server abort, not a plugin nil-deref.
 func TestPlugin_UpstreamIssue05_HTTP2ClientAbortIsNotNilDeref(t *testing.T) {
-	started := make(chan struct{})
-	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-r.Context().Done()
-	}))
-	t.Cleanup(waf.Close)
-	_, route := newIssue05AllowRoute(t, "issue-05-h2-abort", waf.URL)
+	wafURL, started := startTestBlockingWAF(t)
+	_, route := newIssue05AllowRoute(t, "issue-05-h2-abort", wafURL)
 
 	var (
 		proto     string
