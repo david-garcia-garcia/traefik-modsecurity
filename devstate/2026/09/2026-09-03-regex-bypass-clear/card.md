@@ -1,11 +1,11 @@
-Developer review: in progress — 2026-09-03T07:10:56.601Z
+Developer review: ready for review — 2026-09-03T07:20:33.647Z
 
 ## What this changes
 **Operators.** `bypassRules.pathRegexp` comments now say unanchored `MatchString` on percent-decoded `req.URL.Path`. Exact example is `^/healthz$`. Prefix example stays `^/admin/`. The plugin still does not insert those anchors.
 
 **Admin users.** None.
 
-**Developers.** `BypassRule` and `match` comments spell the unanchored contract. `TestPlugin_BypassRules` pins `/health` vs `/healthz`, `/index.php/health`, `^/health$`, and `/health/../index.php`.
+**Developers.** `BypassRule` and `match` comments spell the unanchored contract. `TestPlugin_BypassRules` pins `/health` vs `/healthz`, `/index.php/health`, `^/health$`, and `/health/../index.php`. Spec `core_plugin_middleware_bypass-rules` has the same substring scenarios.
 
 **End users.** None.
 
@@ -13,17 +13,17 @@ Developer review: in progress — 2026-09-03T07:10:56.601Z
 On `main`, `bypassRules.pathRegexp` is unanchored RE2 `MatchString` on `req.URL.Path`. README already said that, then showed `pathRegexp: /healthz` without `^` or `$`. The `BypassRule` type comment and spec scenarios still looked like prefix allowlists. If we do not merge, an operator can copy that example and skip the WAF for any path that contains the substring.
 
 ## Merge readiness
-Apply landed. Four-axis review of `origin/main...HEAD` was clean (Standards / Spec / Security / Performance: none). CI on PR 42 is still running.
+Ready for review. All eight PR 42 checks succeeded on 778ef98.
 
 Priority: P2 — Real operator pain, with a workaround or limited blast radius
-Reviewed head: e5ea6df
+Reviewed head: 778ef98
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | Local `go test ./...` passed; CI in progress |
-| CI proof | 3/6 | Checks queued/in_progress on 8d625f9 |
+| Overall readiness | 6/6 | CI succeeded; no open PR comments |
+| CI proof | 6/6 | All 8 checks success on 778ef98 |
 | Local tests proof | N/A | `prHost` is github |
 | Review resolution | 6/6 | OPEN PR; comment inventory empty |
 
@@ -31,22 +31,22 @@ Owner decision: Required. See Decision needed.
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Branch | 2026-09-03-regex-bypass-clear pushed | `git` / origin |
-| OpenSpec | bypass-pathregexp-docs | `openspec/changes/bypass-pathregexp-docs/` |
+| OpenSpec | archived 2026-09-03-bypass-pathregexp-docs | `openspec/changes/archive/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/42 | pr-host |
-| CI | build 33726489907 in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33726489907 | pr-host check_runs |
+| CI | build 33727100791 success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33727100791 | pr-host check_runs |
 | Local tests | passed | `go test ./...` ok |
 | PR comments | no comments | inventory on PR 42 |
 | Security | None. | devstate/codereview.md |
 | Performance | None. | devstate/codereview.md |
 
 ## Specs
-- [core_plugin_middleware_bypass-rules](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-regex-bypass-clear/openspec/changes/bypass-pathregexp-docs/proposal.md) — modified
+- [core_plugin_middleware_bypass-rules](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-regex-bypass-clear/openspec/changes/archive/2026-09-03-bypass-pathregexp-docs/proposal.md) — modified
 
 ## Follow-up issues
 None.
 
 ## How this fits together
-Local chat spec → branch `2026-09-03-regex-bypass-clear` → PR 42 → OpenSpec `bypass-pathregexp-docs` applied. Four-axis review clean. Waiting on CI.
+Local chat spec → worktree `wt-modsec-2026-09-03-regex-bypass-clear` → branch `2026-09-03-regex-bypass-clear` → PR 42. Matcher stays unanchored. Docs, spec, and tests make that obvious. CI green.
 
 ## Decision needed
 | Question | Decision | By |
@@ -54,10 +54,10 @@ Local chat spec → branch `2026-09-03-regex-bypass-clear` → PR 42 → OpenSpe
 | Should match use a normalized path, or refuse bypass when RawPath differs from EscapedPath() or the path contains `.` / `..`? | assumed — no matcher change. Document that the subject is percent-decoded `req.URL.Path` and is not slash-normalized. | explore |
 
 ## Before merge
-- [ ] CI succeeded on PR 42
+- [x] CI succeeded on PR 42
 - [x] README, type comment, and pinning tests landed
 - [x] Stub PR 42 opened
-- [x] OpenSpec `bypass-pathregexp-docs` applied
+- [x] OpenSpec archived as 2026-09-03-bypass-pathregexp-docs
 - [x] Four-axis review of origin/main...HEAD was clean
 
 ## Findings
@@ -76,7 +76,7 @@ None.
 | --- | --- | --- |
 | Specs in this PR | 0 added / 1 modified | Same list as Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | e5ea6df59454aaa0048dc537c480dbfeaba75587 | Card must match the branch you measured |
+| Reviewed head | 778ef9807c06be2e133fcd032850eac1af1b898b | Card must match the branch you measured |
 
 ### Stored data model
 None.
@@ -90,10 +90,11 @@ Is this the best way to solve the issue? Yes versus `main`. Auto-anchor was reje
 
 ### Evidence
 What I checked:
-- `go test ./...` passed (health, modsecurity, reclaim, root)
+- `go test ./...` passed
 - `bypass.go` still wraps `(?:pattern)` only
 - README example is `^/healthz$`
-- Four-axis review: Standards/Spec/Security/Performance none (origin/main...HEAD)
+- Four-axis review: Standards/Spec/Security/Performance none
+- CI: lint, Build, build, Test Runner Script Validation, apache-whoami, apache-drain, nginx-whoami, nginx-drain all success (run 33727100791 and siblings)
 
 ### Rank-up moves
 None.
