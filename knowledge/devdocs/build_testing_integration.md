@@ -2,12 +2,12 @@
 
 ## Overview
 
-Pester v5 tests hit a live Traefik + ModSecurity + whoami stack. Two named stacks, both inspect-only drain (no unlabeled CRS origin):
+Pester v5 tests hit a live Traefik + ModSecurity + whoami stack. Two named stacks (Apache and nginx CRS; same inspect-only sidecar contract):
 
-| Stack | Compose | CRS origin |
+| Stack | Compose | Sidecar after CRS |
 | --- | --- | --- |
-| `apache-drain` | `docker-compose.test.yml` | inspect-only rewrite 200 (`httpd-vhosts.drain.conf`) |
-| `nginx-drain` | `docker-compose.test.nginx.yml` | unix-socket origin `/tmp/modsecurity/crs-drain.sock` (`drain-origin.conf` + `proxy_backend.drain.conf.template`) |
+| `apache-drain` | `docker-compose.test.yml` | rewrite 200 (`httpd-vhosts.drain.conf`) |
+| `nginx-drain` | `docker-compose.test.nginx.yml` | unix socket `/tmp/modsecurity/crs-drain.sock` (`drain-origin.conf` + `proxy_backend.drain.conf.template`) |
 
 The local runner is `Test-Integration.ps1`. Helpers live in `scripts/TestHelpers.ps1`.
 

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines how this repo’s OWASP CRS Docker sidecar inspects a request copy and answers HTTP 200. Demo compose and integration test stacks do that without a dummy origin. CRS request rules still apply. Drain origins MUST NOT turn `Range` or conditional request headers into a sidecar 3xx/4xx that the plugin copies as a block.
+Defines how this repo’s OWASP CRS Docker sidecar inspects a request copy and answers HTTP 200 after ModSecurity request phases. Demo compose and integration test stacks use that inspect-only pattern only. CRS request rules still apply. The sidecar MUST NOT turn `Range` or conditional request headers into a 3xx/4xx that the plugin copies as a block.
 
 ## Requirements
 
-### Requirement: Sidecar allow is HTTP 200 without a dummy origin
+### Requirement: Sidecar allow is HTTP 200 after CRS
 
-After ModSecurity request phases, the CRS sidecar used by this repo’s demo compose and integration test stacks SHALL respond HTTP 200 to a benign GET and to a benign POST with a small body. Those compose files SHALL NOT run an unlabeled `dummy` whoami as that sidecar’s origin. Traefik `next` remains the application. The plugin SHALL treat that sidecar 200 as allow (existing `< 300` rule).
+After ModSecurity request phases, the CRS sidecar used by this repo’s demo compose and integration test stacks SHALL respond HTTP 200 to a benign GET and to a benign POST with a small body. Those compose files SHALL NOT run an unlabeled `dummy` service as the sidecar’s `BACKEND`. Traefik `next` remains the application. The plugin SHALL treat that sidecar 200 as allow (existing `< 300` rule).
 
 #### Scenario: Benign GET through Traefik
 
@@ -43,7 +43,7 @@ The inspect-only 200 handler SHALL NOT skip ModSecurity request-header or reques
 - **THEN** the sidecar SHALL respond 403 (or the configured deny status below 500)
 - **AND** Traefik `next` SHALL NOT be called
 
-### Requirement: Range does not become a sidecar security block on drain origins
+### Requirement: Range does not become a sidecar security block
 
 A client `Range` that would be unsatisfiable on a small sidecar body (including `Range: bytes=10240-` on a tiny inspect-only 200) SHALL NOT produce a sidecar 4xx. The sidecar SHALL respond HTTP 200 for that inspect. Traefik `next` may still return 206 or 200 from the application. Client IP for WAF audit SHALL remain Traefik `ClientHost` via the existing `X-Real-IP` overlays (`RemoteIPHeader` / nginx `real_ip`). The plugin SHALL NOT reconstruct client IP.
 
@@ -55,12 +55,12 @@ A client `Range` that would be unsatisfiable on a small sidecar body (including 
 
 #### Scenario: Deny audit still has Traefik ClientHost
 
-- **WHEN** CRS denies a request on a drain stack
+- **WHEN** CRS denies a request on an integration stack
 - **THEN** the WAF JSON audit `REMOTE_ADDR` SHALL equal Traefik access-log `ClientHost` for that request
 
 ### Requirement: Conditional request headers do not become a sidecar security block
 
-A client `If-None-Match` (including `*`) or `If-Modified-Since` SHALL NOT produce a sidecar 304 or other 3xx on drain origins. The sidecar SHALL respond HTTP 200 for that inspect. Nginx SHALL omit those request headers on `proxy_pass` to the in-process origin so `return 200` is not rewritten to 304. Apache SHALL unset them on the inspect-only vhost. The plugin SHALL NOT change its 3xx/4xx copy rule. CRS request phases SHALL still see the original client headers on the public sidecar listener.
+A client `If-None-Match` (including `*`) or `If-Modified-Since` SHALL NOT produce a sidecar 304 or other 3xx. The sidecar SHALL respond HTTP 200 for that inspect. Nginx SHALL omit those request headers on `proxy_pass` to the in-process origin so `return 200` is not rewritten to 304. Apache SHALL unset them on the inspect-only vhost. The plugin SHALL NOT change its 3xx/4xx copy rule. CRS request phases SHALL still see the original client headers on the public sidecar listener.
 
 #### Scenario: If-None-Match asterisk
 
@@ -78,7 +78,7 @@ A client `If-None-Match` (including `*`) or `If-Modified-Since` SHALL NOT produc
 
 The integration suite SHALL include `apache-drain` and `nginx-drain` only. Each stack run SHALL measure allow-path GET and POST throughput on `/protected` (bombardier `-c 50 -d 15s` or equivalent in Pester). The assertion is that req/s is greater than zero; absolute RPS is recorded for the delivery card, not as a flake-prone floor.
 
-#### Scenario: Both drain stacks are in CI
+#### Scenario: Both stacks are in CI
 
 - **WHEN** the integration-test workflow runs
 - **THEN** it SHALL start `apache-drain` and `nginx-drain`

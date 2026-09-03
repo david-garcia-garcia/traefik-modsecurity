@@ -27,3 +27,10 @@ phase: implement
 findings: none
 fixed: dummy origin removed; nginx 4.3.0 proxy_backend overlay clears If-None-Match/If-Modified-Since; Apache drain unsets the same; two-stack Pester
 skipped: plugin 3xx/4xx classifier; leftover inspect-only-crs-sidecar archive
+
+## archive (2026-09-03)
+
+phase: archive
+findings: none
+fixed: moved inspect-only-crs-sidecar to archive/2026-09-03-inspect-only-crs-sidecar; catalog sync skipped (already current from remove-dummy-crs-origin)
+skipped: merge stale delta (would regress whoami/four-stack requirements)

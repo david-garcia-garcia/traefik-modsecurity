@@ -34,4 +34,4 @@ Owner: image `owasp/modsecurity-crs:4.3.0-apache-alpine-202406090906` files `/et
 
 Extract: `.sources/crs-4.3.0-image-websocket-grep.md`
 
-Runtime on this product's compose (`PARANOIA=1`, `ANOMALY_INBOUND=5`): a GET `/ws-echo` with RFC 6455 handshake headers returned sidecar 200 on Apache/nginx whoami and drain; the same GET with `id=1' OR '1'='1` returned 403 (rule 942100). That is this pin's anomaly threshold, not a CRS skip-on-Upgrade. Ticket explore recorded the four-stack table.
+Runtime on this product's compose (`PARANOIA=1`, `ANOMALY_INBOUND=5`): a GET `/ws-echo` with RFC 6455 handshake headers returned sidecar 200 on both Apache and nginx stacks; the same GET with `id=1' OR '1'='1` returned 403 (rule 942100). That is this pin's anomaly threshold, not a CRS skip-on-Upgrade.

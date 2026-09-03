@@ -26,7 +26,7 @@ function Get-WafContainerName {
 }
 
 function Get-DummyContainerName {
-    # Unlabeled CRS origin used to be named *-dummy-1. Drain stacks must not start it.
+    # Regression guard: unlabeled CRS BACKEND used to be named *-dummy-1.
     docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-dummy-1" } | Select-Object -First 1
 }
 

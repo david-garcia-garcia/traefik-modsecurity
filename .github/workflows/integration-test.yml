@@ -291,4 +291,4 @@ jobs:
       run: |
         docker compose -f docker-compose.test.yml config >/dev/null
         docker compose -f docker-compose.test.nginx.yml config >/dev/null
-        echo "✅ Both drain compose stacks validate"
+        echo "✅ Both integration compose stacks validate"

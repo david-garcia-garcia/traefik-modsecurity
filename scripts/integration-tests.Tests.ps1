@@ -50,8 +50,8 @@ Describe "ModSecurity Plugin Basic Functionality" {
             $response.Content | Should -Match "Hostname"
         }
 
-        It "Should not run an unlabeled dummy CRS origin" {
-            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Inspect-only stacks must not start dummy; only labeled whoami apps remain"
+        It "Should not run a CRS dummy origin container" {
+            Get-DummyContainerName | Should -BeNullOrEmpty -Because "The CRS sidecar is inspect-only; labeled whoami services are Traefik next, not the sidecar BACKEND"
         }
     }
 }

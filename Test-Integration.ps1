@@ -8,7 +8,7 @@
     This script starts the Docker Compose services, waits for them to be ready,
     runs the Pester integration tests, and then cleans up the services.
 
-    Two stacks (CRS engine, inspect-only drain origin):
+    Two stacks (Apache and nginx CRS, inspect-only sidecar):
       apache-drain   docker-compose.test.yml
       nginx-drain    docker-compose.test.nginx.yml
 
@@ -28,19 +28,19 @@
     Named stack: apache-drain, nginx-drain
 
 .PARAMETER AllStacks
-    Run both drain stacks in sequence (compose down between each)
+    Run both stacks in sequence (compose down between each)
 
 .EXAMPLE
     ./Test-Integration.ps1
-    Apache CRS inspect-only drain origin (default)
+    Apache CRS stack (default)
 
 .EXAMPLE
     ./Test-Integration.ps1 -Stack apache-drain
-    Apache inspect-only drain origin
+    Apache CRS stack
 
 .EXAMPLE
     ./Test-Integration.ps1 -AllStacks
-    Both drain stacks, including bombardier benches when bombardier is installed
+    Both stacks, including bombardier benches when bombardier is installed
 
 .EXAMPLE
     ./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml

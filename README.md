@@ -77,7 +77,7 @@ flowchart LR
 
 ### What to expect (speed)
 
-Treat them as a ballpark, not a promise. Inspect-only drain (no extra origin hop):
+Treat these as a ballpark, not a promise. CRS sidecar throughput after ModSecurity (HTTP 200 allow):
 
 | Setup | GET | POST |
 | --- | --- | --- |
@@ -130,7 +130,7 @@ REAL_IP_RECURSIVE: on
 
 Those become `real_ip_header X-Real-IP` and `set_real_ip_from` for the Traefik net. `SET_REAL_IP_FROM` is comma-separated. Do **not** set `0.0.0.0/0`.
 
-The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. Inspect-only origin: [crs-nginx/drain-origin.conf](crs-nginx/drain-origin.conf) listens on `unix:/tmp/modsecurity/crs-drain.sock` and [crs-nginx/proxy_backend.drain.conf.template](crs-nginx/proxy_backend.drain.conf.template) `proxy_pass`es that socket so `If-None-Match` cannot 304 the tiny 200. Do not set `BACKEND` to a dummy whoami, and do not put `return` on CRS `location /` (that skips request-body inspection). The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
+The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. After CRS, [crs-nginx/drain-origin.conf](crs-nginx/drain-origin.conf) listens on `unix:/tmp/modsecurity/crs-drain.sock` and [crs-nginx/proxy_backend.drain.conf.template](crs-nginx/proxy_backend.drain.conf.template) `proxy_pass`es that socket so `If-None-Match` cannot 304 the tiny 200. Do not put `return` on CRS `location /` (that skips request-body inspection). The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
 
 Operators who set Traefik `forwardedHeaders.trustedIPs` and want leftover XFF as `REMOTE_ADDR` configure that on CRS themselves (`REMOTEIP_HEADER=X-Forwarded-For` or `REAL_IP_HEADER=X-Forwarded-For`).
 
@@ -143,10 +143,10 @@ Without this, every deny is attributed to the Traefik container IP. An IPS that 
 Run the complete test suite against real Docker services:
 
 ```bash
-# Apache CRS inspect-only (default)
+# Apache CRS (default stack)
 ./Test-Integration.ps1
 
-# nginx CRS inspect-only
+# nginx CRS
 ./Test-Integration.ps1 -Stack nginx-drain
 
 # Both stacks

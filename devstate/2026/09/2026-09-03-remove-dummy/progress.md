@@ -10,5 +10,5 @@ JobName: 2026-09-03-remove-dummy
 | implement | [x] | [x] | 2026-09-03T07:59:04.724Z |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |
-| archive | [ ] | [ ] | |
+| archive | [x] | [x] | 2026-09-03T14:14:37Z |
 | pullrequest | [ ] | [ ] | |
