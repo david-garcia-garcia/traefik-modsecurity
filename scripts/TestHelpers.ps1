@@ -16,11 +16,14 @@ function Get-TraefikContainerName {
 }
 
 function Get-WafContainerName {
-    # Discover by service suffix so it works across different
-    # docker-compose project names (local vs CI).
-    $name = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-waf-1" } | Select-Object -First 1
+    # Compose service `waf` only. Do not match `waf-5xx` (name suffix *-waf-1 is not enough
+    # if project prefixes vary; the compose service label is the owner).
+    $name = docker ps -a --filter "label=com.docker.compose.service=waf" --format "{{.Names}}" | Select-Object -First 1
     if (-not $name) {
-        throw "WAF container not found (searched for '*-waf-1'; optionally set WAF_CONTAINER_NAME env var)"
+        $name = docker ps -a --format "{{.Names}}" | Where-Object { $_ -match '-waf-1$' } | Select-Object -First 1
+    }
+    if (-not $name) {
+        throw "WAF container not found (compose service 'waf' or name '*-waf-1'; optionally set WAF_CONTAINER_NAME env var)"
     }
     return $name
 }
@@ -171,11 +174,103 @@ function Wait-ForWafHealthy {
 
 <#
 .SYNOPSIS
+    Polls a WAF-fronted URL until GET returns HTTP 200 (sidecar allow-path).
+
+.DESCRIPTION
+    Docker HEALTHCHECK can pass before CRS will inspect. `/protected` has backoff
+    off, so 200 means the sidecar allowed the request. Do not use `/threshold-test`
+    here: fail-open also returns 200.
+
+.PARAMETER Url
+    Full GET URL (e.g. http://localhost:8000/protected).
+
+.PARAMETER TimeoutSeconds
+    How long to keep polling.
+
+.PARAMETER PollMilliseconds
+    Delay between GETs.
+#>
+function Wait-ForWafAllowPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Url,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollMilliseconds = 500
+    )
+    Write-Host "Waiting for WAF allow-path $Url ..." -ForegroundColor Cyan
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastStatus = $null
+    do {
+        try {
+            $response = Invoke-SafeWebRequest -Uri $Url -TimeoutSec 5
+            $lastStatus = $response.StatusCode
+            if ($lastStatus -eq 200) {
+                Write-Host "✅ WAF allow-path returned 200" -ForegroundColor Green
+                return $true
+            }
+        }
+        catch {
+            $lastStatus = "error:$($_.Exception.Message)"
+        }
+        Start-Sleep -Milliseconds $PollMilliseconds
+    } while ((Get-Date) -lt $deadline)
+    throw "WAF allow-path $Url did not return 200 within ${TimeoutSeconds}s (last=$lastStatus)"
+}
+
+<#
+.SYNOPSIS
+    Polls /threshold-test with a CRS probe until the sidecar is consulted (not fail-open).
+
+.DESCRIPTION
+    Leftover unhealthy backoff still returns 200 for any GET. A SQL-injection query
+    SHALL be 4xx once the tracker has recovered and CRS is inspecting. Call this
+    while the CRS container is up, before a new fail-open trip.
+
+.PARAMETER BaseUrl
+    Traefik entry URL (e.g. http://localhost:8000).
+
+.PARAMETER TimeoutSeconds
+    How long to keep polling.
+
+.PARAMETER PollMilliseconds
+    Delay between GETs.
+#>
+function Wait-ForThresholdRouteInspecting {
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseUrl,
+        [int]$TimeoutSeconds = 30,
+        [int]$PollMilliseconds = 500
+    )
+    $probeUrl = "$BaseUrl/threshold-test?id=1%27+OR+%271%27%3D%271"
+    Write-Host "Waiting for /threshold-test to inspect again..." -ForegroundColor Cyan
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastStatus = $null
+    do {
+        try {
+            $response = Invoke-SafeWebRequest -Uri $probeUrl -TimeoutSec 10
+            $lastStatus = $response.StatusCode
+            if ($lastStatus -ge 400) {
+                Write-Host "✅ /threshold-test is inspecting (status $lastStatus)" -ForegroundColor Green
+                return $true
+            }
+        }
+        catch {
+            $lastStatus = "error:$($_.Exception.Message)"
+        }
+        Start-Sleep -Milliseconds $PollMilliseconds
+    } while ((Get-Date) -lt $deadline)
+    throw "/threshold-test still fail-open after ${TimeoutSeconds}s (last=$lastStatus)"
+}
+
+<#
+.SYNOPSIS
     Stops the CRS container and trips /threshold-test fail-open (threshold 3).
 
 .DESCRIPTION
-    Shared setup for threshold Its. Stops the WAF, sends three requests, then
-    one more that must be pass-through. Callers assert the returned status.
+    Shared setup for threshold Its. SIGKILL the sidecar (`docker stop -t 0`) so
+    nginx CRS cannot drain for the default 10s grace period, then send three
+    requests and one more that must be pass-through. Callers assert the returned status.
 
 .PARAMETER BaseUrl
     Traefik entry URL (e.g. http://localhost:8000).
@@ -190,7 +285,8 @@ function Invoke-ThresholdTestFailOpenTrip {
         [Parameter(Mandatory)]
         [string]$WafContainerName
     )
-    docker stop $WafContainerName | Out-Null
+    # nginx CRS docker stop defaults to 10s graceful drain; SIGKILL so failures are immediate.
+    docker stop -t 0 $WafContainerName | Out-Null
     Start-Sleep -Seconds 2
     1..3 | ForEach-Object {
         try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }

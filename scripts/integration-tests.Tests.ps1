@@ -625,7 +625,7 @@ Describe "WAF Health Tracker Threshold Tests" {
     Context "Threshold and bypass behaviour" {
         It "Should not trip unhealthy on fewer than threshold failures" {
             try {
-                docker stop $script:wafContainer | Out-Null
+                docker stop -t 0 $script:wafContainer | Out-Null
                 # Poll until WAF is down (502); then one more request must still be 502 (2 failures, threshold=3, no trip)
                 $maxWait = 15
                 $first502 = $null
@@ -646,6 +646,7 @@ Describe "WAF Health Tracker Threshold Tests" {
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
 
@@ -653,16 +654,21 @@ Describe "WAF Health Tracker Threshold Tests" {
             try {
                 $response = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $response.StatusCode | Should -Be 200 -Because "after threshold we bypass WAF and get backend response"
-                Start-Sleep -Seconds 2
-                $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
-                $unhealthyPassThrough = ($allLogEntries | Where-Object {
-                    $_.'request_X-Waf-Status' -eq "unhealthy" -and $_.RequestPath -like "/threshold-test*"
-                } | Select-Object -Last 1)
+                $unhealthyPassThrough = $null
+                for ($i = 0; $i -lt 10; $i++) {
+                    Start-Sleep -Milliseconds 500
+                    $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                    $unhealthyPassThrough = ($allLogEntries | Where-Object {
+                        $_.'request_X-Waf-Status' -eq "unhealthy" -and $_.RequestPath -like "/threshold-test*"
+                    } | Select-Object -Last 1)
+                    if ($unhealthyPassThrough) { break }
+                }
                 $unhealthyPassThrough | Should -Not -BeNullOrEmpty -Because "pass-through when unhealthy adds X-Waf-Status: unhealthy to request"
             }
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
 
@@ -678,26 +684,43 @@ Describe "WAF Health Tracker Threshold Tests" {
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
 
         It "Should consult the sidecar again after backoff elapses" {
             try {
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
+                Wait-ForThresholdRouteInspecting -BaseUrl $BaseUrl
+
                 $passThrough = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before backoff resume"
+                $trippedAt = Get-Date
 
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
-                # Route unhealthyWafBackOffPeriodSecs=10; wait past expiry so the sidecar is tried again.
-                Start-Sleep -Seconds 12
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
 
-                $probe = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test?id=1' OR '1'='1" -TimeoutSec 10
+                # Route unhealthyWafBackOffPeriodSecs=10; wait from the trip, not from docker healthy.
+                $backoffRemainSec = 11 - ((Get-Date) - $trippedAt).TotalSeconds
+                if ($backoffRemainSec -gt 0) {
+                    Start-Sleep -Seconds ([Math]::Ceiling($backoffRemainSec))
+                }
+
+                $probe = $null
+                for ($i = 0; $i -lt 8; $i++) {
+                    $probe = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test?id=1%27+OR+%271%27%3D%271" -TimeoutSec 10
+                    if ($probe.StatusCode -ge 400 -and $probe.StatusCode -ne 200) { break }
+                    Start-Sleep -Milliseconds 500
+                }
                 $probe.StatusCode | Should -BeGreaterOrEqual 400 -Because "after backoff the plugin must inspect again; a CRS probe must not stay fail-open 200"
                 $probe.StatusCode | Should -Not -Be 200
             }
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
     }
