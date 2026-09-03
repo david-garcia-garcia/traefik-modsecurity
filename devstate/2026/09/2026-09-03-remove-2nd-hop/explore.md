@@ -46,8 +46,12 @@ Hop 2 is the CRS image acting as a reverse proxy (`BACKEND`). Dummy’s body is 
   By: explore
 
 - Q: Exact nginx drain listen port and entrypoint script name?
-  Decision: assumed — `127.0.0.1:18081`, script under `crs-nginx/` mounted into `/docker-entrypoint.d/`. Implement may pick a free high port if 18081 collides; keep loopback-only.
-  By: explore
+  Decision: 127.0.0.1:18081 via crs-nginx/drain-origin.conf (second nginx server, max_ranges 0, return 200 after CRS proxy_pass). Not nc (serial) and not return on CRS location /.
+  By: implement
+
+- Q: Does the test suite drop dummy everywhere?
+  Decision: no. Keep apache+whoami, nginx+whoami, apache+drain, nginx+drain. Benchmark all four in Pester (bombardier). Demo compose is drain-only.
+  By: implement (human)
 
 - Q: Who already owns client IP for WAF audit?
   Decision: resolved — Traefik `X-Real-IP` / `ClientHost`; CRS `RemoteIPHeader` / nginx `real_ip`. Reuse those overlays. Do not reconstruct from `RemoteAddr`.

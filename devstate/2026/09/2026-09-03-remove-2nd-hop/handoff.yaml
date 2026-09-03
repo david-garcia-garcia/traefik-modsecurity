@@ -7,7 +7,7 @@ repoSlug: traefik-modsecurity
 destBranch: main
 qualify: qualified-with-gaps
 src: 2950614206b7af6ab47eb2114de9de475c88eda578261c780cff7c65ec0ed106
-localTests: none
+localTests: passed
 requirement: requirement.md
 comments: none
 explore: explore.md

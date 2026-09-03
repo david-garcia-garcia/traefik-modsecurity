@@ -1,43 +1,43 @@
-Developer review: in progress — 2026-09-03T04:05:06Z
+Developer review: in progress — 2026-09-03T04:40:10Z
 
 ## What this changes
-**Operators.** None yet (overlay not applied). Compose still has dummy on main.
+**Operators.** Demo compose (`docker-compose.yml` / `docker-compose.local.yml`) mounts `crs-apache/httpd-vhosts.drain.conf` and no longer runs unlabeled `dummy`. CRS inspects a copy and answers 200; Traefik `next` is the app.
 
 **Admin users.** None.
 
-**Developers.** OpenSpec change `inspect-only-crs-sidecar` adds spec `core_crs_sidecar_inspect-only` (inspect-only CRS sidecar, no dummy origin). Plugin `ServeHTTP` is unchanged.
+**Developers.** Four named test stacks remain: `apache-whoami`, `nginx-whoami`, `apache-drain`, `nginx-drain`. `./Test-Integration.ps1 -Stack` / `-AllStacks` and CI matrix cover all four. Pester prints `BENCH stack=` bombardier lines. Plugin `ServeHTTP` is unchanged.
 
-**End users.** None.
+**End users.** On drain/demo, `Range: bytes=10240-` is no longer copied as a sidecar 416 WAF block. Whoami test stacks still can 416 (dummy origin).
 
 ## Motivation
-On main, every CRS inspect still `ProxyPass` / `proxy_pass` to an unlabeled dummy whoami. That hop is not the real app, so a `Range` header or a small origin body can become a sidecar 416 that this plugin copies as a security block, and operators confuse dummy with Traefik’s backend. Without this PR those false blocks and the extra hop stay.
+On main, every CRS inspect still `ProxyPass` / `proxy_pass` to unlabeled dummy whoami. That hop is not the real app, so dummy/whoami behavior (Range 416) is copied as a security block, operators confuse dummy with Traefik's backend, and every allow pays an extra origin round-trip. That extra hop is one slice of the long-standing WAF-path cost tracked upstream in [acouvreur/traefik-modsecurity-plugin#2](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/2) (bombardier: no-WAF ~14430 req/s vs WAF ~748 req/s, ~20x). Without this PR those false blocks stay, and we cannot compare dummy vs inspect-only on the same suite.
 
 ## Merge readiness
-Propose is apply-ready; overlay not implemented. 3 items remain.
+Implement landed four stacks + benches; CI on this head not seen yet. 2 items remain.
 
-Priority: P2 — real operator pain from dummy/whoami (false 4xx blocks, extra hop), with a workaround of keeping dummy
-Reviewed head: c7f089c
-Owner decision: Required. See Decision needed.
+Priority: P2 — real operator pain from dummy/whoami (false 4xx blocks, extra hop), with a workaround of keeping dummy on whoami test stacks
+Reviewed head: 8c32789
+Owner decision: None.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | Apache integration tests still running on the explore commit |
-| CI proof | 3/6 | Integration Tests (apache) in progress; nginx/lint/build succeeded |
-| Local tests proof | N/A | Before implement (`localTests: none`) |
+| Overall readiness | 1/6 | Pushed apply; CI on this head not seen |
+| CI proof | 1/6 | not seen on 8c32789 |
+| Local tests proof | N/A | prHost github — CI proof covers remote |
 | Review resolution | 6/6 | OPEN PR 31, no review comments |
 
 ## Verification
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Branch | 2026-09-03-remove-2nd-hop pushed | `git` |
-| OpenSpec | inspect-only-crs-sidecar | `openspec/changes/inspect-only-crs-sidecar/` 4/4 artifacts |
+| Branch | 2026-09-03-remove-2nd-hop pushed | `git` (push follows this card write) |
+| OpenSpec | inspect-only-crs-sidecar | `openspec/changes/inspect-only-crs-sidecar/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/31 | GitHub |
-| CI | Integration Tests (apache) in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575790/job/100517970039 ; Integration Tests (nginx) success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575790/job/100517970082 ; Test Runner Script Validation success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575790/job/100517969861 ; lint success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575752/job/100517969655 ; build success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575846/job/100517969970 ; Build success https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33713575778/job/100517969923 | pull_request_read get_check_runs |
-| Local tests | none | handoff.yaml |
+| CI | not seen | not measured on this head yet |
+| Local tests | passed | `./Test-Integration.ps1 -AllStacks -TestPath ./scripts/integration-tests.Tests.ps1` — all four stacks 0 failed (whoami 45 pass / 2 skip; drain 46 pass / 1 skip). Runner exit-code leak fixed; apache-drain bench-only re-run exit 0 |
 | PR comments | no comments | no comments.md items |
-| Security | None. | no apply; no `codereview.md` |
-| Performance | before: GET 5077 req/s (9.84 ms avg), POST 1098 req/s (45.47 ms avg); after not seen | bombardier -c 50 -d 15s, Apache test compose, `/protected` |
+| Security | None. | no `codereview.md` yet |
+| Performance | See Agent review details — pinned to [acouvreur#2](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/2) | bombardier `-c 50 -d 15s` `/protected` |
 
 ## Specs
 - [core_crs_sidecar_inspect-only](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-remove-2nd-hop/openspec/changes/inspect-only-crs-sidecar/proposal.md) — added
@@ -46,17 +46,16 @@ Owner decision: Required. See Decision needed.
 - [ ] [note] [large] README `BenchmarkProtectedEndpoint` → no `Benchmark*` in this tree — README documents an integration bench that is not found. Not this ticket.
 
 ## How this fits together
-Inspect-only CRS sidecar is specified on branch 2026-09-03-remove-2nd-hop as PR 31. Implement applies Apache rewrite-200 and nginx drain-200, then re-benches.
+Inspect-only CRS overlay is on branch `2026-09-03-remove-2nd-hop` as PR 31. Demo is drain-only; tests keep whoami + drain and bench all four. Throughput is the same class of measurement as [acouvreur#2](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/2) (bombardier on WAF vs non-WAF). This PR does not remove the WAF hop; it removes the dummy origin after CRS.
 
 ## Decision needed
-| Question | Decision | By |
-| --- | --- | --- |
-| Exact nginx drain listen port and entrypoint script name? | assumed — `127.0.0.1:18081`, script under `crs-nginx/` mounted into `/docker-entrypoint.d/`. Implement may pick a free high port if 18081 collides; keep loopback-only. | explore |
+None.
 
 ## Before merge
-- [ ] Overlay CRS inspect-only 200; delete unlabeled `dummy` (nginx: drain-200, not `return`)
-- [ ] Measure after throughput; put before (GET 5077 req/s, POST 1098 req/s), after, and delta on this card
-- [ ] Prove live CRS gates: GET+POST allow, URI block, POST-body block, Range not sidecar 416, client-IP audit, no dummy
+- [ ] [P3] Wait for CI on the four-stack matrix (bombardier installed in the workflow)
+- [x] Keep apache+whoami, nginx+whoami, apache+drain, nginx+drain in the suite and bench all four
+- [x] Overlay CRS inspect-only 200 on demo + drain stacks (nginx: loopback origin, not `return` on CRS `location /`)
+- [x] Prove live CRS gates: GET+POST allow, URI block, POST-body block, Range not sidecar 416 on drain, dummy present only on whoami stacks
 
 ## Findings
 None.
@@ -67,31 +66,45 @@ None.
 None.
 
 ### Performance
-Before-change Apache allow-path: GET 5077.24 req/s / 9.84 ms (76072 2xx, 125 5xx); POST 1098.11 req/s / 45.47 ms (12600 2xx, 3901 5xx). After not measured. Nginx `return 200` skipped CRS — design forbids it.
+Upstream pin: [Increase plugin performance (#2)](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/2) — bombardier, WAF path ~20x slower than no-WAF (748 vs 14430 req/s at `-c 125 -d 10s`). This ticket measures the **dummy origin hop inside the WAF path**, not WAF-off.
+
+Before (explore, Apache whoami, `-c 50 -d 15s` `/protected`): GET 5077 req/s / 9.84 ms (76072 2xx / 125 5xx); POST 1098 req/s / 45.47 ms (12600 2xx / 3901 5xx).
+
+After (same flags, this apply):
+
+| Stack | GET req/s | GET latency | GET 2xx/5xx | POST req/s | POST latency | POST 2xx/5xx |
+| --- | --- | --- | --- | --- | --- | --- |
+| apache-whoami | 4999.25 | 10.00 ms | 74956 / 67 | 1149.90 | 43.44 ms | 12299 / 4995 |
+| nginx-whoami | 3989.81 | 12.52 ms | 59894 / 0 | 1947.69 | 25.66 ms | 27451 / 1802 |
+| apache-drain | 5211.54 | 9.60 ms | 78061 / 145 | 1348.95 | 37.02 ms | 17554 / 2727 |
+| nginx-drain | 3588.45 | 13.93 ms | 53862 / 0 | 2552.73 | 19.57 ms | 38341 / 0 |
+
+Apache drain vs explore whoami: GET ~+3% (noise), POST ~+23%. Nginx drain vs nginx whoami (same session): GET −10%, POST +31% and 0 5xx. CRS still dominates; dummy hop is not the 20x in #2.
 
 ### Review metrics
 | Metric | Value | Why it matters |
 | --- | --- | --- |
 | Specs in this PR | 1 added / 0 modified | Same list as Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | c7f089c (working tree also has apply-ready OpenSpec) | Card must match the branch you measured |
+| Reviewed head | 8c327894b233cd05818ec582949767fd818ef890 | Card must match the branch you measured |
 
 ### Stored data model
 None.
 
 ### Technical review
-Best possible solution vs main: not implemented. Spec + design: Apache `/healthz` rewrite; nginx loopback drain-200; unset Range.
+Best possible solution vs main: inspect-only overlay for demo/drain; keep whoami stacks so #2-style bombardier can compare origins. Nginx drain is a loopback `server` after `proxy_pass` (`max_ranges 0`), not `return` on CRS `location /` (measured skip) and not serial `nc`.
 
-Do we have a high-confidence way to reproduce? Yes — explore measured dummy hop, 416, and nginx return skipping CRS.
+Do we have a high-confidence way to reproduce? Yes — Pester `Allow-path throughput` plus `./Test-Integration.ps1 -AllStacks`.
 
-Is this the best way to solve the issue? Yes vs DestBranch: inspect-only overlay, no plugin change, no dummy.
+Is this the best way to solve the issue? Yes vs DestBranch: overlay only, no plugin change, four-stack compare kept.
 
 ### Evidence
 What I checked:
-- `openspec validate --changes --strict` passed for `inspect-only-crs-sidecar`
-- FindSpecHost new `core_crs_sidecar_inspect-only` (not fold into plugin sidecar-request)
-- Explore before-change bombardier numbers
-- CI apache still in progress on explore commit
+- nginx-drain and apache-drain smoke: GET 200, Range 200, URI 403, POST 200, POST SQLi 403, no dummy
+- `./Test-Integration.ps1 -AllStacks` main Pester file: 0 failed on all four
+- BENCH lines above (bombardier `-c 50 -d 15s`)
+- Upstream [acouvreur#2](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/2) cited as the performance issue this measurement family belongs to
 
 ### Rank-up moves
-None.
+- Absolute GET RPS on nginx-drain was slightly below nginx-whoami; treat as noise unless a second run repeats it.
+

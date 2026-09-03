@@ -20,3 +20,10 @@ fixed: none
 skipped: overlay not implemented
 
 
+
+## implement (2026-09-03)
+
+phase: implement
+findings: four-stack suite kept; nginx drain is loopback server not nc; Test-Integration finally leaked docker compose ps into exit code (fixed)
+fixed: inspect-only overlays; Pester benches all four stacks; runner exit code
+skipped: CI not seen on this head yet; code review not started
