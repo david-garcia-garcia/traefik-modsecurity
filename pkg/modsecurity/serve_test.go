@@ -36,7 +36,8 @@ func TestPlugin_SidecarResponseReusesConnection(t *testing.T) {
 		{
 			name:             "failure 503",
 			wafStatus:        http.StatusServiceUnavailable,
-			wantClientStatus: http.StatusBadGateway,
+			wantClientStatus: http.StatusOK,
+			wantNext:         true,
 		},
 	}
 
@@ -145,6 +146,113 @@ func TestPlugin_InboundCancelAbortsSidecarCall(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("ServeHTTP did not return after inbound cancel")
+	}
+}
+
+// TestPlugin_WafFailureNeverFailClosed checks WAF failures always fail-open to next (200), never 502.
+// Fail-closed (Bad Gateway) is not a supported mode for sidecar transport errors or sidecar 5xx.
+func TestPlugin_WafFailureNeverFailClosed(t *testing.T) {
+	tests := []struct {
+		name        string
+		backoffSecs int
+		threshold   int
+		setupWAF    func() (url string, cleanup func())
+	}{
+		{
+			name:        "sidecar 503 without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name:        "sidecar 500 without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name:        "transport error without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				url := waf.URL
+				waf.Close()
+				return url, func() {}
+			},
+		},
+		{
+			name:        "sidecar 503 below unhealthy threshold",
+			backoffSecs: 30,
+			threshold:   3,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wafURL, cleanup := tt.setupWAF()
+			t.Cleanup(cleanup)
+
+			cfg := CreateConfig()
+			cfg.ModSecurityUrl = wafURL
+			cfg.UnhealthyWafBackOffPeriodSecs = tt.backoffSecs
+			if tt.threshold > 0 {
+				cfg.UnhealthyWafFailureThreshold = tt.threshold
+			}
+			cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+			plugin, err := New("waf-fail-open-"+tt.name, cfg, NewLogger("waf-fail-open-"+tt.name, cfg))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(plugin.Close)
+
+			nextCalled := false
+			route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				nextCalled = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "next")
+			}))
+			if err != nil {
+				t.Fatalf("ForRoute: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+			rec := httptest.NewRecorder()
+			route.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusBadGateway {
+				t.Fatal("WAF failure must not return 502 Bad Gateway")
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d, want 200 fail-open", rec.Code)
+			}
+			if !nextCalled {
+				t.Fatal("next must run on WAF failure")
+			}
+			if rec.Body.String() != "next" {
+				t.Fatalf("body %q, want next", rec.Body.String())
+			}
+			if got := req.Header.Get("X-Waf-Status"); got != "error" {
+				t.Fatalf("status header %q, want error", got)
+			}
+		})
 	}
 }
 

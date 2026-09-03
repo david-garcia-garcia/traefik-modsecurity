@@ -16,6 +16,8 @@ BeforeAll {
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
         @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
         @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" },
+        @{ Url = "$BaseUrl/chain-retry"; Name = "WAF+retry chain service" },
+        @{ Url = "$BaseUrl/chain-buffer"; Name = "buffer+WAF chain service" },
         @{ Url = "$BaseUrl/reclaim-a"; Name = "Reclaim route A" },
         @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" },
         @{ Url = "$BaseUrl/ws-echo"; Name = "WebSocket echo service" }
@@ -626,22 +628,30 @@ Describe "WAF Health Tracker Threshold Tests" {
         It "Should not trip unhealthy on fewer than threshold failures" {
             try {
                 docker stop $script:wafContainer | Out-Null
-                # Poll until WAF is down (502); then one more request must still be 502 (2 failures, threshold=3, no trip)
+                # Poll until WAF is down (fail-open 200 with error status); then one more must still be error not unhealthy
                 $maxWait = 15
-                $first502 = $null
+                $firstError = $null
                 for ($i = 0; $i -lt $maxWait; $i++) {
                     $r = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 5
-                    if ($r.StatusCode -eq 502) {
-                        $first502 = $r
-                        break
+                    if ($r.StatusCode -eq 200) {
+                        Start-Sleep -Seconds 1
+                        $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                        $last = $entries | Where-Object { $_.RequestPath -like "/threshold-test*" } | Select-Object -Last 1
+                        if ($last.'request_X-Waf-Status' -eq "error") {
+                            $firstError = $last
+                            break
+                        }
                     }
                     Start-Sleep -Seconds 1
                 }
-                $first502 | Should -Not -BeNullOrEmpty -Because "WAF must eventually return 502 when stopped"
+                $firstError | Should -Not -BeNullOrEmpty -Because "WAF down must fail-open with X-Waf-Status error"
 
-                # Second failure under threshold=3 must still return 502 (no pass-through)
-                $r2 = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
-                $r2.StatusCode | Should -Be 502 -Because "two failures under threshold must not trip; still 502"
+                # Second failure under threshold=3 must still fail-open as error (not unhealthy skip)
+                $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                Start-Sleep -Seconds 1
+                $entries2 = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                $last2 = $entries2 | Where-Object { $_.RequestPath -like "/threshold-test*" } | Select-Object -Last 1
+                $last2.'request_X-Waf-Status' | Should -Be "error" -Because "two failures under threshold must not mark unhealthy"
             }
             finally {
                 docker start $script:wafContainer | Out-Null
@@ -674,6 +684,71 @@ Describe "WAF Health Tracker Threshold Tests" {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
             }
+        }
+    }
+}
+
+Describe "Traefik middleware chain with WAF" {
+    # Smoke that retry/buffering do not hang, lock, or drop POST bodies after the pooled body Close fix.
+    Context "WAF then retry (/chain-retry)" {
+        It "Should allow POST with body through WAF+retry" {
+            $body = "chain-retry-payload-" + ("x" * 200)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-retry" -Method POST -Body $body -TimeoutSec 15
+            $response.StatusCode | Should -Be 200 -Because "WAF allow + retry must reach whoami"
+            $response.Content | Should -Match "Hostname"
+        }
+
+        It "Should block attacks through WAF+retry" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-retry?id=1' OR '1'='1" -TimeoutSec 10
+            $response.StatusCode | Should -Be 403 -Because "CRS must still block before retry sees the request"
+        }
+
+        It "Should complete concurrent POSTs without hang" {
+            $uri = "$BaseUrl/chain-retry"
+            $runspacePool = [runspacefactory]::CreateRunspacePool(1, 8)
+            $runspacePool.Open()
+            $workers = @()
+            try {
+                1..8 | ForEach-Object {
+                    $ps = [powershell]::Create().AddScript({
+                        param($Uri)
+                        try {
+                            $body = "concurrent-" + ("y" * 150)
+                            $r = Invoke-WebRequest -Uri $Uri -Method POST -Body $body -TimeoutSec 20 -UseBasicParsing
+                            return @{ Ok = $true; StatusCode = [int]$r.StatusCode; Error = $null }
+                        } catch {
+                            return @{ Ok = $false; StatusCode = 0; Error = $_.Exception.Message }
+                        }
+                    }).AddArgument($uri)
+                    $ps.RunspacePool = $runspacePool
+                    $workers += [pscustomobject]@{ PowerShell = $ps; Handle = $ps.BeginInvoke() }
+                }
+                $results = foreach ($w in $workers) {
+                    $out = $w.PowerShell.EndInvoke($w.Handle)
+                    $w.PowerShell.Dispose()
+                    $out
+                }
+                ($results | Where-Object { -not $_.Ok -or $_.StatusCode -ne 200 }).Count |
+                    Should -Be 0 -Because "no request may hang or fail under concurrent WAF+retry"
+            }
+            finally {
+                $runspacePool.Close()
+                $runspacePool.Dispose()
+            }
+        }
+    }
+
+    Context "buffering then WAF (/chain-buffer)" {
+        It "Should allow POST with body through buffering+WAF" {
+            $body = "chain-buffer-payload-" + ("z" * 500)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-buffer" -Method POST -Body $body -TimeoutSec 15
+            $response.StatusCode | Should -Be 200 -Because "buffering then WAF must reach whoami"
+            $response.Content | Should -Match "Hostname"
+        }
+
+        It "Should block attacks through buffering+WAF" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-buffer?search=<script>alert(1)</script>" -TimeoutSec 10
+            $response.StatusCode | Should -Be 403
         }
     }
 }

@@ -18,9 +18,7 @@ const sidecarBodyDrainLimit = 256 << 10
 func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
 	// Operator allowlist: skip sidecar, body buffer, and local verb-body reject.
 	if p.compiledBypass.match(req) {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, bypassStatusToken)
-		}
+		p.AddModsecStatusHeader(req, bypassStatusToken)
 		next.ServeHTTP(rw, req)
 		return
 	}
@@ -43,42 +41,54 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// If the WAF is unhealthy just forward the request early.
 	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "unhealthy")
-		}
+		p.AddModsecStatusHeader(req, "unhealthy")
 		next.ServeHTTP(rw, req)
 		return
 	}
 
-	// Read the inbound body for the sidecar and restore it for next.
+	// Read the inbound body fully into memory for the sidecar and next.
+	// body may alias a pooled buffer; when releasePooledBuffer is non-nil it must be
+	// called exactly once after both body consumers finish (or immediately on read error).
 	body, releasePooledBuffer, err := p.readInboundBody(rw, req)
-	if releasePooledBuffer != nil {
-		defer releasePooledBuffer()
-	}
 	if err != nil {
+		if releasePooledBuffer != nil {
+			releasePooledBuffer()
+		}
 		p.replyInboundBodyReadFailure(rw, req, err)
 		return
 	}
 
-	// Build the WAF request and send it on the shared client.
-	url := p.modSecurityUrl + req.URL.RequestURI()
-
-	var bodyReader io.Reader
-	if body != nil {
-		bodyReader = bytes.NewReader(body)
-		// Traefik still needs this body for next (pass and fail-open). Sidecar got its own reader.
-		req.Body = io.NopCloser(bytes.NewReader(body))
+	var sidecarBodyReadCloser io.ReadCloser
+	var requestBodyReadCloser io.ReadCloser
+	switch {
+	case releasePooledBuffer != nil:
+		gate := newPooledBodyGate(releasePooledBuffer, 2)
+		sidecarBodyReadCloser = newDoneReadCloser(bytes.NewReader(body), gate.consumerDone)
+		requestBodyReadCloser = newDoneReadCloser(bytes.NewReader(body), gate.consumerDone)
+		req.Body = requestBodyReadCloser
+	case len(body) > 0:
+		// Non-pooled (large) body: owned slice, no gate/finalizer.
+		sidecarBodyReadCloser = io.NopCloser(bytes.NewReader(body))
+		requestBodyReadCloser = io.NopCloser(bytes.NewReader(body))
+		req.Body = requestBodyReadCloser
 	}
+	// Idempotent; runs after next on allow/fail-open so req.Body stays readable through next.
+	// Also covers custom RoundTrippers / short-circuit next that omit Close.
+	defer closeInboundBodyConsumer(sidecarBodyReadCloser)
+	defer closeInboundBodyConsumer(requestBodyReadCloser)
 
 	// Bind the sidecar request to the inbound context so a client disconnect cancels it.
-	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, bodyReader)
+	url := p.modSecurityUrl + req.URL.RequestURI()
+	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, sidecarBodyReadCloser)
 	if err != nil {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-		}
+		p.AddModsecStatusHeader(req, "error")
 		p.logger.Error("fail to prepare forwarded request", "error", err)
 		http.Error(rw, "", http.StatusBadGateway)
 		return
+	}
+	if body != nil {
+		// ReadCloser body skips NewRequest's bytes.Reader ContentLength/GetBody detection.
+		proxyReq.ContentLength = int64(len(body))
 	}
 
 	proxyReq.Header = make(http.Header, len(req.Header))
@@ -97,7 +107,8 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			http.Error(rw, "", http.StatusBadGateway)
 			return
 		}
-		p.recordWafFailureAndReplyToClient(rw, req, next, err)
+		p.recordWafFailure(req, err)
+		next.ServeHTTP(rw, req)
 		return
 	}
 	defer func() {
@@ -108,9 +119,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// Security block (3xx redirect, 4xx deny): copy the sidecar page, then we are done.
 	if resp.StatusCode >= 300 && resp.StatusCode < 500 {
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-		}
+		p.AddModsecStatusHeader(req, "blocked")
 		forwardResponse(resp, rw)
 		discardSidecarBody(resp.Body)
 		return
@@ -119,13 +128,12 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// Sidecar 5xx is a WAF failure, not a security block.
 	if resp.StatusCode >= 500 {
-		p.recordWafFailureAndReplyToClient(rw, req, next, fmt.Errorf("waf status %d", resp.StatusCode))
+		p.recordWafFailure(req, fmt.Errorf("waf status %d", resp.StatusCode))
+		next.ServeHTTP(rw, req)
 		return
 	}
 	// Sidecar allow: mark ok for access logs, then Traefik continues.
-	if p.modSecurityStatusRequestHeader != "" {
-		req.Header.Set(p.modSecurityStatusRequestHeader, "ok")
-	}
+	p.AddModsecStatusHeader(req, "ok")
 	next.ServeHTTP(rw, req)
 }
 
@@ -133,9 +141,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.Request, err error) {
 	if maxBytesErr, ok := err.(*http.MaxBytesError); ok {
 		p.logger.Warn("request body too large", "limit", maxBytesErr.Limit, "maxBodySizeBytes", p.maxBodySizeBytes)
-		if p.modSecurityStatusRequestHeader != "" {
-			req.Header.Set(p.modSecurityStatusRequestHeader, "blocked")
-		}
+		p.AddModsecStatusHeader(req, "blocked")
 		http.Error(rw, "Request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
@@ -143,24 +149,23 @@ func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.R
 	http.Error(rw, "", http.StatusBadGateway)
 }
 
-// recordWafFailureAndReplyToClient records a WAF communication failure and replies to the client (fail-open or 502).
-func (p *Plugin) recordWafFailureAndReplyToClient(rw http.ResponseWriter, req *http.Request, next http.Handler, cause error) {
-	// One write: every WAF failure is "error" (sidecar 5xx and transport).
-	if p.modSecurityStatusRequestHeader != "" {
-		req.Header.Set(p.modSecurityStatusRequestHeader, "error")
-	}
+// recordWafFailure records a WAF communication failure: status header, optional health tracker, and log.
+// The caller must fail-open to next; a WAF failure is never HTTP 502 Bad Gateway.
+func (p *Plugin) recordWafFailure(req *http.Request, cause error) {
+	p.AddModsecStatusHeader(req, "error")
 
-	// Record the failure; pass through when the shared tracker trips.
 	if p.healthTracker != nil {
 		p.healthTracker.RecordFailure()
-		if p.healthTracker.IsUnhealthy() {
-			next.ServeHTTP(rw, req)
-			return
-		}
 	}
 
 	p.logger.Error("fail to send HTTP request to modsec", "error", cause, "inbound", req.Context().Err())
-	http.Error(rw, "", http.StatusBadGateway)
+}
+
+// AddModsecStatusHeader sets the optional WAF status request header when configured.
+func (p *Plugin) AddModsecStatusHeader(req *http.Request, value string) {
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Set(p.modSecurityStatusRequestHeader, value)
+	}
 }
 
 // discardSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit so Close can return the TCP connection to the pool.

@@ -7,13 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// bodyPoolHarness is one Plugin core, a 200 WAF, and a next that records the restored body.
-type bodyPoolHarness struct {
+// bodyReadHarness is one Plugin core, a 200 WAF, and a next that records the restored body.
+type bodyReadHarness struct {
 	plugin     *Plugin
 	route      http.Handler
 	nextCalled bool
@@ -21,10 +20,9 @@ type bodyPoolHarness struct {
 	wafBody    []byte
 }
 
-// newTestBodyPoolRoute builds a plugin and route with a 200 WAF and a next that records the restored body.
-func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) *bodyPoolHarness {
+func newTestBodyReadRoute(t *testing.T, maxBody int64) *bodyReadHarness {
 	t.Helper()
-	h := &bodyPoolHarness{}
+	h := &bodyReadHarness{}
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.wafBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
@@ -35,9 +33,8 @@ func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) *bodyPoolHarness
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = waf.URL
 	cfg.MaxBodySizeBytes = maxBody
-	cfg.MaxBodySizeBytesForPool = poolCap
 	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
-	plugin, err := New("body-pool-test", cfg, NewLogger("body-pool-test", cfg))
+	plugin, err := New("body-read-test", cfg, NewLogger("body-read-test", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -56,43 +53,11 @@ func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) *bodyPoolHarness
 	return h
 }
 
-// pooledBufferCap returns the capacity of the next buffer taken from this Plugin core's pool.
-func pooledBufferCap(p *Plugin) int {
-	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
-	return buf.Cap()
-}
-
-// recordingBufferPool counts Put so a test can assert ServeHTTP returned a buffer without sync.Pool.Get after GC.
-type recordingBufferPool struct {
-	inner sync.Pool
-	puts  atomic.Int32
-}
-
-// newTestRecordingBufferPool returns a pool that counts Put for ServeHTTP assertions.
-func newTestRecordingBufferPool() *recordingBufferPool {
-	return &recordingBufferPool{
-		inner: sync.Pool{New: func() interface{} { return new(bytes.Buffer) }},
-	}
-}
-
-// Get returns a bytes.Buffer from the inner pool.
-func (p *recordingBufferPool) Get() any {
-	return p.inner.Get()
-}
-
-// Put records one return to the pool, then stores x on the inner pool.
-func (p *recordingBufferPool) Put(x any) {
-	p.puts.Add(1)
-	p.inner.Put(x)
-}
-
-// TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer checks a ContentLength -1 read does not Put a grown buffer.
-func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
-	const poolCap int64 = 1024
+func TestPlugin_UnknownLengthForwardsBody(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("a"), 4096)
 
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyReadRoute(t, maxBody)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = -1
 	req.Header.Del("Content-Length")
@@ -111,18 +76,13 @@ func TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer(t *testing.T) {
 	if req.Header.Get("X-Waf-Status") != "ok" {
 		t.Fatalf("status header %q, want ok", req.Header.Get("X-Waf-Status"))
 	}
-	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
-		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
-	}
 }
 
-// TestPlugin_ParsedLengthAbovePoolCapSkipsPool checks a large parsed length is not kept in the pool even if the header is small.
-func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
-	const poolCap int64 = 1024
+func TestPlugin_ParsedLengthForwardsBody(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("b"), 4096)
 
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyReadRoute(t, maxBody)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 	req.Header.Set("Content-Length", "100")
@@ -135,41 +95,16 @@ func TestPlugin_ParsedLengthAbovePoolCapSkipsPool(t *testing.T) {
 	if !h.nextCalled {
 		t.Fatal("next was not called")
 	}
-	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
-		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	if !bytes.Equal(h.nextBody, body) || !bytes.Equal(h.wafBody, body) {
+		t.Fatalf("sidecar/next body mismatch")
 	}
 }
 
-// TestPlugin_SmallPooledReadReturnsBuffer checks a body under the pool cap is Put back.
-func TestPlugin_SmallPooledReadReturnsBuffer(t *testing.T) {
-	const poolCap int64 = 1024
-	const maxBody int64 = 8192
-	body := bytes.Repeat([]byte("s"), 200)
-
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
-	pool := newTestRecordingBufferPool()
-	h.plugin.bodyBufferPool = pool
-
-	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
-	req.ContentLength = int64(len(body))
-
-	rec := httptest.NewRecorder()
-	h.route.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", rec.Code)
-	}
-	if got := pool.puts.Load(); got != 1 {
-		t.Fatalf("Puts %d, want 1 (ServeHTTP must Put a buffer under the pool cap)", got)
-	}
-}
-
-// TestPlugin_UnknownLengthOverMaxReturns413 checks a pooled read that hits MaxBytesReader is 413 and does not call next.
 func TestPlugin_UnknownLengthOverMaxReturns413(t *testing.T) {
-	const poolCap int64 = 1024
 	const maxBody int64 = 2048
 	body := bytes.Repeat([]byte("x"), 4096)
 
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyReadRoute(t, maxBody)
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = -1
 	req.Header.Del("Content-Length")
@@ -187,13 +122,11 @@ func TestPlugin_UnknownLengthOverMaxReturns413(t *testing.T) {
 	}
 }
 
-// TestPlugin_HTTP1ChunkedAbovePoolCapDoesNotRetain sends a real HTTP/1 chunked POST through net/http.
-func TestPlugin_HTTP1ChunkedAbovePoolCapDoesNotRetain(t *testing.T) {
-	const poolCap int64 = 1024
+func TestPlugin_HTTP1ChunkedForwardsBody(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("c"), 4096)
 
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyReadRoute(t, maxBody)
 	srv := httptest.NewServer(h.route)
 	t.Cleanup(srv.Close)
 
@@ -217,20 +150,15 @@ func TestPlugin_HTTP1ChunkedAbovePoolCapDoesNotRetain(t *testing.T) {
 		t.Fatal("next was not called")
 	}
 	if !bytes.Equal(h.nextBody, body) || !bytes.Equal(h.wafBody, body) {
-		t.Fatalf("sidecar/next body mismatch: waf=%d next=%d want=%d", len(h.wafBody), len(h.nextBody), len(body))
-	}
-	if got := pooledBufferCap(h.plugin); int64(got) > poolCap {
-		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+		t.Fatalf("sidecar/next body mismatch")
 	}
 }
 
-// TestPlugin_HTTP1ChunkedOverMaxReturns413 sends a chunked POST larger than maxBodySizeBytes.
 func TestPlugin_HTTP1ChunkedOverMaxReturns413(t *testing.T) {
-	const poolCap int64 = 1024
 	const maxBody int64 = 2048
 	body := bytes.Repeat([]byte("d"), 4096)
 
-	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	h := newTestBodyReadRoute(t, maxBody)
 	srv := httptest.NewServer(h.route)
 	t.Cleanup(srv.Close)
 
@@ -255,37 +183,12 @@ func TestPlugin_HTTP1ChunkedOverMaxReturns413(t *testing.T) {
 	}
 }
 
-// TestPlugin_BodyBufferPoolIsPerCore checks two Plugin cores do not share a body buffer pool.
-func TestPlugin_BodyBufferPoolIsPerCore(t *testing.T) {
-	cfg := CreateConfig()
-	cfg.ModSecurityUrl = "http://127.0.0.1:9"
-	a, err := New("body-pool-a", cfg, NewLogger("body-pool-a", cfg))
-	if err != nil {
-		t.Fatalf("New a: %v", err)
-	}
-	t.Cleanup(a.Close)
-	b, err := New("body-pool-b", cfg, NewLogger("body-pool-b", cfg))
-	if err != nil {
-		t.Fatalf("New b: %v", err)
-	}
-	t.Cleanup(b.Close)
-	if a.bodyBufferPool == nil || b.bodyBufferPool == nil {
-		t.Fatal("New must own a body buffer pool")
-	}
-	if a.bodyBufferPool == b.bodyBufferPool {
-		t.Fatal("distinct Plugin cores must not share a body buffer pool")
-	}
-}
-
-// capturedMixedBody holds the sidecar and next copies of one concurrent request body.
 type capturedMixedBody struct {
 	waf  []byte
 	next []byte
 }
 
-// TestPlugin_ConcurrentMixedBodySizesDoNotRace checks pooled and ad-hoc bodies on one core stay distinct under concurrency.
 func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
-	const poolCap int64 = 1024
 	const maxBody int64 = 8192
 	small := bytes.Repeat([]byte("s"), 200)
 	large := bytes.Repeat([]byte("L"), 4096)
@@ -311,8 +214,7 @@ func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = waf.URL
 	cfg.MaxBodySizeBytes = maxBody
-	cfg.MaxBodySizeBytesForPool = poolCap
-	plugin, err := New("body-pool-concurrent", cfg, NewLogger("body-pool-concurrent", cfg))
+	plugin, err := New("body-read-concurrent", cfg, NewLogger("body-read-concurrent", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -371,93 +273,66 @@ func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
 			t.Fatalf("missing %s", smallID)
 		}
 		if !bytes.Equal(smallSeen.waf, small) || !bytes.Equal(smallSeen.next, small) {
-			t.Fatalf("%s waf=%d next=%d, want %d", smallID, len(smallSeen.waf), len(smallSeen.next), len(small))
+			t.Fatalf("%s body mismatch", smallID)
 		}
 		if largeSeen == nil {
 			t.Fatalf("missing %s", largeID)
 		}
 		if !bytes.Equal(largeSeen.waf, large) || !bytes.Equal(largeSeen.next, large) {
-			t.Fatalf("%s waf=%d next=%d, want %d", largeID, len(largeSeen.waf), len(largeSeen.next), len(large))
+			t.Fatalf("%s body mismatch", largeID)
 		}
 	}
 }
 
-// testStickyBufferPool always returns the same *bytes.Buffer so Put then Get is deterministic.
-type testStickyBufferPool struct {
+// checkoutStickyPool returns the same buffer only when not checked out (Put returned).
+type checkoutStickyPool struct {
+	mu  sync.Mutex
 	buf *bytes.Buffer
+	out bool
 }
 
-// Get returns the single sticky buffer.
-func (p *testStickyBufferPool) Get() any { return p.buf }
-
-// Put is a no-op; the same buffer is reused on the next Get.
-func (p *testStickyBufferPool) Put(any) {}
-
-// testDelayedSidecarBodyRoundTripper returns 403 immediately. For the first POST it reads
-// Request.Body only after readAfter, which is after ServeHTTP has Put the pooled buffer.
-type testDelayedSidecarBodyRoundTripper struct {
-	readAfter <-chan struct{}
-	got       chan []byte
-}
-
-// RoundTrip returns 403 without waiting for the sidecar request body.
-func (t *testDelayedSidecarBodyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Header.Get("X-Req") == "first" {
-		go func(body io.ReadCloser) {
-			select {
-			case <-t.readAfter:
-			case <-time.After(15 * time.Second):
-				t.got <- []byte("timeout waiting to read sidecar body")
-				return
-			}
-			got, _ := io.ReadAll(body)
-			if body != nil {
-				_ = body.Close()
-			}
-			t.got <- append([]byte(nil), got...)
-		}(req.Body)
-	} else if req.Body != nil {
-		_, _ = io.Copy(io.Discard, req.Body)
-		_ = req.Body.Close()
+func (p *checkoutStickyPool) Get() any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.out {
+		return new(bytes.Buffer)
 	}
-	header := make(http.Header)
-	header.Set("Content-Type", "text/plain")
-	return &http.Response{
-		Status:        "403 Forbidden",
-		StatusCode:    http.StatusForbidden,
-		Proto:         "HTTP/1.1",
-		ProtoMajor:    1,
-		ProtoMinor:    1,
-		Header:        header,
-		Body:          io.NopCloser(bytes.NewReader([]byte("block"))),
-		ContentLength: 5,
-		Request:       req,
-	}, nil
+	p.out = true
+	return p.buf
 }
 
-// TestPlugin_PooledBodyNotAliasedAfterPut checks a delayed sidecar body read still sees the first POST
-// after ServeHTTP Puts the pooled buffer and a second POST reuses it.
-func TestPlugin_PooledBodyNotAliasedAfterPut(t *testing.T) {
+func (p *checkoutStickyPool) Put(x any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if x == p.buf {
+		p.out = false
+	}
+}
+
+// TestPlugin_PooledBodyNotAliasedWhileCheckedOut checks a second request cannot reuse the
+// pooled buffer while the first sidecar RoundTrip still holds it (no Put yet).
+func TestPlugin_PooledBodyNotAliasedWhileCheckedOut(t *testing.T) {
 	const bodySize = 1 << 20
 	firstPayload := bytes.Repeat([]byte{0xAA}, bodySize)
 	secondPayload := bytes.Repeat([]byte{0xBB}, bodySize)
 
-	firstServeDone := make(chan struct{})
+	firstInFlight := make(chan struct{})
 	secondServeDone := make(chan struct{})
 	gotFirstBody := make(chan []byte, 1)
 
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf.test"
 	cfg.TimeoutMillis = 30000
-	plugin, err := New("body-pool-alias", cfg, NewLogger("body-pool-alias", cfg))
+	plugin, err := New("body-alias", cfg, NewLogger("body-alias", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(plugin.Close)
-	plugin.bodyBufferPool = &testStickyBufferPool{buf: new(bytes.Buffer)}
-	plugin.httpClient.Transport = &testDelayedSidecarBodyRoundTripper{
-		readAfter: secondServeDone,
-		got:       gotFirstBody,
+	plugin.bodyBufferPool = &checkoutStickyPool{buf: new(bytes.Buffer)}
+	plugin.httpClient.Transport = &testHoldThenReadRoundTripper{
+		firstInFlight: firstInFlight,
+		readAfter:     secondServeDone,
+		got:           gotFirstBody,
 	}
 
 	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -480,13 +355,12 @@ func TestPlugin_PooledBodyNotAliasedAfterPut(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("first status %d, want 403", rec.Code)
 		}
-		close(firstServeDone)
 	}()
 
 	select {
-	case <-firstServeDone:
+	case <-firstInFlight:
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for first ServeHTTP to return (Put)")
+		t.Fatal("timed out waiting for first RoundTrip")
 	}
 
 	req2 := httptest.NewRequest(http.MethodPost, "http://example/upload", bytes.NewReader(secondPayload))
@@ -503,7 +377,7 @@ func TestPlugin_PooledBodyNotAliasedAfterPut(t *testing.T) {
 	select {
 	case got = <-gotFirstBody:
 	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for delayed sidecar body read")
+		t.Fatal("timed out waiting for first sidecar body read")
 	}
 	wg.Wait()
 
@@ -515,4 +389,44 @@ func TestPlugin_PooledBodyNotAliasedAfterPut(t *testing.T) {
 	if !bytes.Equal(got, firstPayload) {
 		t.Fatalf("first sidecar body mismatch: len=%d 0xAA=%d 0xBB=%d, want %d 0xAA", len(got), aa, bb, bodySize)
 	}
+}
+
+type testHoldThenReadRoundTripper struct {
+	firstInFlight chan struct{}
+	readAfter     <-chan struct{}
+	got           chan []byte
+	once          sync.Once
+}
+
+func (t *testHoldThenReadRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("X-Req") == "first" {
+		t.once.Do(func() { close(t.firstInFlight) })
+		select {
+		case <-t.readAfter:
+		case <-time.After(15 * time.Second):
+			t.got <- []byte("timeout")
+			return nil, io.EOF
+		}
+		got, _ := io.ReadAll(req.Body)
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
+		t.got <- append([]byte(nil), got...)
+	} else if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
+	}
+	header := make(http.Header)
+	header.Set("Content-Type", "text/plain")
+	return &http.Response{
+		Status:        "403 Forbidden",
+		StatusCode:    http.StatusForbidden,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        header,
+		Body:          io.NopCloser(bytes.NewReader([]byte("block"))),
+		ContentLength: 5,
+		Request:       req,
+	}, nil
 }

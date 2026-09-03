@@ -14,6 +14,7 @@ type bufferPool interface {
 }
 
 // newBodyBufferPool returns a pool of bytes.Buffer for inbound body reads.
+// A buffer stays checked out until Put; sync.Pool never hands out a buffer still held by another request.
 func newBodyBufferPool() bufferPool {
 	return &sync.Pool{
 		New: func() interface{} {
@@ -23,10 +24,12 @@ func newBodyBufferPool() bufferPool {
 }
 
 // readInboundBody copies req.Body for the sidecar and next.
-// Known length uses this Plugin core's pool only under the pool cap; -1 (unknown) still pools the read.
-// On a successful pooled read the returned slice is a copy; Put runs before return so a sidecar
-// RoundTripper that still Reads Request.Body cannot see a later Get/Reset.
-// On a pooled read error, the caller must defer release when it is non-nil.
+// Known length uses this Plugin core's pool only under the pool cap; -1 (unknown) still pools the read
+// until the body would exceed the pool cap — then the pool buffer is Put and the full body is owned.
+// On a successful pooled read with bytes, the returned slice aliases the checked-out buffer; ServeHTTP
+// must Put only after both body consumers finish (or immediately on read error).
+// An empty body releases immediately (release is nil on return) so callers do not key off body != nil.
+// On a pooled read error, release is non-nil and the caller must call it before returning.
 // rw is required for MaxBytesReader; the caller writes 413 or 502 when err is non-nil.
 func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (body []byte, release func(), err error) {
 	if p.maxBodySizeBytes > 0 {
@@ -48,17 +51,44 @@ func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (bod
 
 	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
+	// LimitReader keeps Len <= poolCap; Cap may be ~2x from bytes.Buffer growth — still Put.
 	release = func() {
-		if int64(buf.Cap()) <= p.maxBodySizeBytesForPool {
-			p.bodyBufferPool.Put(buf)
+		p.bodyBufferPool.Put(buf)
+	}
+
+	// Bound the pooled read so Cap never grows past the pool threshold on chunked (-1) bodies.
+	limited := io.LimitReader(req.Body, p.maxBodySizeBytesForPool)
+	n, readErr := io.Copy(buf, limited)
+	if readErr != nil {
+		return nil, release, readErr
+	}
+
+	if n == p.maxBodySizeBytesForPool {
+		// Peek one more byte: if present, body exceeds the pool cap — Put and own the rest.
+		var peek [1]byte
+		extra, peekErr := req.Body.Read(peek[:])
+		if peekErr != nil && peekErr != io.EOF {
+			return nil, release, peekErr
+		}
+		if extra > 0 {
+			prefix := append([]byte(nil), buf.Bytes()...)
+			release()
+			rest, restErr := io.ReadAll(req.Body)
+			if restErr != nil {
+				return nil, nil, restErr
+			}
+			owned := make([]byte, 0, len(prefix)+extra+len(rest))
+			owned = append(owned, prefix...)
+			owned = append(owned, peek[0])
+			owned = append(owned, rest...)
+			return owned, nil, nil
 		}
 	}
 
-	if _, readErr := io.Copy(buf, req.Body); readErr != nil {
-		return nil, release, readErr
+	// Empty body: do not hand out a nil/non-nil Bytes() fork or a gate of 2 with nothing to Close.
+	if n == 0 {
+		release()
+		return nil, nil, nil
 	}
-	// Transports may Read this slice after ServeHTTP returns. Copy so Put cannot race that Read.
-	ownedBody := append([]byte(nil), buf.Bytes()...)
-	release()
-	return ownedBody, nil, nil
+	return buf.Bytes(), release, nil
 }
