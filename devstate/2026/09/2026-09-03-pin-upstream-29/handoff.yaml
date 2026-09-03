@@ -11,5 +11,5 @@ localTests: none
 requirement: requirement.md
 comments: none
 explore: explore.md
-change: none
+change: pin-allow-path-backend-headers
 pr: { id: 33, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/33 }

@@ -32,7 +32,7 @@ Existing allow tests (`pkg/modsecurity/serve_test.go` `allow 200`) assert status
 
 - Q: Which spec leaf owns allow-path backend response-header preservation?
   Decision: assumed — fold into `core_plugin_middleware_sidecar-response`; add one requirement that `next` headers survive and sidecar headers do not overlay the client.
-  By: explore
+  By: propose
 
 - Q: Should this run change `ServeHTTP` (unwrap `MaxBytesReader`, move sidecar Close, copy sidecar headers on allow)?
   Decision: assumed — no. Caller and measurement say tests only. Land `pkg/modsecurity/upstream_issue_29_test.go` unchanged unless APIs drift (they did not).
@@ -47,8 +47,8 @@ Existing allow tests (`pkg/modsecurity/serve_test.go` `allow 200`) assert status
   By: explore
 
 - Q: Does `knowledge/devdocs/core_plugin_middleware.md` need a usage sentence that allow keeps `next` headers?
-  Decision: assumed — yes at propose/devdocsimpact; one sentence on the existing packet. No new usage file.
-  By: explore
+  Decision: assumed — yes; one sentence added on the existing packet during propose. No new usage file.
+  By: propose
 
 ## Measured
 
