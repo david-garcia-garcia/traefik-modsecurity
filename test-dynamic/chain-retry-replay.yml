@@ -1,17 +1,18 @@
 # File-provider router that forces Traefik retry: first LB server is unreachable,
-# second is whoami-chain-retry. Proves WAF→retry body replay after a real transport fail.
+# second is whoami-chain-retry. Distinct path so PathPrefix(`/chain-retry`) cannot shadow it.
 http:
   routers:
-    chain-retry-replay:
-      rule: "PathPrefix(`/chain-retry-replay`)"
+    retry-force:
+      rule: "PathPrefix(`/retry-force`)"
       entryPoints:
         - web
+      priority: 100
       middlewares:
         - waf-chain-retry@docker
         - retry-chain@docker
-      service: chain-retry-replay
+      service: retry-force
   services:
-    chain-retry-replay:
+    retry-force:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:1"
