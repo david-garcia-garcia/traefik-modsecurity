@@ -23,3 +23,9 @@ phase: implement
 findings: none
 fixed: README examples, BypassRule comment, pinning tests
 skipped: auto-anchor; RawPath guard
+
+## codereview (2026-09-03)
+phase: codereview
+findings: none
+fixed: none
+skipped: none
