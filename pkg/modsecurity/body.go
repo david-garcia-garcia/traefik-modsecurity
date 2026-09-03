@@ -24,8 +24,9 @@ func newBodyBufferPool() bufferPool {
 
 // readInboundBody copies req.Body for the sidecar and next.
 // Known length uses this Plugin core's pool only under the pool cap; -1 (unknown) still pools the read.
-// The caller must defer release when it is non-nil so Put happens after ServeHTTP
-// (including next): buf.Bytes() aliases the pooled array.
+// On a successful pooled read the returned slice is a copy; Put runs before return so a sidecar
+// RoundTripper that still Reads Request.Body cannot see a later Get/Reset.
+// On a pooled read error, the caller must defer release when it is non-nil.
 // rw is required for MaxBytesReader; the caller writes 413 or 502 when err is non-nil.
 func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (body []byte, release func(), err error) {
 	if p.maxBodySizeBytes > 0 {
@@ -56,5 +57,8 @@ func (p *Plugin) readInboundBody(rw http.ResponseWriter, req *http.Request) (bod
 	if _, readErr := io.Copy(buf, req.Body); readErr != nil {
 		return nil, release, readErr
 	}
-	return buf.Bytes(), release, nil
+	// Transports may Read this slice after ServeHTTP returns. Copy so Put cannot race that Read.
+	ownedBody := append([]byte(nil), buf.Bytes()...)
+	release()
+	return ownedBody, nil, nil
 }
