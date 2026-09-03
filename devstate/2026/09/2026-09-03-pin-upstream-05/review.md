@@ -48,3 +48,11 @@ phase: archive
 findings: none
 fixed: synced websocket-skip and request-context; moved to openspec/changes/archive/2026-09-03-pin-upstream-issue-05
 skipped: none
+
+## pullrequest (2026-09-03)
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
+ci: succeeded
+pr: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/32

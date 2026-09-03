@@ -1,4 +1,4 @@
-Developer review: in progress — 2026-09-03T04:25:06Z
+Developer review: ready for review — 2026-09-03T04:36:14Z
 
 Upstream: [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/5)
 
@@ -15,27 +15,27 @@ Upstream: [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/
 Without this PR, [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/5) (HTTP/2 abort / Yaegi panic blamed on `isWebsocket`) has no regression tests on this plugin. A later change could reintroduce a panic with no failing test.
 
 ## Merge readiness
-Apply, review, usage-doc check, and archive are done. Waiting for CI on head `5ca3c45`.
+One OPEN PR, CI succeeded, checklist empty. Ready for review.
 
 Priority: P3 — spec, docs, tests, or internal clarity — no current user or operator harm
-Reviewed head: 5ca3c45
+Reviewed head: 3f49f82
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | CI not finished on latest head |
-| CI proof | 3/6 | Checks queued/in progress after archive push |
-| Local tests proof | N/A | Remote PR; local `go test ./...` passed |
+| Overall readiness | 6/6 | CI succeeded; no open review comments |
+| CI proof | 6/6 | All required checks succeeded |
+| Local tests proof | N/A | Remote PR; CI is the proof axis |
 | Review resolution | 6/6 | OPEN PR; no reviewer comments |
 
 ## Verification
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Branch | 2026-09-03-pin-upstream-05 pushed | `git` |
+| Branch | 2026-09-03-pin-upstream-05 pushed | `git` tracking `origin/2026-09-03-pin-upstream-05` |
 | OpenSpec | pin-upstream-issue-05 archived | `openspec/changes/archive/2026-09-03-pin-upstream-issue-05/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/32 | pr-host |
-| CI | in progress | https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33714853953 |
+| CI | build 33715015433 success; lint 33715015542 success; Integration Tests apache/nginx success | https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33715015433 |
 | Local tests | passed | `go test ./... -count=1` |
 | PR comments | no comments | inventory empty |
 | Security | None. | `devstate/codereview.md` |
@@ -49,7 +49,7 @@ Owner decision: Required. See Decision needed.
 None.
 
 ## How this fits together
-Local ticket `2026-09-03-pin-upstream-05` / PR #32. Tests and archived OpenSpec change pin #5. Waiting for CI before ready for review.
+Local ticket `2026-09-03-pin-upstream-05` is PR #32 against `main`. Tests pin [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/5). CI on head `3f49f82` succeeded.
 
 ## Decision needed
 | Question | Decision | By |
@@ -61,10 +61,7 @@ Local ticket `2026-09-03-pin-upstream-05` / PR #32. Tests and archived OpenSpec 
 | Write a Go `Header.Values` research folder? | assumed — no. Tests pin stdlib nil-slice behavior. | explore |
 
 ## Before merge
-- [x] Land `pkg/modsecurity/upstream_issue_05_test.go`
-- [x] Code review applied (`startTestBlockingWAF`)
-- [x] Archive `2026-09-03-pin-upstream-issue-05`
-- [ ] Wait for CI on 5ca3c45
+None.
 
 ## Findings
 None.
@@ -82,23 +79,23 @@ None.
 | --- | --- | --- |
 | Specs in this PR | 0 added / 2 modified | Same list as ## Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | 5ca3c45a703234787bced2012a3102e3142a13b3 | Card must match the branch you measured |
+| Reviewed head | 3f49f8255dd31bb42aad3fec0aac0da220e8b497 | Card must match the branch you measured |
 
 ### Stored data model
 None.
 
 ### Technical review
-Best possible solution: versus `main`, pin #5 with tests and fold no-panic SHALLs onto existing specs.
+Best possible solution: versus `main`, pin #5 with tests and fold no-panic SHALLs onto existing specs. ServeHTTP is unchanged.
 
-Do we have a high-confidence way to reproduce? Yes — `go test ./pkg/modsecurity -run TestPlugin_UpstreamIssue05` passed.
+Do we have a high-confidence way to reproduce? Yes — `go test ./pkg/modsecurity -run TestPlugin_UpstreamIssue05` passed; CI Go tests and integration succeeded.
 
-Is this the best way to solve the issue? Yes — coverage only.
+Is this the best way to solve the issue? Yes — the ticket asked for coverage, not a product change.
 
 ### Evidence
 What I checked:
-- Four-axis review: one hard Standards finding applied
-- Devdocs impact: none
-- Catalog validators OK; change archived
+- CI: lint, build, go test, Integration Tests (apache), Integration Tests (nginx), Test Runner Script Validation — all success
+- One OPEN PR #32
+- `localTests: passed`
 
 ### Rank-up moves
 None.
