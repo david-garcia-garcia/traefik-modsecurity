@@ -6,7 +6,7 @@ JobName: 2026-09-03-pin-upstream-11
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-03T04:17:21Z |
 | explore | [x] | [x] | 2026-09-03T04:18:35Z |
-| propose | [ ] | [ ] | |
+| propose | [x] | [ ] | |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |
