@@ -1,4 +1,4 @@
-Developer review: in progress — 2026-09-03T04:20:26Z
+Developer review: in progress — 2026-09-03T04:23:04Z
 
 [acouvreur/traefik-modsecurity-plugin#9](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/9)
 
@@ -7,7 +7,7 @@ Developer review: in progress — 2026-09-03T04:20:26Z
 
 **Admin users.** None.
 
-**Developers.** Research folder `knowledge/research/ext_http_maxbytesreader/` records that `http.MaxBytesReader` with limit 0 returns `*http.MaxBytesError` on any non-empty body. The #9 login-POST tests are not committed yet (untracked starter already passes).
+**Developers.** OpenSpec change `pin-upstream-issue-09` adds spec `core_plugin_middleware_maxbodysize` (omitted/`0` prepares to 8 MiB; leftover handler 0 does not 413). Tests not committed yet.
 
 **End users.** None.
 
@@ -15,17 +15,17 @@ Developer review: in progress — 2026-09-03T04:20:26Z
 `origin/main` remaps omitted/`0` `maxBodySizeBytes` to 8 MiB and skips `MaxBytesReader` when the handler field is 0, but it has no test that a login-sized POST stays 200. Without this PR a later change can reintroduce the upstream 1.2.0 every-POST 413 and CI will not catch it.
 
 ## Merge readiness
-Explore done with assumed Decisions. Tests and spec not landed. 3 items remain.
+Propose apply-ready. Tests not landed. 2 items remain.
 
 Priority: P3 — spec, docs, tests, or internal clarity — no current user or operator harm
-Reviewed head: 178c040
+Reviewed head: ad5921a
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
 | Overall readiness | 3/6 | CI still running; tests not landed |
-| CI proof | 3/6 | lint/build succeeded; integration in progress |
+| CI proof | 3/6 | Latest push queued/in progress |
 | Local tests proof | N/A | Before implement |
 | Review resolution | 6/6 | No PR comments |
 
@@ -33,22 +33,22 @@ Owner decision: Required. See Decision needed.
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Branch | 2026-09-03-pin-upstream-09 pushed | git |
-| OpenSpec | none | openspec/ |
+| OpenSpec | pin-upstream-issue-09 | openspec/changes/pin-upstream-issue-09/ |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/37 | pr-host |
-| CI | lint/build success; integration in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33714585359 | pr-host CI |
+| CI | in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33714739375 | pr-host CI |
 | Local tests | none | handoff.yaml localTests |
 | PR comments | no comments | inventory empty |
 | Security | None. | no codereview.md |
 | Performance | None. | no codereview.md |
 
 ## Specs
-None.
+- [core_plugin_middleware_maxbodysize](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-pin-upstream-09/openspec/changes/pin-upstream-issue-09/proposal.md) — added
 
 ## Follow-up issues
 None.
 
 ## How this fits together
-Local ticket 2026-09-03-pin-upstream-09 is PR #37. Explore measured the starter tests pass; propose will add `pin-upstream-issue-09`.
+Local ticket 2026-09-03-pin-upstream-09 is PR #37. Propose is apply-ready; implement lands the starter tests.
 
 ## Decision needed
 | Question | Decision | By |
@@ -60,7 +60,6 @@ Local ticket 2026-09-03-pin-upstream-09 is PR #37. Explore measured the starter 
 
 ## Before merge
 - [ ] Land `pkg/modsecurity/upstream_issue_09_test.go` (tests only)
-- [ ] OpenSpec change `pin-upstream-issue-09`
 - [ ] CI succeeded on PR #37
 
 ## Findings
@@ -77,9 +76,9 @@ None.
 ### Review metrics
 | Metric | Value | Why it matters |
 | --- | --- | --- |
-| Specs in this PR | none | Same list as Specs |
+| Specs in this PR | 1 added / 0 modified | Same list as Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | 178c0407e37c0e61d02c2904e27d62294ff649a3 | Card must match the branch you measured |
+| Reviewed head | ad5921ac2c631b71a350acbe16a6957d723f0fd3 | Card must match the branch you measured |
 
 ### Stored data model
 None.
@@ -87,16 +86,14 @@ None.
 ### Technical review
 Best possible solution: Pin the existing Prepare remap and MaxBytesReader skip with tests; do not change the cap.
 
-Do we have a high-confidence way to reproduce? Yes, `go test ./pkg/modsecurity/ -run TestUpstreamIssue09` passed on this tree.
+Do we have a high-confidence way to reproduce? Yes, starter tests already pass.
 
-Is this the best way to solve the issue? Yes versus DestBranch: tests-only pin, no product change.
+Is this the best way to solve the issue? Yes versus DestBranch: tests-only pin plus a dedicated spec leaf.
 
 ### Evidence
 What I checked:
-- Starter tests pass (`go test ./pkg/modsecurity/ -run TestUpstreamIssue09`, 2026-09-03)
-- Prepare remaps 0 to 8 MiB (`pkg/modsecurity/config.go`)
-- readInboundBody skips MaxBytesReader when limit is 0 (`pkg/modsecurity/body.go`)
-- PR #37 CI: lint/build success; integration in progress (run 33714585359)
+- `openspec validate pin-upstream-issue-09 --strict` passed
+- FindSpecHost: new `core_plugin_middleware_maxbodysize` (high)
 
 ### Rank-up moves
 None.

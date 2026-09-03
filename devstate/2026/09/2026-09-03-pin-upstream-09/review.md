@@ -1,3 +1,12 @@
+## propose (2026-09-03)
+
+phase: propose
+findings: none
+fixed: none
+skipped: none
+
+Change pin-upstream-issue-09 apply-ready. New spec core_plugin_middleware_maxbodysize.
+
 ## explore (2026-09-03)
 
 phase: explore
