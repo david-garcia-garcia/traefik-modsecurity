@@ -46,3 +46,11 @@ phase: archive
 findings: none
 fixed: synced sidecar-response; moved change to archive/2026-09-03-pin-allow-path-backend-headers
 skipped: none
+
+## pullrequest (2026-09-03)
+
+phase: pullrequest
+findings: golangci-lint errcheck on Close (fixed)
+fixed: PR #33 retitled; CI success on 18b90f5
+skipped: none
+
