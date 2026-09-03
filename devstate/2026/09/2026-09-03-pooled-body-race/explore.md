@@ -85,8 +85,8 @@ Copy-out is the fix. After copy, Put can run as soon as the read finishes (relea
   By: explore
 
 - Q: Spec host for the new invariant?
-  Decision: assumed — fold onto `core_plugin_middleware_body-pool`. Propose confirms with FindSpecHost.
-  By: explore
+  Decision: resolved — fold onto `core_plugin_middleware_body-pool` (FindSpecHost: high; candidates body-pool, sidecar-request, maxbodysize).
+  By: propose
 
 - Q: Local `go test -race` on this Windows agent?
   Decision: assumed — not available (`CGO_ENABLED=0`). Semantic leak test is the local proof; CI `-race` if the workflow already runs it.
