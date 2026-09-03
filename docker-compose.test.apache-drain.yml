@@ -1,0 +1,11 @@
+# Overlay on docker-compose.test.yml: Apache CRS inspect-only (no dummy hop).
+# Usage: docker compose -f docker-compose.test.yml -f docker-compose.test.apache-drain.yml up -d
+#        ./Test-Integration.ps1 -Stack apache-drain
+
+services:
+  dummy:
+    profiles:
+      - whoami-origin
+  waf:
+    volumes:
+      - ./crs-apache/httpd-vhosts.drain.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro

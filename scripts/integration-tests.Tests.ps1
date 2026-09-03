@@ -49,6 +49,22 @@ Describe "ModSecurity Plugin Basic Functionality" {
             $response.StatusCode | Should -Be 200
             $response.Content | Should -Match "Hostname"
         }
+
+        It "Should not run an unlabeled dummy CRS origin" {
+            if (-not (Test-IsDrainOrigin)) {
+                Set-ItResult -Skipped -Because "whoami-origin stacks keep dummy as the CRS BACKEND"
+                return
+            }
+            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Drain overlay must not start dummy; only labeled whoami apps remain"
+        }
+
+        It "Should run an unlabeled dummy CRS origin" {
+            if (-not (Test-IsWhoamiOrigin)) {
+                Set-ItResult -Skipped -Because "drain stacks do not run dummy"
+                return
+            }
+            Get-DummyContainerName | Should -Not -BeNullOrEmpty -Because "whoami-origin stacks proxy CRS BACKEND to dummy"
+        }
     }
 }
 
@@ -125,6 +141,20 @@ Describe "WAF Protection Tests" {
         It "Should allow POST requests with normal data" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Body "name=john&email=john@example.com"
             $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 416 for Range bytes=10240- on a small GET" {
+            if (-not (Test-IsDrainOrigin)) {
+                Set-ItResult -Skipped -Because "whoami dummy origin is expected to 416 on an unsatisfiable Range"
+                return
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
+            $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
+        }
+
+        It "Should block a CRS SQL-injection probe in the POST body" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Method POST -Headers @{ "Content-Type" = "application/x-www-form-urlencoded" } -Body "id=1 OR 1=1"
+            $response.StatusCode | Should -BeGreaterOrEqual 400 -Because "CRS request-body rules must still run after inspect-only 200"
         }
         
         It "Should allow requests with normal query parameters" {
@@ -698,6 +728,30 @@ Describe "Error Handling and Edge Cases" {
             $encodedUrl = "$BaseUrl/protected?name=" + [System.Web.HttpUtility]::UrlEncode("John & Jane")
             $response = Invoke-SafeWebRequest -Uri $encodedUrl
             $response.StatusCode | Should -Be 200
+        }
+    }
+}
+
+Describe "Allow-path throughput" {
+    Context "Bombardier on /protected" {
+        It "Should measure GET allow-path req/s" {
+            if (-not (Get-BombardierCommand)) {
+                Set-ItResult -Skipped -Because "bombardier not on PATH (CI installs it; locally: go install github.com/codesenberg/bombardier@latest)"
+                return
+            }
+            $result = Invoke-AllowPathBombardier -Method GET
+            $result | Should -Not -BeNullOrEmpty
+            $result.ReqsPerSec | Should -BeGreaterThan 0 -Because "allow-path GET must complete at least one request"
+        }
+
+        It "Should measure POST allow-path req/s" {
+            if (-not (Get-BombardierCommand)) {
+                Set-ItResult -Skipped -Because "bombardier not on PATH (CI installs it; locally: go install github.com/codesenberg/bombardier@latest)"
+                return
+            }
+            $result = Invoke-AllowPathBombardier -Method POST
+            $result | Should -Not -BeNullOrEmpty
+            $result.ReqsPerSec | Should -BeGreaterThan 0 -Because "allow-path POST must complete at least one request"
         }
     }
 }

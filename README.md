@@ -33,6 +33,7 @@ A Traefik plugin that integrates with [OWASP ModSecurity Core Rule Set (CRS)](ht
 
 - [Demo](#demo)
 - [Usage (docker-compose.yml)](#usage-docker-composeyml)
+- [Architecture](#architecture)
 - [How it works](#how-it-works)
 - [Trust this middleware (client IP in WAF logs)](#trust-this-middleware-client-ip-in-waf-logs)
 - [Testing](#-testing)
@@ -55,18 +56,45 @@ See [docker-compose.yml](docker-compose.yml)
    owasp/modsecurity
 4. You can you bypass the WAF and check attacks at http://localhost/bypass?test=../etc
 
+## Architecture
+
+Every request goes through Traefik. This plugin sends a **copy** to the WAF. If the WAF allows it, Traefik forwards the original request to **your** application. If the WAF blocks it, the client gets that block and your app is never called.
+
+The `whoami` containers in the demo are only sample websites. Swap them for your real services.
+
+```mermaid
+flowchart LR
+  Client --> Traefik
+  Traefik -->|"copy"| WAF[WAF]
+  Traefik -->|"if allowed"| App[Your application]
+  WAF -.-> Dummy["dummy whoami\noptional"]
+```
+
+| Box | What it is |
+| --- | --- |
+| Traefik | Reverse proxy. Runs this plugin. |
+| WAF | ModSecurity CRS container. Looks at the copy and says allow or block. |
+| Your application | The real site or API. Demo uses `whoami` as a placeholder. |
+| dummy whoami | **Optional.** An extra dummy site so the WAF image has something to talk to. It is **not** your application. The demo does not use it. |
+
+### What to expect (speed)
+
+Treat them as a ballpark, not a promise.
+
+| Setup | GET | POST |
+| --- | --- | --- |
+| Apache + dummy whoami | ~5000 req/s (10 ms) | ~1150 req/s (43 ms) |
+| Apache, no dummy | ~5200 req/s (10 ms) | ~1350 req/s (37 ms) |
+| nginx + dummy whoami | ~4000 req/s (13 ms) | ~1950 req/s (26 ms) |
+| nginx, no dummy | ~3600 req/s (14 ms) | ~2550 req/s (20 ms) |
+
 ## How it works
 
-This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
-
-The plugin classifies the sidecar HTTP status:
+The plugin classifies the sidecar HTTP status (see [Architecture](#architecture) for the service layout):
 
 - **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
 - **3xx / 4xx** — security block: copy the sidecar response to the client. When `modSecurityStatusRequestHeader` is set, write `blocked`.
 - **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
-
-The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
-time.
 
 ## Trust this middleware (client IP in WAF logs)
 

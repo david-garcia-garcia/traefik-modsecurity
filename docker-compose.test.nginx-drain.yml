@@ -1,0 +1,14 @@
+# Overlay on docker-compose.test.nginx.yml: nginx CRS + loopback drain origin (no dummy hop).
+# Usage: docker compose -f docker-compose.test.nginx.yml -f docker-compose.test.nginx-drain.yml up -d
+#        ./Test-Integration.ps1 -Stack nginx-drain
+# BACKEND mapping replaces the whoami dummy URL. realip overlay stays on the base file.
+
+services:
+  dummy:
+    profiles:
+      - whoami-origin
+  waf:
+    environment:
+      BACKEND: http://127.0.0.1:18081
+    volumes:
+      - ./crs-nginx/drain-origin.conf:/etc/nginx/conf.d/zz-drain-origin.conf:ro
