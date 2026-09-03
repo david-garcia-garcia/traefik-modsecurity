@@ -40,5 +40,5 @@ Identity (client address, user, tenant, Host, trust hop): this pin does not set 
   By: explore
 
 - Q: Does `core_plugin_middleware.md` need a MaxBytesReader skip sentence this run?
-  Decision: assumed — yes, one usage sentence when implement or devdocsimpact runs; no Language write.
-  By: explore
+  Decision: resolved — added one How-to sentence on `core_plugin_middleware.md`; no Language write.
+  By: implement
