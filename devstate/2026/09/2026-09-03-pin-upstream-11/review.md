@@ -1,3 +1,12 @@
+## pullrequest (2026-09-03T04:37:10Z)
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
+verdict: ready for review
+ci: all 6 checks success
+pr: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/35
+
 ## archive (2026-09-03T04:30:55Z)
 phase: archive
 findings: none
