@@ -11,6 +11,7 @@ BeforeAll {
         @{ Url = "$TraefikApiUrl/api/rawdata"; Name = "Traefik API" },
         @{ Url = "$BaseUrl/bypass"; Name = "Bypass service" },
         @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
+        @{ Url = "$BaseUrl/large-body-test"; Name = "Large body test service" },
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
@@ -150,6 +151,27 @@ Describe "WAF Protection Tests" {
             }
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
             $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
+            $response.StatusCode | Should -BeIn @(200, 206) -Because "Client must get the labeled app (200) or partial content (206), not a WAF page"
+            $response.Content | Should -Match "Hostname" -Because "Body must be the labeled whoami app, not a sidecar 416 page"
+        }
+
+        It "Should copy dummy 416 for Range bytes=10240- on apache-whoami" {
+            if (-not (Test-IsWhoamiOrigin) -or $env:INTEGRATION_STACK -ne "apache-whoami") {
+                Set-ItResult -Skipped -Because "Dummy 416 contrast is pinned on apache-whoami only; nginx dummy is not asserted"
+                return
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
+            $response.StatusCode | Should -Be 416 -Because "Apache dummy whoami 416 proves drain is the inspect-only fix, not a plugin Range strip"
+        }
+
+        It "Should not 5xx a 16MiB POST to /large-body-test on drain" {
+            if (-not (Test-IsDrainOrigin)) {
+                Set-ItResult -Skipped -Because "Drain is the inspect-only pin for AH01084-class dummy 5xx; whoami contrast is not asserted"
+                return
+            }
+            $largeData = New-RequestBodyOfSizeBytes -TargetSizeBytes (16 * 1024 * 1024)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/large-body-test" -Method POST -Body $largeData -TimeoutSec 60
+            [int]$response.StatusCode | Should -BeLessThan 500 -Because "Inspect-only drain must not copy Apache AH01084 / dummy 5xx; CRS 413 is allowed"
         }
 
         It "Should block a CRS SQL-injection probe in the POST body" {
