@@ -1,0 +1,6 @@
+host: local
+ref: none
+title: Pooled body buffer returned while HTTP transport may still read aliased bytes
+url: none
+number: none
+source: chat opus_review.md finding 3
