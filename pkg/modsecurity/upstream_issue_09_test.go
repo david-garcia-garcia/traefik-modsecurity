@@ -12,6 +12,7 @@ import (
 // issue09LoginBody is a login-form POST like acouvreur/traefik-modsecurity-plugin#9.
 const issue09LoginBody = "username=alice&password=secret"
 
+// issue09Harness is the Plugin + route pair used by the #9 login-POST cases.
 type issue09Harness struct {
 	plugin     *Plugin
 	route      http.Handler
@@ -21,7 +22,7 @@ type issue09Harness struct {
 // newIssue09Route builds a Plugin + route with a 200 WAF. cfg.ModSecurityUrl is overwritten.
 func newIssue09Route(t *testing.T, cfg *Config) *issue09Harness {
 	t.Helper()
-	h := &issue09Harness{}
+	harness := &issue09Harness{}
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
@@ -37,42 +38,43 @@ func newIssue09Route(t *testing.T, cfg *Config) *issue09Harness {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(plugin.Close)
-	h.plugin = plugin
+	harness.plugin = plugin
 
 	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		h.nextCalled = true
+		harness.nextCalled = true
 		w.WriteHeader(http.StatusOK)
 	}))
 	if err != nil {
 		t.Fatalf("ForRoute: %v", err)
 	}
-	h.route = route
-	return h
+	harness.route = route
+	return harness
 }
 
-func postIssue09Login(t *testing.T, h *issue09Harness) *httptest.ResponseRecorder {
+// postIssue09Login POSTs the login-form body through harness.route and returns the recorder.
+func postIssue09Login(t *testing.T, harness *issue09Harness) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "http://example/login", strings.NewReader(issue09LoginBody))
 	rec := httptest.NewRecorder()
-	h.route.ServeHTTP(rec, req)
+	harness.route.ServeHTTP(rec, req)
 	return rec
 }
 
 // TestUpstreamIssue09_OmittedMaxBodySizeBytesSmallPOSTIs200 is the Yaegi-omit path.
 // Upstream 1.2.0 left the handler limit at 0 and 413'd every non-empty POST.
 func TestUpstreamIssue09_OmittedMaxBodySizeBytesSmallPOSTIs200(t *testing.T) {
-	h := newIssue09Route(t, &Config{})
-	if h.plugin.maxBodySizeBytes != 8*1024*1024 {
-		t.Fatalf("handler maxBodySizeBytes = %d, want 8 MiB after Prepare", h.plugin.maxBodySizeBytes)
+	harness := newIssue09Route(t, &Config{})
+	if harness.plugin.maxBodySizeBytes != 8*1024*1024 {
+		t.Fatalf("handler maxBodySizeBytes = %d, want 8 MiB after Prepare", harness.plugin.maxBodySizeBytes)
 	}
-	rec := postIssue09Login(t, h)
+	rec := postIssue09Login(t, harness)
 	if rec.Code == http.StatusRequestEntityTooLarge {
 		t.Fatalf("small POST was 413 (upstream 1.2.0 zero-limit bug); body %q", rec.Body.String())
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	if !h.nextCalled {
+	if !harness.nextCalled {
 		t.Fatal("next was not called")
 	}
 }
@@ -81,18 +83,18 @@ func TestUpstreamIssue09_OmittedMaxBodySizeBytesSmallPOSTIs200(t *testing.T) {
 func TestUpstreamIssue09_ExplicitZeroMaxBodySizeBytesSmallPOSTIs200(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.MaxBodySizeBytes = 0
-	h := newIssue09Route(t, cfg)
-	if h.plugin.maxBodySizeBytes != 8*1024*1024 {
-		t.Fatalf("handler maxBodySizeBytes = %d, want 8 MiB after Prepare remaps 0", h.plugin.maxBodySizeBytes)
+	harness := newIssue09Route(t, cfg)
+	if harness.plugin.maxBodySizeBytes != 8*1024*1024 {
+		t.Fatalf("handler maxBodySizeBytes = %d, want 8 MiB after Prepare remaps 0", harness.plugin.maxBodySizeBytes)
 	}
-	rec := postIssue09Login(t, h)
+	rec := postIssue09Login(t, harness)
 	if rec.Code == http.StatusRequestEntityTooLarge {
 		t.Fatalf("small POST was 413 (upstream 1.2.0 zero-limit bug); body %q", rec.Body.String())
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	if !h.nextCalled {
+	if !harness.nextCalled {
 		t.Fatal("next was not called")
 	}
 }
@@ -100,16 +102,16 @@ func TestUpstreamIssue09_ExplicitZeroMaxBodySizeBytesSmallPOSTIs200(t *testing.T
 // TestUpstreamIssue09_ForcedZeroHandlerLimitDoesNot413 applies the 1.2.0 wiring on our read path.
 // We skip MaxBytesReader when maxBodySizeBytes is 0, so a login POST is not 413.
 func TestUpstreamIssue09_ForcedZeroHandlerLimitDoesNot413(t *testing.T) {
-	h := newIssue09Route(t, CreateConfig())
-	h.plugin.maxBodySizeBytes = 0
-	rec := postIssue09Login(t, h)
+	harness := newIssue09Route(t, CreateConfig())
+	harness.plugin.maxBodySizeBytes = 0
+	rec := postIssue09Login(t, harness)
 	if rec.Code == http.StatusRequestEntityTooLarge {
 		t.Fatalf("forced handler limit 0 returned 413; our readInboundBody must skip MaxBytesReader when limit is 0")
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	if !h.nextCalled {
+	if !harness.nextCalled {
 		t.Fatal("next was not called")
 	}
 }
