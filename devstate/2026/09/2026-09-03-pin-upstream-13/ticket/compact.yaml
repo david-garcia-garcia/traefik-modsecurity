@@ -1,0 +1,6 @@
+host: local
+ref: none
+title: Pin upstream Authelia login POST 405 is not invented by this plugin
+url: none
+number: none
+shortReference: https://github.com/acouvreur/traefik-modsecurity-plugin/issues/13
