@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // sidecarBodyDrainLimit is how many unread sidecar response bytes we discard
@@ -57,12 +58,21 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		p.replyInboundBodyReadFailure(rw, req, err)
 		return
 	}
+	// Panic between a successful pooled read and closer setup would otherwise drop the buffer.
+	// Gate + defer Closes also call this; sync.Once keeps Put single-shot.
+	var releaseOnce sync.Once
+	safeReleasePooledBuffer := func() {
+		if releasePooledBuffer != nil {
+			releaseOnce.Do(releasePooledBuffer)
+		}
+	}
+	defer safeReleasePooledBuffer()
 
 	var sidecarBodyReadCloser io.ReadCloser
 	var requestBodyReadCloser io.ReadCloser
 	switch {
 	case releasePooledBuffer != nil:
-		gate := newPooledBodyGate(releasePooledBuffer, 2)
+		gate := newPooledBodyGate(safeReleasePooledBuffer, 2)
 		sidecarBodyReadCloser = newDoneReadCloser(bytes.NewReader(body), gate.consumerDone)
 		requestBodyReadCloser = newDoneReadCloser(bytes.NewReader(body), gate.consumerDone)
 		req.Body = requestBodyReadCloser

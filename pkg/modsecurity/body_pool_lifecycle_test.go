@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -565,6 +566,152 @@ func TestPlugin_InboundBodyReadErrorPuts(t *testing.T) {
 	}
 	if got := pool.puts.Load(); got != 1 {
 		t.Fatalf("Puts %d, want 1 after MaxBytesReader error", got)
+	}
+}
+
+// TestPlugin_NewRequestErrorPutsPooledBuffer proves NewRequest failure still Puts (Opus GAP-E).
+func TestPlugin_NewRequestErrorPutsPooledBuffer(t *testing.T) {
+	body := bytes.Repeat([]byte("n"), 90)
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf.test"
+	cfg.MaxBodySizeBytesForPool = 1024
+	plugin, err := New("newreq-err-put", cfg, NewLogger("newreq-err-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	pool := newTestRecordingBufferPool()
+	plugin.bodyBufferPool = pool
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("next must not run when NewRequest fails")
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	// Method with a space makes NewRequestWithContext fail after the pooled read.
+	u, err := url.Parse("http://example/test")
+	if err != nil {
+		t.Fatalf("url: %v", err)
+	}
+	req := &http.Request{
+		Method:        "BAD METHOD",
+		URL:           u,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        make(http.Header),
+		Body:          io.NopCloser(bytes.NewReader(body)),
+		ContentLength: int64(len(body)),
+		Host:          "example",
+	}
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", rec.Code)
+	}
+	if got := pool.puts.Load(); got != 1 {
+		t.Fatalf("Puts %d, want 1 after NewRequest error", got)
+	}
+}
+
+// TestPlugin_TransportDelayedReadAfterDoSeesNoCorruption proves defer Close + Put cannot
+// hand the aliased slice to a later Get while a late Transport Read is still in flight.
+func TestPlugin_TransportDelayedReadAfterDoSeesNoCorruption(t *testing.T) {
+	const bodySize = 4096
+	firstPayload := bytes.Repeat([]byte{0xAA}, bodySize)
+	secondPayload := bytes.Repeat([]byte{0xBB}, bodySize)
+
+	readStarted := make(chan struct{})
+	readFinished := make(chan []byte, 1)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf.test"
+	cfg.MaxBodySizeBytesForPool = int64(bodySize)
+	plugin, err := New("delayed-rt-put", cfg, NewLogger("delayed-rt-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	pool := newTestRecordingBufferPool()
+	plugin.bodyBufferPool = pool
+
+	var first int32
+	plugin.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if atomic.AddInt32(&first, 1) == 1 {
+			body := req.Body
+			go func() {
+				// Yield so ServeHTTP can return, defer Close, and Put before we Read.
+				time.Sleep(20 * time.Millisecond)
+				close(readStarted)
+				got, err := io.ReadAll(body)
+				if err != nil && !errors.Is(err, http.ErrBodyReadAfterClose) {
+					readFinished <- append([]byte(nil), got...)
+					return
+				}
+				if errors.Is(err, http.ErrBodyReadAfterClose) {
+					readFinished <- nil // closed before late read — correct, not corruption
+					return
+				}
+				readFinished <- got
+				_ = body.Close()
+			}()
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader([]byte("block"))),
+				Request:    req,
+			}, nil
+		}
+		if req.Body != nil {
+			_, _ = io.Copy(io.Discard, req.Body)
+			_ = req.Body.Close()
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewReader(nil)),
+			Request:    req,
+		}, nil
+	})
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest(http.MethodPost, "http://example/one", bytes.NewReader(firstPayload))
+	req1.ContentLength = int64(len(firstPayload))
+	route.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusForbidden {
+		t.Fatalf("first status %d, want 403", rec1.Code)
+	}
+
+	<-readStarted
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "http://example/two", bytes.NewReader(secondPayload))
+	req2.ContentLength = int64(len(secondPayload))
+	route.ServeHTTP(rec2, req2)
+
+	select {
+	case got := <-readFinished:
+		if got == nil {
+			return // ErrBodyReadAfterClose — Put after Close is safe
+		}
+		if bytes.Contains(got, []byte{0xBB}) {
+			t.Fatalf("late Transport read saw 0xBB from a later Put — pool alias corruption")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("late Transport read did not finish")
 	}
 }
 
