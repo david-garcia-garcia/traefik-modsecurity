@@ -114,7 +114,7 @@ func TestPlugin_UpstreamIssue29_AllowPathKeepsBackendHeaders(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Do: %v", err)
 				}
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				got, err := io.ReadAll(resp.Body)
 				if err != nil {
 					t.Fatalf("ReadAll: %v", err)
