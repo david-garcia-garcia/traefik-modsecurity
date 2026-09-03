@@ -14,3 +14,11 @@ fixed: none
 skipped: none
 measured: go test ./pkg/modsecurity -run TestPlugin_UpstreamIssue05 passed
 assumed: 6 open questions
+
+## propose (2026-09-03)
+phase: propose
+findings: none
+fixed: none
+skipped: none
+change: pin-upstream-issue-05
+folds: core_plugin_middleware_websocket-skip, core_plugin_middleware_request-context

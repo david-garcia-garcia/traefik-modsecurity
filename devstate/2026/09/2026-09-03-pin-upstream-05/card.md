@@ -1,4 +1,4 @@
-Developer review: in progress — 2026-09-03T04:17:33Z
+Developer review: in progress — 2026-09-03T04:20:15Z
 
 Upstream: [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/5)
 
@@ -7,7 +7,7 @@ Upstream: [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/
 
 **Admin users.** None.
 
-**Developers.** None yet versus `main`. Explore recorded assumed decisions; starter tests still untracked.
+**Developers.** OpenSpec change `pin-upstream-issue-05` adds no-panic requirements on `core_plugin_middleware_websocket-skip` and `core_plugin_middleware_request-context`. Starter tests are still untracked.
 
 **End users.** None.
 
@@ -15,17 +15,17 @@ Upstream: [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/
 Without this PR, [acouvreur/traefik-modsecurity-plugin#5](https://github.com/acouvreur/traefik-modsecurity-plugin/issues/5) (HTTP/2 abort / Yaegi panic blamed on `isWebsocket`) has no regression tests on this plugin. A later change could reintroduce a panic with no failing test.
 
 ## Merge readiness
-Explore finished with assumed decisions. Tests not landed. Remaining: propose through pullrequest.
+Propose is apply-ready. Tests not landed. Remaining: implement through pullrequest.
 
 Priority: P3 — spec, docs, tests, or internal clarity — no current user or operator harm
-Reviewed head: c90ea0c
+Reviewed head: adaf30d
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | CI still in progress; product tests not merged |
-| CI proof | 3/6 | Integration tests in progress |
+| Overall readiness | 3/6 | CI in progress; tests not landed |
+| CI proof | 3/6 | Integration tests in progress on latest push |
 | Local tests proof | N/A | Before implement (`localTests: none`) |
 | Review resolution | 6/6 | OPEN PR; no reviewer comments |
 
@@ -33,37 +33,37 @@ Owner decision: Required. See Decision needed.
 | Check | Result | Evidence |
 | --- | --- | --- |
 | Branch | 2026-09-03-pin-upstream-05 pushed | `git` |
-| OpenSpec | none | no change folder yet |
+| OpenSpec | pin-upstream-issue-05 | `openspec/changes/pin-upstream-issue-05/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/32 | pr-host |
-| CI | build 33714475615 success; lint success; Integration Tests (nginx/apache) in progress | https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33714475615 |
-| Local tests | none | handoff.yaml; explore measured starter tests passed, not recorded as implement |
+| CI | lint/build success; Integration Tests (nginx/apache) in progress | https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33714554047 |
+| Local tests | none | handoff.yaml |
 | PR comments | no comments | inventory empty |
 | Security | None. | no codereview.md yet |
 | Performance | None. | no codereview.md yet |
 
 ## Specs
-None.
+- [core_plugin_middleware_websocket-skip](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-pin-upstream-05/openspec/changes/pin-upstream-issue-05/proposal.md) — modified
+- [core_plugin_middleware_request-context](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-03-pin-upstream-05/openspec/changes/pin-upstream-issue-05/proposal.md) — modified
 
 ## Follow-up issues
 None.
 
 ## How this fits together
-Local ticket `2026-09-03-pin-upstream-05` / PR #32. Explore measured the starter file passing. Next: propose fold onto `websocket-skip` and `request-context`, then land the tests.
+Local ticket `2026-09-03-pin-upstream-05` / PR #32. Propose folded no-panic invariants onto existing specs. Next: land `upstream_issue_05_test.go`.
 
 ## Decision needed
 | Question | Decision | By |
 | --- | --- | --- |
-| Who owns client address, user, tenant, Host, or trust hop for this change? | assumed — none. Tests do not set or reconstruct identity. Incoming Host stays on `req.Host`; Traefik owns forwarded headers. | explore |
+| Who owns client address, user, tenant, Host, or trust hop for this change? | assumed — none. Tests do not set or reconstruct identity. | explore |
 | Keep the starter test that expects panic on `req.Body == nil`? | assumed — yes. Documents residual deny-verb peek. No `recover`. | explore |
 | Treat `http.ErrAbortHandler` on HTTP/2 client abort as a pass? | assumed — yes. Go server abort after RST_STREAM, not a plugin nil-deref. | explore |
 | Clone acouvreur/traefik-modsecurity-plugin to pin v1.1.0 line 56? | assumed — no. This run pins this plugin’s Go tests. | explore |
-| New spec leaf vs fold onto `websocket-skip` and `request-context`? | assumed — fold. FindSpecHost at propose confirms. | explore |
 | Write a Go `Header.Values` research folder? | assumed — no. Tests pin stdlib nil-slice behavior. | explore |
 
 ## Before merge
 - [ ] Land `pkg/modsecurity/upstream_issue_05_test.go` (tests only; no `recover` in ServeHTTP)
 - [x] Stub PR #32 opened
-- [x] Explore assumed decisions written
+- [x] OpenSpec `pin-upstream-issue-05` apply-ready
 
 ## Findings
 None.
@@ -79,26 +79,24 @@ None.
 ### Review metrics
 | Metric | Value | Why it matters |
 | --- | --- | --- |
-| Specs in this PR | none | Same list as ## Specs |
+| Specs in this PR | 0 added / 2 modified | Same list as ## Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | c90ea0cc6611f6fa456fd4ae29b6dd4b107025cf | Card must match the branch you measured |
+| Reviewed head | adaf30da7e843eb444c69b423333f090dca3e122 | Card must match the branch you measured |
 
 ### Stored data model
 None.
 
 ### Technical review
-Best possible solution: versus `main`, pin #5 with tests only and fold no-panic requirements onto existing websocket-skip and request-context specs.
+Best possible solution: versus `main`, pin #5 with tests and fold no-panic requirements onto websocket-skip and request-context.
 
-Do we have a high-confidence way to reproduce? Yes — `go test ./pkg/modsecurity -run TestPlugin_UpstreamIssue05` passed (1.106s). The panic does not happen on this tree.
+Do we have a high-confidence way to reproduce? Yes — starter tests already pass on this tree.
 
-Is this the best way to solve the issue? Yes — the ticket asked for coverage, not a product change.
+Is this the best way to solve the issue? Yes — coverage only; no product change.
 
 ### Evidence
 What I checked:
-- Starter tests passed (`go test ./pkg/modsecurity -run TestPlugin_UpstreamIssue05`)
-- `isWebsocket` uses `Header.Values` (`pkg/modsecurity/serve.go`)
-- No `recover` in product ServeHTTP
-- Existing specs: `core_plugin_middleware_websocket-skip`, `core_plugin_middleware_request-context`
+- `openspec validate pin-upstream-issue-05 --type change --strict` passed
+- FindSpecHost fold verdicts on `devstate/specs.md`
 
 ### Rank-up moves
 None.
