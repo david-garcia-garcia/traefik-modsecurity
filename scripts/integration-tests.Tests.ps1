@@ -51,19 +51,7 @@ Describe "ModSecurity Plugin Basic Functionality" {
         }
 
         It "Should not run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami-origin stacks keep dummy as the CRS BACKEND"
-                return
-            }
-            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Drain overlay must not start dummy; only labeled whoami apps remain"
-        }
-
-        It "Should run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsWhoamiOrigin)) {
-                Set-ItResult -Skipped -Because "drain stacks do not run dummy"
-                return
-            }
-            Get-DummyContainerName | Should -Not -BeNullOrEmpty -Because "whoami-origin stacks proxy CRS BACKEND to dummy"
+            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Inspect-only stacks must not start dummy; only labeled whoami apps remain"
         }
     }
 }
@@ -144,12 +132,27 @@ Describe "WAF Protection Tests" {
         }
 
         It "Should not copy a sidecar 416 for Range bytes=10240- on a small GET" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami dummy origin is expected to 416 on an unsatisfiable Range"
-                return
-            }
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
             $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
+            $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 304 for If-None-Match asterisk" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ "If-None-Match" = "*" }
+            $response.StatusCode | Should -Not -Be 304 -Because "Inspect-only sidecar must not 304 on If-None-Match; plugin copies sidecar 3xx as a block"
+            $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 304 for If-Modified-Since" {
+            # Invoke-WebRequest types If-Modified-Since as DateTime and rejects this
+            # RFC 1123 value. Send it on the wire so the sidecar still sees the header.
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine "GET /protected HTTP/1.1" -Headers @{
+                Host = "localhost:8000"
+                "If-Modified-Since" = "Wed, 21 Oct 2030 07:28:00 GMT"
+                Connection = "close"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] 200' -Because "Inspect-only sidecar must not 304 on If-Modified-Since; plugin copies sidecar 3xx as a block"
+            $responseText | Should -Not -Match '^HTTP/1\.[01] 304'
         }
 
         It "Should block a CRS SQL-injection probe in the POST body" {

@@ -31,7 +31,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=5
       - ANOMALY_OUTBOUND=4
-      - BACKEND=http://dummy
       - MODSEC_RULE_ENGINE=On
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
@@ -49,10 +48,7 @@ services:
       - REMOTEIP_HEADER=X-Real-IP
       - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
     volumes:
-      - ./crs-apache/httpd-vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
-
-  dummy:
-    image: traefik/whoami
+      - ./crs-apache/httpd-vhosts.drain.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
 
   # Backend for file-provider reclaim routers (/reclaim-a, /reclaim-b). No Docker labels.
   whoami-reclaim:

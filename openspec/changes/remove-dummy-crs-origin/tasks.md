@@ -27,5 +27,5 @@
 
 ## 6. Verify
 
-- [ ] 6.1 `./Test-Integration.ps1 -Stack apache-drain` and `-Stack nginx-drain` (or `-AllStacks`). Tasks 4.1–4.2 SHALL pass.
-- [ ] 6.2 Curl `/protected` GET allow, POST allow, URI block, POST-body block; Range not 416; `If-None-Match: *` not 304. Record on the delivery card.
+- [x] 6.1 `./Test-Integration.ps1 -Stack apache-drain` and `-Stack nginx-drain` (or `-AllStacks`). Tasks 4.1–4.2 SHALL pass.
+- [x] 6.2 Curl `/protected` GET allow, POST allow, URI block, POST-body block; Range not 416; `If-None-Match: *` not 304. Record on the delivery card.
