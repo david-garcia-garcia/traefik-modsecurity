@@ -31,7 +31,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=5
       - ANOMALY_OUTBOUND=4
-      - BACKEND=http://127.0.0.1:18081
       - MODSEC_RULE_ENGINE=On
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads

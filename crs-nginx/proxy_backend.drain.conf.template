@@ -1,13 +1,14 @@
 # Inspect-only overlay for owasp/modsecurity-crs:4.3.0-nginx-alpine-202406090906
 # includes/proxy_backend.conf.template. Stock file plus empty If-None-Match /
-# If-Modified-Since so the loopback return 200 origin is not rewritten to 304
+# If-Modified-Since so the in-process return 200 origin is not rewritten to 304
 # (nginx not_modified filter: If-None-Match * matches any 200).
 # CRS rewrite/preaccess already ran on the public server, so ModSecurity still
 # sees the client headers. Mount at:
 # /etc/nginx/templates/includes/proxy_backend.conf.template
-# Point BACKEND at http://127.0.0.1:18081 (crs-nginx/drain-origin.conf).
-# Keep $host / $upstream from this pin — later CRS images use ${PROXY_HOST_HEADER}
-# / ${BACKEND} and nginx will reject those names here.
+# Origin is unix:/tmp/modsecurity/crs-drain.sock (crs-nginx/drain-origin.conf).
+# Hard-code that URI — this pin's $upstream is a TCP BACKEND map, and later CRS
+# images use ${PROXY_HOST_HEADER} / ${BACKEND} which nginx rejects here.
+# Keep Host $host from this pin.
 
 proxy_set_header Host $host;
 proxy_set_header Proxy "";
@@ -27,7 +28,7 @@ proxy_read_timeout 36000s;
 proxy_redirect off;
 
 proxy_pass_header Authorization;
-proxy_pass $upstream;
+proxy_pass http://unix:/tmp/modsecurity/crs-drain.sock:;
 
 SET_REAL_IP_FROM
 real_ip_header ${REAL_IP_HEADER};

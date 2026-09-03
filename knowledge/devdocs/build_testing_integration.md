@@ -7,7 +7,7 @@ Pester v5 tests hit a live Traefik + ModSecurity + whoami stack. Two named stack
 | Stack | Compose | CRS origin |
 | --- | --- | --- |
 | `apache-drain` | `docker-compose.test.yml` | inspect-only rewrite 200 (`httpd-vhosts.drain.conf`) |
-| `nginx-drain` | `docker-compose.test.nginx.yml` | loopback origin `127.0.0.1:18081` (`drain-origin.conf` + `proxy_backend.drain.conf.template`) |
+| `nginx-drain` | `docker-compose.test.nginx.yml` | unix-socket origin `/tmp/modsecurity/crs-drain.sock` (`drain-origin.conf` + `proxy_backend.drain.conf.template`) |
 
 The local runner is `Test-Integration.ps1`. Helpers live in `scripts/TestHelpers.ps1`.
 
@@ -46,7 +46,7 @@ It "Should allow normal GET requests" {
 - `scripts/integration-tests.BodySize.Tests.ps1` — large-body transport checks.
 - `scripts/TestHelpers.ps1` — HTTP, WAF assertions, container names, access-log parse, WAF audit-log parse, body builder, Traefik stdout / reclaim log parse, WebSocket echo, stack compose-file map, bombardier. Helpers include `Invoke-SafeWebRequest`, `Invoke-TcpHttpRequest`, `Invoke-ChunkedHttpRequest`, `Invoke-WebSocketEcho`, `Test-WafBlocking`, `Get-TraefikAccessLogEntries`, `Get-TraefikClientHost`, `Get-WafAuditLogRecords`, `Get-WafAuditClientIp`, `Get-WafAuditHost`, `Get-TraefikStdoutLines`, `Get-ReclaimLogEvents`, `Wait-ReclaimLogCount`, `Set-ReclaimDynamicTimeoutMillis`, `Get-DummyContainerName`, `Get-IntegrationStackComposeFiles`, `Invoke-AllowPathBombardier`.
 - `docker-compose.test.yml` — Traefik local plugin on `:8000`, Apache CRS WAF with `httpd-vhosts.drain.conf`, labeled whoami routes, `echo-ws` (`jmalloc/echo-server`) on `/ws-echo` behind `waf-middleware`, file-provider directory `test-dynamic/`. The `waf` service sets `REMOTEIP_HEADER=X-Real-IP`, RFC1918 `REMOTEIP_INT_PROXY`, and `MODSEC_AUDIT_LOG=/var/log/modsec_audit.log` so a deny records Traefik `ClientHost` as `REMOTE_ADDR`.
-- `docker-compose.test.nginx.yml` — same Traefik/plugin/routes; `waf` is nginx CRS with `BACKEND=http://127.0.0.1:18081`, `crs-nginx/drain-origin.conf`, `crs-nginx/proxy_backend.drain.conf.template`, `REAL_IP_HEADER=X-Real-IP` and comma-separated RFC1918 `SET_REAL_IP_FROM`.
+- `docker-compose.test.nginx.yml` — same Traefik/plugin/routes; `waf` is nginx CRS with `crs-nginx/drain-origin.conf` (`unix:/tmp/modsecurity/crs-drain.sock`), `crs-nginx/proxy_backend.drain.conf.template`, `REAL_IP_HEADER=X-Real-IP` and comma-separated RFC1918 `SET_REAL_IP_FROM`.
 - `test-dynamic/reclaim.yml` — two routers (`/reclaim-a`, `/reclaim-b`) share `waf-reclaim` (`logLevel=debug`). Tests rewrite `timeoutMillis` to force a new reclaim key.
 
 ## Gotchas

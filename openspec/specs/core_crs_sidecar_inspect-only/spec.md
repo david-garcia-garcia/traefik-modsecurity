@@ -29,7 +29,7 @@ After ModSecurity request phases, the CRS sidecar used by this repo’s demo com
 
 ### Requirement: CRS still blocks URI and POST-body probes
 
-The inspect-only 200 handler SHALL NOT skip ModSecurity request-header or request-body inspection. A classic CRS probe in the URI or query SHALL produce a sidecar deny (typically 403). A classic CRS probe in the POST body SHALL produce a sidecar deny. A nginx `return` that answers 200 on the CRS-facing `location /` without running those phases SHALL NOT be used. A `return 200` on a loopback origin after `proxy_pass` is allowed (CRS already ran).
+The inspect-only 200 handler SHALL NOT skip ModSecurity request-header or request-body inspection. A classic CRS probe in the URI or query SHALL produce a sidecar deny (typically 403). A classic CRS probe in the POST body SHALL produce a sidecar deny. A nginx `return` that answers 200 on the CRS-facing `location /` without running those phases SHALL NOT be used. A `return 200` on an in-process origin after `proxy_pass` (unix socket or loopback TCP) is allowed (CRS already ran).
 
 #### Scenario: URI probe is denied
 
@@ -60,7 +60,7 @@ A client `Range` that would be unsatisfiable on a small sidecar body (including 
 
 ### Requirement: Conditional request headers do not become a sidecar security block
 
-A client `If-None-Match` (including `*`) or `If-Modified-Since` SHALL NOT produce a sidecar 304 or other 3xx on drain origins. The sidecar SHALL respond HTTP 200 for that inspect. Nginx SHALL omit those request headers on `proxy_pass` to the loopback origin so `return 200` is not rewritten to 304. Apache SHALL unset them on the inspect-only vhost. The plugin SHALL NOT change its 3xx/4xx copy rule. CRS request phases SHALL still see the original client headers on the public sidecar listener.
+A client `If-None-Match` (including `*`) or `If-Modified-Since` SHALL NOT produce a sidecar 304 or other 3xx on drain origins. The sidecar SHALL respond HTTP 200 for that inspect. Nginx SHALL omit those request headers on `proxy_pass` to the in-process origin so `return 200` is not rewritten to 304. Apache SHALL unset them on the inspect-only vhost. The plugin SHALL NOT change its 3xx/4xx copy rule. CRS request phases SHALL still see the original client headers on the public sidecar listener.
 
 #### Scenario: If-None-Match asterisk
 
