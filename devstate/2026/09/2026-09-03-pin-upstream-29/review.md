@@ -26,5 +26,23 @@ findings: none
 fixed: landed upstream_issue_29_test.go; go test ./... passed; serve.go unchanged
 skipped: none
 
+## codereview (2026-09-03)
 
+phase: codereview
+findings: P3 1 (Leave a trail on test helpers)
+fixed: job comments on issue29WAF, issue29NewRoute, issue29AssertClientHeaders
+skipped: none
 
+## devdocsimpact (2026-09-03)
+
+phase: devdocsimpact
+findings: none
+fixed: none
+skipped: none
+
+## archive (2026-09-03)
+
+phase: archive
+findings: none
+fixed: synced sidecar-response; moved change to archive/2026-09-03-pin-allow-path-backend-headers
+skipped: none
