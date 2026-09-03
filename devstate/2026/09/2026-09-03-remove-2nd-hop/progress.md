@@ -6,7 +6,7 @@ JobName: 2026-09-03-remove-2nd-hop
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-03T03:52:45Z |
 | explore | [x] | [x] | 2026-09-03T04:02:16Z |
-| propose | [ ] | [ ] | |
+| propose | [x] | [x] | 2026-09-03T04:05:56Z |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |

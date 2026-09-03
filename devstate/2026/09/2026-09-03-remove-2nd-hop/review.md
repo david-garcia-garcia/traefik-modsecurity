@@ -12,3 +12,11 @@ findings: nginx return 200 skips CRS (URI+body); Apache /healthz rewrite still i
 fixed: none
 skipped: overlay not implemented; after-change throughput not measured
 
+## propose (2026-09-03)
+
+phase: propose
+findings: none
+fixed: none
+skipped: overlay not implemented
+
+

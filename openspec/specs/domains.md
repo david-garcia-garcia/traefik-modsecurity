@@ -4,6 +4,7 @@ Hand-kept permission list of root + domain. Add the domain bullet in the same ed
 
 ## core
 - plugin
+- crs
 
 ## build
 - ci
