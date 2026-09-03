@@ -35,3 +35,15 @@ phase: devdocsimpact
 findings: none
 fixed: none (usage already matched)
 skipped: none
+
+## archive (2026-09-03T07:33:31.468Z)
+phase: archive
+findings: none
+fixed: synced handshake/status-header/bypass-rules; moved openspec/changes/archive/2026-09-03-inspect-websocket-handshake/
+skipped: none
+
+## pullrequest (2026-09-03T07:43:08.867Z)
+phase: pullrequest
+findings: none
+fixed: title 🔒 fix(plugin): inspect WebSocket handshake GET; merged origin/main #42; CI succeeded on 7d3fa5c
+skipped: none

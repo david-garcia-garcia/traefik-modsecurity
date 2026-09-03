@@ -10,5 +10,5 @@ JobName: 2026-09-03-websocketbypass
 | implement | [x] | [x] | 2026-09-03T07:26:39.991Z |
 | codereview | [x] | [x] | 2026-09-03T07:30:27.709Z |
 | devdocsimpact | [x] | [x] | 2026-09-03T07:31:53.040Z |
-| archive | [x] | [ ] | |
-| pullrequest | [ ] | [ ] | |
+| archive | [x] | [x] | 2026-09-03T07:33:31.468Z |
+| pullrequest | [x] | [x] | 2026-09-03T07:43:08.867Z |
