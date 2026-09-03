@@ -11,4 +11,4 @@ JobName: 2026-09-03-pin-upstream-13
 | codereview | [x] | [x] | 2026-09-03T04:24:56.421Z |
 | devdocsimpact | [x] | [x] | 2026-09-03T04:26:13.983Z |
 | archive | [x] | [x] | 2026-09-03T04:26:13.983Z |
-| pullrequest | [x] | [ ] | |
+| pullrequest | [x] | [x] | 2026-09-03T04:36:52.963Z |

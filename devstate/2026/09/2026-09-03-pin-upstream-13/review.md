@@ -1,5 +1,14 @@
 # Review journal
 
+## pullrequest (2026-09-03)
+phase: pullrequest
+findings: none
+fixed: none
+skipped: none
+head: 5d82961fe08d1a519dcc387f75482e99ef67f423
+pr: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/36
+ci: success (33715062759)
+
 ## archive (2026-09-03)
 phase: archive
 findings: none
