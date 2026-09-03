@@ -15,3 +15,4 @@ change: pooled-body-alias-copy-out
 pr:
   id: 44
   url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/44
+# refreshed card on 1d05fd1 after doneReadCloser + fail-open + chain tests

@@ -54,3 +54,10 @@ findings: none
 fixed: none
 skipped: none
 
+## pullrequest-refresh (2026-09-03T20:21:16.094Z)
+
+phase: pullrequest
+findings: Actions whoami matrix arms not scheduled on 1d05fd1 (drain-only); local apache-whoami 59 pass
+fixed: doneReadCloser gate, defer Close, chunked overflow Put, fail-open specs, chain Pester
+skipped: none
+
