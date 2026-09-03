@@ -8,3 +8,4 @@
 - created knowledge/research/ext_fastly_ngwaf_websocket/
 - created knowledge/research/ext_haproxy_http_websocket/
 - created knowledge/research/ext_traefik_waf_websocket/
+- updated knowledge/research/ext_modsecurity_websocket-inspection/ (CRS 4.3.0 image has no websocket rules; handshake GET measured 200 at PL1)
