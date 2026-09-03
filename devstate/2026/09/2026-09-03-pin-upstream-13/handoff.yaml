@@ -1,0 +1,17 @@
+issueKey: 2026-09-03-pin-upstream-13
+jobName: 2026-09-03-pin-upstream-13
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: c23efeff85d5cda0c97c8d1b3a2762457ca6c01fb83de952fff4a356f626f04a
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: pin-upstream-authelia-405
+pr:
+  id: 36
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/36
