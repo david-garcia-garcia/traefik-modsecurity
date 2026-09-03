@@ -79,7 +79,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "",
 		},
 		{
-			name: "Does not forward Websockets",
+			name: "Inspects WebSocket handshake GET",
 			request: &http.Request{
 				Body: http.NoBody,
 				Header: http.Header{
@@ -91,8 +91,8 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			},
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
-			expectBody:                     "Response from service",
-			expectStatus:                   200,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "",
 			expectHeader:                   "",
 			expectHeaderValue:              "",
@@ -114,7 +114,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "",
 		},
 		{
-			name: "Does not forward mixed-case WebSocket handshake",
+			name: "Inspects mixed-case WebSocket handshake",
 			request: &http.Request{
 				Body: http.NoBody,
 				Header: http.Header{
@@ -126,11 +126,50 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			},
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
-			expectBody:                     "Response from service",
-			expectStatus:                   200,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "",
 			expectHeader:                   "",
 			expectHeaderValue:              "",
+		},
+		{
+			name: "Overwrites forged status header on handshake block",
+			request: &http.Request{
+				Body: http.NoBody,
+				Header: http.Header{
+					"Upgrade":      []string{"websocket"},
+					"Connection":   []string{"upgrade"},
+					"X-Waf-Status": []string{"ok"},
+				},
+				Method: http.MethodGet,
+				URL:    req.URL,
+			},
+			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
+			modSecurityStatusRequestHeader: "X-Waf-Status",
+			expectHeader:                   "X-Waf-Status",
+			expectHeaderValue:              "blocked",
+		},
+		{
+			name: "Allows handshake GET after sidecar 200",
+			request: &http.Request{
+				Body: http.NoBody,
+				Header: http.Header{
+					"Upgrade":    []string{"websocket"},
+					"Connection": []string{"upgrade"},
+				},
+				Method: http.MethodGet,
+				URL:    req.URL,
+			},
+			wafResponse:                    response{StatusCode: 200, Body: "Response from waf"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Response from service",
+			expectStatus:                   200,
+			modSecurityStatusRequestHeader: "X-Waf-Status",
+			expectHeader:                   "X-Waf-Status",
+			expectHeaderValue:              "ok",
 		},
 		{
 			name:                           "Adds remediation header when request is blocked",

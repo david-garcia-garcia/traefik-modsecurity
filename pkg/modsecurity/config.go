@@ -17,6 +17,9 @@ const (
 
 // BypassRule is one operator allowlist entry: optional method and optional path regexp.
 // Empty method matches every method. Empty pathRegexp matches every path.
+// PathRegexp is Go RE2, matched with unanchored MatchString against req.URL.Path
+// (percent-decoded, not slash-normalized). The plugin does not insert ^ or $.
+// Write ^/health$ for an exact path, ^/admin/ for a prefix.
 type BypassRule struct {
 	Method     string `json:"method,omitempty"`
 	PathRegexp string `json:"pathRegexp,omitempty"`

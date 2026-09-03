@@ -8,12 +8,19 @@ Lets an operator skip ModSecurity sidecar inspection for selected HTTP method an
 
 ### Requirement: Omitted bypassRules inspects every request
 
-When `bypassRules` is omitted or empty, the plugin SHALL send the request to ModSecurity (subject to the other skip rules already specified: WebSocket handshake and already-unhealthy backoff). The plugin SHALL NOT skip the sidecar solely because `bypassRules` is absent.
+When `bypassRules` is omitted or empty, the plugin SHALL send the request to ModSecurity (subject to already-unhealthy backoff). The plugin SHALL NOT skip the sidecar solely because `bypassRules` is absent. The plugin SHALL NOT skip the sidecar because the request looks like a WebSocket handshake.
 
 #### Scenario: No rules still inspects
 
 - **WHEN** `bypassRules` is omitted
-- **AND** the request is not a WebSocket handshake and the health tracker is not in backoff
+- **AND** the health tracker is not in backoff
+- **THEN** the plugin SHALL send the request to ModSecurity
+
+#### Scenario: Handshake GET without a rule is inspected
+
+- **WHEN** `bypassRules` is omitted
+- **AND** a `GET` has `Connection` containing the token `upgrade` and `Upgrade` matching `websocket` case-insensitively
+- **AND** the health tracker is not in backoff
 - **THEN** the plugin SHALL send the request to ModSecurity
 
 ### Requirement: Method and pathRegexp both match to skip
@@ -77,3 +84,35 @@ When a request matches a bypass rule, the plugin SHALL call the next handler wit
 - **AND** the client sends `GET /any` with a non-empty body
 - **THEN** the plugin SHALL call the next handler
 - **AND** the plugin SHALL NOT return HTTP 400 for a denied-verb body
+
+### Requirement: pathRegexp is unanchored substring search
+
+When a `bypassRules` entry has a non-empty `pathRegexp`, the plugin SHALL match it with unanchored substring search against `req.URL.Path`. The plugin SHALL NOT insert `^`, `$`, `\A`, or `\z` around the operator pattern. Prefix or exact-path matching SHALL require those anchors in the operator-supplied `pathRegexp`.
+
+#### Scenario: Unanchored slash-health skips healthz
+
+- **WHEN** `bypassRules` contains `{ pathRegexp: /health }`
+- **AND** the client sends `GET /healthz`
+- **THEN** the plugin SHALL call the next handler without sending the request to ModSecurity
+
+#### Scenario: Unanchored slash-health skips a later segment
+
+- **WHEN** `bypassRules` contains `{ pathRegexp: /health }`
+- **AND** the client sends `GET /index.php/health`
+- **THEN** the plugin SHALL call the next handler without sending the request to ModSecurity
+
+#### Scenario: Operator exact anchor does not skip a longer path
+
+- **WHEN** `bypassRules` contains `{ pathRegexp: ^/health$ }`
+- **AND** the client sends `GET /healthz`
+- **THEN** the plugin SHALL send the request to ModSecurity
+
+### Requirement: pathRegexp matches the percent-decoded path
+
+The plugin SHALL match `pathRegexp` against `req.URL.Path`. The plugin SHALL NOT reject a bypass solely because the path contains `.` or `..` segments, or solely because the escaped request target differs from `req.URL.Path`.
+
+#### Scenario: Dot-dot in the path still matches
+
+- **WHEN** `bypassRules` contains `{ pathRegexp: /health }`
+- **AND** the client sends `GET /health/../index.php`
+- **THEN** the plugin SHALL call the next handler without sending the request to ModSecurity

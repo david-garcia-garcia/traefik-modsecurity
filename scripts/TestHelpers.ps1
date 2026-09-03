@@ -895,28 +895,30 @@ http:
 
 <#
 .SYNOPSIS
-    Opens a WebSocket, sends one text frame, and returns the echoed payload.
+    Opens a WebSocket, sends text frames, and returns each echoed payload.
 
 .DESCRIPTION
     Uses System.Net.WebSockets.ClientWebSocket so the test drives a real
-    RFC 6455 handshake (GET, Connection: upgrade, Upgrade: websocket, Key, Version)
-    through Traefik and this plugin, then checks the backend still speaks frames.
+    RFC 6455 handshake through Traefik and this plugin, then proves the
+    tunnel still speaks frames: each message is sent and must be echoed
+    on that same connection before the next send. A 101 without a
+    round-trip is not enough.
 
 .PARAMETER Uri
     WebSocket URL (ws://host/path).
 
 .PARAMETER Message
-    Text frame to send.
+    One or more text frames to send in order.
 
 .PARAMETER TimeoutSec
-    Connect/send/receive deadline.
+    Connect/send/receive deadline for the whole session.
 #>
 function Invoke-WebSocketEcho {
     param(
         [Parameter(Mandatory)]
         [string]$Uri,
         [Parameter(Mandatory)]
-        [string]$Message,
+        [string[]]$Message,
         [int]$TimeoutSec = 10
     )
 
@@ -929,28 +931,38 @@ function Invoke-WebSocketEcho {
             throw "WebSocket connect finished in state $($ws.State)"
         }
 
-        $sendBytes = [System.Text.Encoding]::UTF8.GetBytes($Message)
-        $sendSegment = [System.ArraySegment[byte]]::new($sendBytes)
-        $null = $ws.SendAsync(
-            $sendSegment,
-            [System.Net.WebSockets.WebSocketMessageType]::Text,
-            $true,
-            $cts.Token
-        ).GetAwaiter().GetResult()
+        $echoed = [System.Collections.Generic.List[string]]::new()
+        foreach ($payload in $Message) {
+            $sendBytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+            $sendSegment = [System.ArraySegment[byte]]::new($sendBytes)
+            $null = $ws.SendAsync(
+                $sendSegment,
+                [System.Net.WebSockets.WebSocketMessageType]::Text,
+                $true,
+                $cts.Token
+            ).GetAwaiter().GetResult()
 
-        $recvBuffer = [byte[]]::new(4096)
-        $recvSegment = [System.ArraySegment[byte]]::new($recvBuffer)
-        $echoed = $null
-        while ($true) {
-            $received = $ws.ReceiveAsync($recvSegment, $cts.Token).GetAwaiter().GetResult()
-            if ($received.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
-                throw "WebSocket closed before the payload was echoed"
+            $recvBuffer = [byte[]]::new(4096)
+            $recvSegment = [System.ArraySegment[byte]]::new($recvBuffer)
+            $matched = $false
+            while ($true) {
+                $received = $ws.ReceiveAsync($recvSegment, $cts.Token).GetAwaiter().GetResult()
+                if ($received.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+                    throw "WebSocket closed before payload was echoed: $payload"
+                }
+                $text = [System.Text.Encoding]::UTF8.GetString($recvBuffer, 0, $received.Count)
+                # echo-server may write a greeting before it echoes.
+                if ($text -eq $payload) {
+                    $echoed.Add($text)
+                    $matched = $true
+                    break
+                }
             }
-            $text = [System.Text.Encoding]::UTF8.GetString($recvBuffer, 0, $received.Count)
-            # echo-server writes an empty or hostname greeting before it echoes.
-            if ($text -eq $Message) {
-                $echoed = $text
-                break
+            if (-not $matched) {
+                throw "WebSocket did not echo payload: $payload"
+            }
+            if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+                throw "WebSocket not Open after echo of $payload (state $($ws.State))"
             }
         }
 
@@ -960,7 +972,7 @@ function Invoke-WebSocketEcho {
             $cts.Token
         ).GetAwaiter().GetResult()
 
-        return $echoed
+        return ,$echoed.ToArray()
     }
     finally {
         $ws.Dispose()
