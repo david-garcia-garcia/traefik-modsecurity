@@ -59,8 +59,8 @@ inbound GET (empty / cancel / HTTP/2 RST)
   By: explore
 
 - Q: New spec leaf vs fold onto `websocket-skip` and `request-context`?
-  Decision: assumed — fold. `isWebsocket` no-panic belongs on `core_plugin_middleware_websocket-skip`. Cancel / HTTP/2 abort no nil-deref belongs on `core_plugin_middleware_request-context`. FindSpecHost at propose confirms.
-  By: explore
+  Decision: resolved — fold. FindSpecHost: `core_plugin_middleware_websocket-skip` (handshake detection no-panic) and `core_plugin_middleware_request-context` (inbound abort no nil-deref). Confidence high. Candidates: websocket-skip, request-context, deny-verbs-with-body.
+  By: propose
 
 - Q: Write a Go `Header.Values` research folder?
   Decision: assumed — no. Stdlib `Header.Values` on a missing/nil map is a nil slice; the tests pin it. Existing `ext_http_*` packets already cover cancel and the handshake.
