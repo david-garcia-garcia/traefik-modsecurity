@@ -11,5 +11,5 @@ localTests: none
 requirement: requirement.md
 comments: none
 explore: explore.md
-change: none
+change: cover-four-integration-gaps
 pr: { id: 39, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/39 }
