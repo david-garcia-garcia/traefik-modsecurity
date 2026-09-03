@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestPlugin_BypassRules asserts method/path match, miss, method-only, path-only, header token, and inspect-when-empty.
+// TestPlugin_BypassRules asserts method/path match, miss, method-only, path-only, unanchored substring skip, operator exact anchor, header token, and inspect-when-empty.
 func TestPlugin_BypassRules(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -85,6 +85,39 @@ func TestPlugin_BypassRules(t *testing.T) {
 			method:       http.MethodGet,
 			path:         "/admin",
 			wantNoHeader: true,
+		},
+		{
+			name:        "unanchored slash-health skips healthz",
+			bypassRules: []BypassRule{{PathRegexp: `/health`}},
+			method:      http.MethodGet,
+			path:        "/healthz",
+			headerName:  "X-Waf-Status",
+			wantHeader:  bypassStatusToken,
+		},
+		{
+			name:        "unanchored slash-health skips later segment",
+			bypassRules: []BypassRule{{PathRegexp: `/health`}},
+			method:      http.MethodGet,
+			path:        "/index.php/health",
+			headerName:  "X-Waf-Status",
+			wantHeader:  bypassStatusToken,
+		},
+		{
+			name:        "operator exact anchor inspects longer path",
+			bypassRules: []BypassRule{{PathRegexp: `^/health$`}},
+			method:      http.MethodGet,
+			path:        "/healthz",
+			headerName:  "X-Waf-Status",
+			wantWAF:     true,
+			wantHeader:  "ok",
+		},
+		{
+			name:        "unanchored slash-health skips dot-dot path",
+			bypassRules: []BypassRule{{PathRegexp: `/health`}},
+			method:      http.MethodGet,
+			path:        "/health/../index.php",
+			headerName:  "X-Waf-Status",
+			wantHeader:  bypassStatusToken,
 		},
 	}
 

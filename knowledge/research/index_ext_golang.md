@@ -9,3 +9,8 @@ description: How Go regexp Compile, QuoteMeta, and `|` join already-valid patter
 priority: normal
 local: ext_golang_bytes_buffer-bytes/
 description: Whether bytes.Buffer.Bytes returns a slice that aliases the Buffer backing array.
+
+## URL Path RawPath EscapedPath
+priority: normal
+local: ext_golang_url_path/
+description: How Go net/url stores Path versus RawPath, and whether Parse slash-normalizes the path.
