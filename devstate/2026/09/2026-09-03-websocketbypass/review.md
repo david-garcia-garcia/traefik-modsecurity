@@ -23,3 +23,15 @@ phase: implement
 findings: none
 fixed: dropped isWebsocket; Del status header; two-frame WebSocket echo integration
 skipped: none
+
+## codereview (2026-09-03T07:30:27.709Z)
+phase: codereview
+findings: Standards 2 judgement (duplicated handshake tests; HandshakeHitsSidecar in issue-#5 file)
+fixed: none (no hard findings)
+skipped: Standards 1 and 2 (judgement; unattended applies hard only)
+
+## devdocsimpact (2026-09-03T07:31:53.040Z)
+phase: devdocsimpact
+findings: none
+fixed: none (usage already matched)
+skipped: none
