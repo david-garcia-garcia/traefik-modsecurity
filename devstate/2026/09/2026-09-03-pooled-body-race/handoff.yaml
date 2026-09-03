@@ -7,7 +7,7 @@ repoSlug: traefik-modsecurity
 destBranch: main
 qualify: qualified
 src: 0be86dd83e5f0cbdb602f14ca708b1f7966a00265d933e8b04482ff89007186a
-localTests: none
+localTests: passed
 requirement: requirement.md
 comments: none
 explore: explore.md
