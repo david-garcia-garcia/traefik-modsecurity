@@ -93,7 +93,7 @@ Treat them as a ballpark, not a promise.
 The plugin classifies the sidecar HTTP status (see [Architecture](#architecture) for the service layout):
 
 - **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
-- **3xx / 4xx** — security block: copy the sidecar response to the client. When `modSecurityStatusRequestHeader` is set, write `blocked`.
+- **3xx / 4xx** — security block: copy the sidecar response to the client, omitting hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server`. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible. When `modSecurityStatusRequestHeader` is set, write `blocked`.
 - **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
 ## Trust this middleware (client IP in WAF logs)
