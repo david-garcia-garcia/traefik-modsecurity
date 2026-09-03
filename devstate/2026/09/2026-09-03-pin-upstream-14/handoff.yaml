@@ -1,0 +1,15 @@
+issueKey: 2026-09-03-pin-upstream-14
+jobName: 2026-09-03-pin-upstream-14
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: 75fb718adb469714e7c219a70cf538d102937f3156bd85e821f5f1cbb1616b76
+localTests: none
+requirement: requirement.md
+comments: none
+explore: none
+change: none
+pr: none
