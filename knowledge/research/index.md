@@ -24,3 +24,8 @@ description: Official golangci-lint runner and GitHub Action this product can ad
 priority: normal
 local: index_ext_modsecurity.md
 description: Official ModSecurity, OWASP CRS, Apache/nginx sidecar HTTP status, and CRS rule inputs this product forwards to a WAF sidecar.
+
+## authelia
+priority: normal
+local: index_ext_authelia.md
+description: Official Authelia portal HTTP API this product may sit in front of.
