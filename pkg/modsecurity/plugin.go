@@ -27,6 +27,7 @@ type Plugin struct {
 	maxBodySizeBytes               int64
 	maxBodySizeBytesForPool        int64
 	denyVerbsWithBody              map[string]bool
+	compiledBypass                 compiledBypass
 }
 
 // New builds the Plugin. cfg must already be Prepare'd. logger is the shared core logger.
@@ -84,6 +85,11 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		healthTracker = health.New(backoff, window, cfg.UnhealthyWafFailureThreshold, logger)
 	}
 
+	pathBypass, err := compileBypassByMethod(cfg.BypassRules)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Plugin{
 		modSecurityUrl: cfg.ModSecurityUrl,
 		name:           name,
@@ -102,6 +108,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
 		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,
 		denyVerbsWithBody:              createMethodSet(cfg.DenyVerbsWithBody),
+		compiledBypass:                 pathBypass,
 	}, nil
 }
 
