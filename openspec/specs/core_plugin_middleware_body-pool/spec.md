@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Keep the request-body reuse pool from retaining oversized checkout buffers, including when the client omits a reliable Content-Length (chunked or unknown size). Keep pooled unread bytes from remaining aliased to a buffer that can be Put and Reset while a sidecar or `next` reader still holds them — via a two-consumer gate (`doneReadCloser`), not by copy-out of every pooled body.
+Keep the request-body reuse pool from retaining oversized checkout buffers, including when the client omits a reliable Content-Length (chunked or unknown size). Keep pooled unread bytes from remaining aliased to a buffer that can be Put and Reset while a sidecar or `next` reader still holds them — by copying pooled bytes out before Put (required under Yaegi local plugins; a `doneReadCloser` gate hung client response flush in Traefik Yaegi).
 
 ## Requirements
 
@@ -37,7 +37,7 @@ When the plugin reads a request body and `maxBodySizeBytesForPool` is set, it SH
 
 ### Requirement: Unknown-length reads stay within the pool checkout bound
 
-On the pool path, the plugin SHALL NOT `io.Copy` the entire unknown-length body into the checkout buffer. It SHALL read at most `maxBodySizeBytesForPool` into the checkout buffer. If more body bytes remain, it SHALL Put that checkout buffer and assemble an owned slice for the full body. If the body fits in the bound, the returned bytes MAY alias the checkout buffer until both consumers Close.
+On the pool path, the plugin SHALL NOT `io.Copy` the entire unknown-length body into the checkout buffer. It SHALL read at most `maxBodySizeBytesForPool` into the checkout buffer. If more body bytes remain, it SHALL Put that checkout buffer and assemble an owned slice for the full body. If the body fits in the bound, the plugin SHALL copy those bytes into an owned slice and Put the checkout buffer before returning (so sidecar and `next` never alias a pooled buffer).
 
 #### Scenario: Chunked overflow Puts the checkout buffer
 
@@ -45,10 +45,11 @@ On the pool path, the plugin SHALL NOT `io.Copy` the entire unknown-length body 
 - **THEN** the plugin SHALL return the checkout buffer to the reuse pool before serving the request
 - **AND** sidecar and `next` SHALL each receive the full owned body
 
-#### Scenario: Bounded pooled read is returned after consumers finish
+#### Scenario: Bounded pooled read Puts before return
 
 - **WHEN** a pooled read finishes with a body at or under `maxBodySizeBytesForPool`
-- **THEN** after both the sidecar and request body consumers Close, the plugin SHALL return that checkout buffer to the reuse pool
+- **THEN** the plugin SHALL copy those bytes into an owned slice and Put the checkout buffer before `ServeHTTP` continues to the sidecar
+- **AND** sidecar and `next` SHALL each receive that owned slice (not an alias of a pooled buffer)
 
 ### Requirement: Body reuse pool is per Plugin core
 
@@ -69,24 +70,24 @@ When one Plugin core handles concurrent `ServeHTTP` calls whose inbound bodies m
 - **THEN** each sidecar call and each `next` call SHALL receive that request's own body
 - **AND** `go test -race` SHALL report no data race on that path
 
-### Requirement: Pooled body Put waits for both consumers
+### Requirement: Pooled body is copied out before Put
 
-After a successful pooled inbound-body read with bytes, the plugin SHALL wrap sidecar and `next` bodies so Put runs only when both consumers have finished (Close on each `doneReadCloser`, including explicit Close on every ServeHTTP exit path). The plugin SHALL NOT Put a `bytes.Buffer` while any sidecar RoundTripper or `next` reader still aliases that buffer's backing array. A later Get and Reset of the same buffer SHALL NOT change what an earlier request's still-live readers observe.
+After a successful pooled inbound-body read, the plugin SHALL copy the bytes into an owned slice and Put the checkout buffer before returning from the read. Sidecar and `next` SHALL NOT receive a slice that aliases a pooled `bytes.Buffer` backing array. A later Get and Reset of the same buffer SHALL NOT change what an earlier request's readers observe.
 
-An empty pooled body SHALL Put immediately and SHALL NOT install a two-consumer gate.
+An empty pooled body SHALL Put immediately.
 
 #### Scenario: Delayed sidecar body read still sees the first POST
 
 - **WHEN** a pooled POST body is all byte `0xAA` and the sidecar RoundTripper holds `Request.Body` without Closing until after a second pooled POST on the same Plugin core has begun
 - **THEN** when the first RoundTripper reads `Request.Body`, that body SHALL be the first POST (`0xAA`), not the second (`0xBB`)
-- **AND** the first checkout buffer SHALL NOT have been Put while the first RoundTrip still holds it
+- **AND** the first checkout buffer SHALL already have been Put (with a copy retained for the first RoundTrip)
 
-#### Scenario: Allow path Puts when Transport and next omit Close
+#### Scenario: Allow path does not need consumer Close to Put
 
 - **WHEN** a pooled POST is allowed by the sidecar (status below 300)
 - **AND** a custom RoundTripper does not Close the sidecar request body
 - **AND** `next` does not Close `req.Body`
-- **THEN** after `ServeHTTP` returns, the plugin SHALL still have Put that request's checkout buffer
+- **THEN** the checkout buffer SHALL already have been Put during the inbound body read (owned copies remain for both consumers)
 
 #### Scenario: Pooled allow still forwards the body
 
