@@ -20,3 +20,10 @@ phase: propose
 findings: fold four middleware specs
 fixed: none
 skipped: none
+
+## implement (2026-09-03)
+
+phase: implement
+findings: four live Its + 503 fixture
+fixed: none
+skipped: none
