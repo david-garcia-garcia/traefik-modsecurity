@@ -19,4 +19,12 @@ findings: fold sidecar-response; tests only
 fixed: OpenSpec pin-allow-path-backend-headers apply-ready; usage sentence
 skipped: ServeHTTP; Yaegi
 
+## implement (2026-09-03)
+
+phase: implement
+findings: none
+fixed: landed upstream_issue_29_test.go; go test ./... passed; serve.go unchanged
+skipped: none
+
+
 

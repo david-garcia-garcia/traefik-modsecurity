@@ -30,6 +30,7 @@ func issue29Backend(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, issue29Body)
 }
 
+// issue29WAF is a sidecar allow (200) that also sets X-Waf so a leak is visible.
 func issue29WAF(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, r.Body)
 	w.Header().Set("X-Waf", issue29SidecarWaf)
@@ -37,6 +38,7 @@ func issue29WAF(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "sidecar allow")
 }
 
+// issue29NewRoute builds a Plugin route: WAF 200 sidecar, next is issue29Backend.
 func issue29NewRoute(t *testing.T) http.Handler {
 	t.Helper()
 	waf := httptest.NewServer(http.HandlerFunc(issue29WAF))
@@ -57,6 +59,7 @@ func issue29NewRoute(t *testing.T) http.Handler {
 	return route
 }
 
+// issue29AssertClientHeaders fails unless status, body, CORS, and X-Backend match next and X-Waf is absent.
 func issue29AssertClientHeaders(t *testing.T, h http.Header, body string, status int) {
 	t.Helper()
 	if status != http.StatusOK {
