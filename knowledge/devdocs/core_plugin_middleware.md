@@ -31,7 +31,7 @@ The HTTP response from `ModSecurityUrl`. On allow the plugin discards its body; 
 _Avoid_: WAF page (ambiguous with `next`)
 
 **Status request header**:
-The optional request header named by `modSecurityStatusRequestHeader`. Traefik access logs keep it so operators can tell allow (`ok`) from a block (`blocked`) from a broken WAF (`error`) from fail-open (`unhealthy`). It is not a response header and it is not an HTTP status code.
+The optional request header named by `modSecurityStatusRequestHeader`. Traefik access logs keep it so operators can tell allow (`ok`) from a block (`blocked`) from a broken WAF (`error`) from fail-open (`unhealthy`) from a bypass-rule skip (`bypassrule`). It is not a response header and it is not an HTTP status code.
 _Avoid_: remediation header, WAF response header
 
 **Body buffer pool**:
@@ -41,6 +41,10 @@ _Avoid_: body cache, request buffer (ambiguous with `MaxBytesReader`), process-w
 **Denied-verb body**:
 A request body whose method is listed in `denyVerbsWithBody`. The plugin rejects that request with HTTP 400.
 _Avoid_: ignored-verb body, ignoreBodyForVerbs
+
+**Bypass rule**:
+One operator `bypassRules` entry: optional HTTP method and optional path regexp. A match skips the sidecar, body buffering, and denied-verb-body reject, and writes `bypassrule` on the status request header when that name is set.
+_Avoid_: router skip (a Traefik router without this middleware)
 
 **WAF base URL**:
 The prepared `ModSecurityUrl`: an absolute `http` or `https` origin (scheme + host and optional port) with no path. `ServeHTTP` concatenates it with the request URI.
@@ -64,8 +68,9 @@ Traefik loads this repo as an HTTP middleware plugin. Export `CreateConfig` and 
 - After `Do`, a sidecar `3xx` or `4xx` is copied with `forwardResponse`, then `discardSidecarBody`, then return. Allow and 5xx `discardSidecarBody` (256 KiB cap) so the shared client can reuse the TCP connection, then fail-open/502 or `next`. Do not buffer the sidecar body on the allow path. On allow, do not copy sidecar response headers onto the client `ResponseWriter`; `next` writes the headers the client sees (CORS and custom backend headers included). After the inbound body is read, restore `req.Body` once so pass and fail-open both still have it for Traefik.
 - Read the inbound body with `readInboundBody` (`pkg/modsecurity/body.go`). Wrap with `http.MaxBytesReader` only when `maxBodySizeBytes > 0`; a leftover handler field `0` must not install a zero-limit reader (that 413s every non-empty POST). The pool is created in `New` on that Plugin core (`p.bodyBufferPool`); do not use a package-level pool. Choose the pool from `req.ContentLength` (not `Header.Get("Content-Length")`). Known length above `maxBodySizeBytesForPool` uses ad-hoc allocation. `-1` (unknown) still uses the pool. Defer the returned `release` from `ServeHTTP` so Put runs after `next`; do not Put inside the helper (`buf.Bytes()` aliases the pooled array). Put only when `buf.Cap()` is at or under that cap. When the read returns an error, `ServeHTTP` writes 413 or 502 via `replyInboundBodyReadFailure`.
 - When the method is in `denyVerbsWithBody` and the request has a body, return HTTP 400 before the sidecar and before `next`, including when the WAF is already unhealthy. Omitted `denyVerbsWithBody` uses the CreateConfig default list. An explicit empty slice denies nothing. Methods not on the list are inspected and forwarded.
+- `bypassRules` is optional. Compile in `pkg/modsecurity/bypass.go` into one regexp per uppercase method (each `pathRegexp` wrapped `(?:…)` and joined with `|`). ServeHTTP does one map lookup then at most one `MatchString` on `req.URL.Path` before websocket, denyVerbsWithBody, and body read. A match writes `bypassrule` when the status header name is set, then `next`. Invalid `pathRegexp` fails Prepare. MatchString is unanchored (`health` matches `/unhealthy`).
 - On a sidecar `3xx` or `4xx` (security block), copy the WAF response and do not call `next`. When `modSecurityStatusRequestHeader` is set, write `blocked`. Do not write an HTTP status code on that header.
-- On a local body-too-large reject, write `blocked` on that header and return 413. On every sidecar `httpClient.Do` failure, every sidecar `5xx`, and when the forwarded sidecar request cannot be built, write `error` even when no health tracker exists. Do not write `cannotforward`. Keep `unhealthy` for an already-down tracker. On sidecar allow (status below 300), write `ok`. Leave the header unset on a WebSocket skip and on inbound `Canceled`.
+- On a local body-too-large reject, write `blocked` on that header and return 413. On every sidecar `httpClient.Do` failure, every sidecar `5xx`, and when the forwarded sidecar request cannot be built, write `error` even when no health tracker exists. Do not write `cannotforward`. Keep `unhealthy` for an already-down tracker. On sidecar allow (status below 300), write `ok`. Write `bypassrule` on a bypass-rule match. Leave the header unset on a WebSocket skip and on inbound `Canceled`.
 - Log client-fault rejections (`denyVerbsWithBody` body, body too large) at `Warn`. Log infrastructure failures (cannot read the body for another reason, cannot reach ModSecurity) at `Error`. Use the core slog logger, not the global `log` package. Traefik `--log.level` does not reach this plugin.
 
 ## Pattern snippet
@@ -90,13 +95,13 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 
 - `.traefik.yml` — catalog type, import path, `testData`.
 - `modsecurity.go` — Yaegi `CreateConfig`, `New`, `Config` alias.
-- `pkg/modsecurity/` — `Config`, `Plugin`, `Route`, `ServeHTTP`, `readInboundBody`.
+- `pkg/modsecurity/` — `Config`, `Plugin`, `Route`, `ServeHTTP`, `readInboundBody`, `compileBypassByMethod`.
 - `docker-compose.local.yml` / `docker-compose.test.yml` — `--experimental.localPlugins` plus bind-mount `.:/plugins-local/src/github.com/david-garcia-garcia/traefik-modsecurity`.
 - `docker-compose.yml` — catalog plugin (`--experimental.plugins` + `version=`), not a local mount.
 
 ## Gotchas
 
-- A GET WebSocket handshake (`Connection` contains the token `upgrade`, `Upgrade` matches `websocket` case-insensitively) skips the WAF and goes straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`). A request that only adds `Upgrade: websocket` is inspected.
+- A GET WebSocket handshake (`Connection` contains the token `upgrade`, `Upgrade` matches `websocket` case-insensitively) skips the WAF and goes straight to `next` (`isWebsocket` in `pkg/modsecurity/serve.go`). A request that only adds `Upgrade: websocket` is inspected. A `bypassRules` match is checked first and writes `bypassrule` instead.
 - Demo compose pins a released module version; local and test compose load this working tree. Do not mix those flags on one Traefik process.
 - Traefik still calls `New` per route. Same middleware name and prepared config share one Plugin core (one WAF pool and one health tracker). A different name or config creates another core.
 - A slow `New` blocks Traefik startup: routes stay down until every middleware constructor returns. Keep `New` free of network I/O.

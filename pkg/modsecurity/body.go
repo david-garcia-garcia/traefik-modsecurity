@@ -7,8 +7,14 @@ import (
 	"sync"
 )
 
+// bufferPool is Get and Put for inbound body buffers. *sync.Pool implements it so tests can count Put.
+type bufferPool interface {
+	Get() any
+	Put(any)
+}
+
 // newBodyBufferPool returns a pool of bytes.Buffer for inbound body reads.
-func newBodyBufferPool() *sync.Pool {
+func newBodyBufferPool() bufferPool {
 	return &sync.Pool{
 		New: func() interface{} {
 			return new(bytes.Buffer)

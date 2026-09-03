@@ -16,6 +16,15 @@ const sidecarBodyDrainLimit = 256 << 10
 
 // ServeHTTP proxies req to ModSecurity, then either blocks or calls next.
 func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
+	// Operator allowlist: skip sidecar, body buffer, and local verb-body reject.
+	if p.compiledBypass.match(req) {
+		if p.modSecurityStatusRequestHeader != "" {
+			req.Header.Set(p.modSecurityStatusRequestHeader, bypassStatusToken)
+		}
+		next.ServeHTTP(rw, req)
+		return
+	}
+
 	if isWebsocket(req) {
 		next.ServeHTTP(rw, req)
 		return

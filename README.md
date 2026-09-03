@@ -235,8 +235,25 @@ http:
           # - "blocked" when the sidecar returns 3xx/4xx, or this plugin rejects an oversize body
           # - "error" when the sidecar is unreachable, returns 5xx, or the sidecar request cannot be built
           # - "unhealthy" when ModSecurity is down and backoff is already tripped
+          # - "bypassrule" when a bypassRules entry matched (sidecar was not called)
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
+
+          bypassRules: []
+          # OPTIONAL: Skip the sidecar for matching method+path patterns (no body buffer, no WAF hop)
+          # Default: empty (inspect every request, subject to WebSocket and unhealthy skips)
+          # Each entry:
+          #   method: HTTP method (case-insensitive). Empty = any method
+          #   pathRegexp: Go RE2 regexp matched against the URL path (not the query). Empty = any path
+          # Both set: both must match. MatchString is unanchored (`health` matches `/unhealthy`);
+          # write `^/health$` for an exact path.
+          # Invalid pathRegexp fails plugin construction.
+          # Example:
+          # bypassRules:
+          #   - method: GET
+          #     pathRegexp: ^/admin/
+          #   - pathRegexp: /healthz
+          # When modSecurityStatusRequestHeader is set, matching requests get "bypassrule"
           
           #-------------------------------
           # Advanced Transport Configuration

@@ -1,0 +1,17 @@
+issueKey: 2026-09-03-add-bypass-routes
+jobName: 2026-09-03-add-bypass-routes
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified-with-gaps
+src: e43151a71ecb9456d524747db8d80d4b982c2352ad1fb30fd5ebd6a4b4800f39
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: bypass-rules
+pr:
+  id: 40
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/40
