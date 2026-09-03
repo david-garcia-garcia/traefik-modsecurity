@@ -1,0 +1,6 @@
+host: local
+ref: none
+title: Pin native-Go allow-path backend response headers (upstream #29)
+url: none
+number: none
+upstream: https://github.com/acouvreur/traefik-modsecurity-plugin/issues/29

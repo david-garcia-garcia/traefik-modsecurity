@@ -25,6 +25,116 @@ function Get-WafContainerName {
     return $name
 }
 
+function Get-DummyContainerName {
+    # Unlabeled CRS origin (traefik/whoami). Present on *-whoami stacks; absent on *-drain.
+    docker ps --format "{{.Names}}" | Where-Object { $_ -like "*-dummy-1" } | Select-Object -First 1
+}
+
+function Get-IntegrationStackComposeFiles {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('apache-whoami', 'nginx-whoami', 'apache-drain', 'nginx-drain')]
+        [string]$Stack
+    )
+    switch ($Stack) {
+        'apache-whoami' { @('./docker-compose.test.yml') }
+        'nginx-whoami' { @('./docker-compose.test.nginx.yml') }
+        'apache-drain' { @('./docker-compose.test.yml', './docker-compose.test.apache-drain.yml') }
+        'nginx-drain' { @('./docker-compose.test.nginx.yml', './docker-compose.test.nginx-drain.yml') }
+    }
+}
+
+function Get-IntegrationOriginKind {
+    $stack = $env:INTEGRATION_STACK
+    if ($stack -like '*-drain') { return 'drain' }
+    if ($stack -like '*-whoami') { return 'whoami' }
+    if (Get-DummyContainerName) { return 'whoami' }
+    return 'drain'
+}
+
+function Test-IsDrainOrigin {
+    return (Get-IntegrationOriginKind) -eq 'drain'
+}
+
+function Test-IsWhoamiOrigin {
+    return (Get-IntegrationOriginKind) -eq 'whoami'
+}
+
+function Get-BombardierCommand {
+    $cmd = Get-Command bombardier -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $candidates = @()
+    if ($env:GOPATH) {
+        $candidates += (Join-Path $env:GOPATH 'bin/bombardier.exe')
+        $candidates += (Join-Path $env:GOPATH 'bin/bombardier')
+    }
+    $goPath = $null
+    try { $goPath = (& go env GOPATH 2>$null | Select-Object -First 1) } catch { }
+    if ($goPath) {
+        $candidates += (Join-Path $goPath 'bin/bombardier.exe')
+        $candidates += (Join-Path $goPath 'bin/bombardier')
+    }
+    foreach ($p in $candidates) {
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
+    }
+    return $null
+}
+
+function Invoke-AllowPathBombardier {
+    param(
+        [string]$Url = 'http://localhost:8000/protected',
+        [ValidateSet('GET', 'POST')]
+        [string]$Method = 'GET',
+        [string]$Body = 'name=john&email=john@example.com',
+        [int]$Connections = 50,
+        [string]$Duration = '15s'
+    )
+    $bin = Get-BombardierCommand
+    if (-not $bin) { return $null }
+
+    $argList = @('-c', "$Connections", '-d', $Duration, '-m', $Method, '--http1')
+    if ($Method -eq 'POST') {
+        $argList += @('-b', $Body, '-H', 'Content-Type: application/x-www-form-urlencoded')
+    }
+    $argList += $Url
+
+    $output = & $bin @argList 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "bombardier exited $LASTEXITCODE`n$output"
+    }
+
+    $reqs = $null
+    $latencyMs = $null
+    $xx2 = $null
+    $xx5 = $null
+    if ($output -match 'Reqs/sec\s+([\d.]+)') { $reqs = [double]$Matches[1] }
+    if ($output -match 'Latency\s+([\d.]+)(us|ms|s)') {
+        $n = [double]$Matches[1]
+        switch ($Matches[2]) {
+            'us' { $latencyMs = $n / 1000.0 }
+            'ms' { $latencyMs = $n }
+            's' { $latencyMs = $n * 1000.0 }
+        }
+    }
+    if ($output -match '2xx\s*-\s*(\d+)') { $xx2 = [int]$Matches[1] }
+    if ($output -match '5xx\s*-\s*(\d+)') { $xx5 = [int]$Matches[1] }
+
+    $stack = $env:INTEGRATION_STACK
+    if (-not $stack) { $stack = 'unknown' }
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $lat = if ($null -ne $latencyMs) { $latencyMs.ToString('0.00', $inv) } else { 'n/a' }
+    $rps = if ($null -ne $reqs) { $reqs.ToString('0.00', $inv) } else { 'n/a' }
+    Write-Host "BENCH stack=$stack method=$Method rps=$rps latency_ms=$lat xx2=$xx2 xx5=$xx5" -ForegroundColor Magenta
+
+    return [pscustomobject]@{
+        Output     = $output
+        ReqsPerSec = $reqs
+        LatencyMs  = $latencyMs
+        Status2xx  = $xx2
+        Status5xx  = $xx5
+    }
+}
+
 function Wait-ForWafHealthy {
     param(
         [Parameter(Mandatory)]

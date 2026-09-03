@@ -59,6 +59,23 @@ The shared WAF HTTP client SHALL return the sidecar's own response. It SHALL NOT
 - **WHEN** the sidecar returns 302 with Location pointing at a 200 notice page
 - **THEN** the plugin SHALL treat that 302 as a block and SHALL NOT request the notice page
 
+### Requirement: Allow path keeps next response headers
+
+When the sidecar response status is below 300, the plugin SHALL call `next` with the same client `ResponseWriter` it received. The client SHALL receive the response headers `next` writes. The plugin SHALL NOT copy sidecar response headers onto that writer on the allow path.
+
+#### Scenario: Backend CORS headers survive a sidecar allow
+
+- **WHEN** the sidecar returns 200
+- **AND** `next` sets `Access-Control-Allow-Origin`, `Access-Control-Allow-Headers`, `Access-Control-Allow-Methods`, and a custom backend header
+- **THEN** the client SHALL receive status 200, `next`'s body, and those headers
+- **AND** headers that exist only on the sidecar response SHALL NOT appear on the client
+
+#### Scenario: Both a real ResponseWriter and a recorder keep next headers
+
+- **WHEN** the same allow request is served through a real `net/http` `ResponseWriter` and through an in-memory recorder
+- **THEN** both surfaces SHALL expose `next`'s CORS and custom backend headers
+- **AND** neither surface SHALL expose sidecar-only response headers
+
 ### Requirement: Sidecar 400 and 413 on a KeePass-sized PUT are copied as a block
 
 When a PUT request carries a 228565-byte body and the sidecar returns HTTP 400 or HTTP 413, the plugin SHALL copy that status to the client and SHALL NOT call `next`. The plugin SHALL NOT replace that sidecar status with a local deny-verb 400 or a local oversize 413. The plugin SHALL NOT expose a configuration key that shadows sidecar `SecRequestBodyNoFilesLimit`.
