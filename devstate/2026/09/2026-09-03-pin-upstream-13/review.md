@@ -1,5 +1,18 @@
 # Review journal
 
+## archive (2026-09-03)
+phase: archive
+findings: none
+fixed: fold sync + folder move
+skipped: none
+head: b7d02e7
+
+## devdocsimpact (2026-09-03)
+phase: devdocsimpact
+findings: stale-usage already produced at implement
+fixed: none
+skipped: none
+
 ## codereview (2026-09-03)
 phase: codereview
 findings: P1 0, P2 0
