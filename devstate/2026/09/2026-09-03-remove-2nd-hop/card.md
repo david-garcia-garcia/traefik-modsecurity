@@ -16,14 +16,14 @@ On main, every CRS inspect still `ProxyPass` / `proxy_pass` to unlabeled dummy w
 Implement landed four stacks + benches; CI on this head not seen yet. 2 items remain.
 
 Priority: P2 — real operator pain from dummy/whoami (false 4xx blocks, extra hop), with a workaround of keeping dummy on whoami test stacks
-Reviewed head: 8c32789
+Reviewed head: 13c19a0
 Owner decision: None.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
 | Overall readiness | 1/6 | Pushed apply; CI on this head not seen |
-| CI proof | 1/6 | not seen on 8c32789 |
+| CI proof | 1/6 | not seen on 13c19a0 |
 | Local tests proof | N/A | prHost github — CI proof covers remote |
 | Review resolution | 6/6 | OPEN PR 31, no review comments |
 
@@ -86,7 +86,7 @@ Apache drain vs explore whoami: GET ~+3% (noise), POST ~+23%. Nginx drain vs ngi
 | --- | --- | --- |
 | Specs in this PR | 1 added / 0 modified | Same list as Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | 8c327894b233cd05818ec582949767fd818ef890 | Card must match the branch you measured |
+| Reviewed head | 13c19a054bb9bcf11de533d8c8d0d3653b192258 | Card must match the branch you measured |
 
 ### Stored data model
 None.
@@ -107,4 +107,5 @@ What I checked:
 
 ### Rank-up moves
 - Absolute GET RPS on nginx-drain was slightly below nginx-whoami; treat as noise unless a second run repeats it.
+
 
