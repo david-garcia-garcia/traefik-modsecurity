@@ -1,0 +1,15 @@
+issueKey: 2026-09-03-improve-test-coverage
+jobName: 2026-09-03-improve-test-coverage
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: 365a5f23c2d1bb4dd2905f815aecf569f758628d0fb47009f90ffd0538fa84e0
+localTests: none
+requirement: requirement.md
+comments: none
+explore: none
+change: none
+pr: none
