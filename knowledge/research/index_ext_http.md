@@ -10,6 +10,11 @@ priority: normal
 local: ext_http_client_body-reuse/
 description: When Go's HTTP client can keep an HTTP/1 connection after Close.
 
+## Client.Do request-body lifetime
+priority: normal
+local: ext_http_client_request-body-lifetime/
+description: How Go net/http Client.Do treats Request.Body lifetime versus the write goroutine.
+
 ## Request.ContentLength
 priority: normal
 local: ext_http_request_content-length/
