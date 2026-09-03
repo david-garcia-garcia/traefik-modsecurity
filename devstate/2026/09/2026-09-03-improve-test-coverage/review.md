@@ -13,3 +13,10 @@ phase: explore
 findings: four live-stack gaps named
 fixed: none
 skipped: BodySize matrix join; inbound cancel; window tumble; OPTIONS/TRACE; CORS header copy; XFF no-append
+
+## propose (2026-09-03)
+
+phase: propose
+findings: fold four middleware specs
+fixed: none
+skipped: none
