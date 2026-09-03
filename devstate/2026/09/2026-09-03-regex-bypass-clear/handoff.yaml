@@ -1,0 +1,15 @@
+issueKey: 2026-09-03-regex-bypass-clear
+jobName: 2026-09-03-regex-bypass-clear
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: aa41074f22a9170ffb23a9d220ea6fdd6c4156654e8ca7964565f0d1b3a23f65
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: bypass-pathregexp-docs
+pr: { id: 42, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/42 }

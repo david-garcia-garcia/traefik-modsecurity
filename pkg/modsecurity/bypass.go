@@ -112,7 +112,7 @@ func joinBypassPatterns(parts []string) (*regexp.Regexp, error) {
 	return compiled, nil
 }
 
-// match reports whether req method+path hits the compiled allowlist. One map get, then at most one MatchString.
+// match reports whether req method+path hits the compiled allowlist. One map get, then at most one unanchored MatchString on req.URL.Path.
 func (c compiledBypass) match(req *http.Request) bool {
 	if req == nil {
 		return false

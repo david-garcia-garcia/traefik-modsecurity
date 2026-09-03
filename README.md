@@ -244,15 +244,17 @@ http:
           # Default: empty (inspect every request, subject to already-unhealthy backoff)
           # Each entry:
           #   method: HTTP method (case-insensitive). Empty = any method
-          #   pathRegexp: Go RE2 regexp matched against the URL path (not the query). Empty = any path
-          # Both set: both must match. MatchString is unanchored (`health` matches `/unhealthy`);
-          # write `^/health$` for an exact path.
+          #   pathRegexp: Go RE2 regexp, unanchored MatchString against req.URL.Path
+          #     (percent-decoded, not slash-normalized; not the query). Empty = any path
+          # Both set: both must match. `health` matches `/unhealthy`; `/health` matches
+          # `/healthz` and `/index.php/health`. Write `^/health$` for an exact path,
+          # `^/admin/` for a prefix. The plugin does not insert those anchors.
           # Invalid pathRegexp fails plugin construction.
           # Example:
           # bypassRules:
           #   - method: GET
           #     pathRegexp: ^/admin/
-          #   - pathRegexp: /healthz
+          #   - pathRegexp: ^/healthz$
           # When modSecurityStatusRequestHeader is set, matching requests get "bypassrule"
           # WebSocket handshake GETs are inspected like any other GET. After a sidecar allow,
           # Traefik tunnels frames; this plugin does not see them. If CRS false-positives a
