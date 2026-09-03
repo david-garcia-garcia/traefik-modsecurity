@@ -61,9 +61,9 @@ Review trigger `pathRegexp: "/health"` does skip `/index.php/health`, `/healthz`
   By: explore
 
 - Q: Which spec host?
-  Decision: assumed — fold `core_plugin_middleware_bypass-rules` (existing leaf; same family).
-  By: explore
+  Decision: resolved — fold `core_plugin_middleware_bypass-rules` (FindSpecHost small adjustment, confidence high).
+  By: propose
 
 - Q: Is a substring-hit unit test in scope?
-  Decision: assumed — yes, one test so the documented unanchored contract cannot drift. Not a matcher rewrite.
-  By: explore
+  Decision: resolved — yes. tasks 1.1–1.2 pin `/health` vs `/healthz` and `/index.php/health`, plus `^/health$` inspects `/healthz`.
+  By: propose

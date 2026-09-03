@@ -6,7 +6,7 @@ JobName: 2026-09-03-regex-bypass-clear
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-03T06:57:19.387Z |
 | explore | [x] | [x] | 2026-09-03T07:00:55.975Z |
-| propose | [ ] | [ ] | |
+| propose | [x] | [x] | 2026-09-03T07:04:36.299Z |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |

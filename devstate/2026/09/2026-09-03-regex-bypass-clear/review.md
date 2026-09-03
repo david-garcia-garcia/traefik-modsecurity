@@ -11,3 +11,9 @@ phase: explore
 findings: unanchored MatchString reproduced; `/health` matches `/healthz` and `/index.php/health`; Go Path is not slash-normalized
 fixed: none
 skipped: auto-anchor; matcher/RawPath guard
+
+## propose (2026-09-03)
+phase: propose
+findings: fold core_plugin_middleware_bypass-rules
+fixed: none
+skipped: auto-anchor
