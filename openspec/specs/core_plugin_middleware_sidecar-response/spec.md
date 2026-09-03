@@ -8,7 +8,7 @@ Finish the ModSecurity sidecar HTTP response so the shared WAF client can reuse 
 
 ### Requirement: Allow path drains the sidecar body
 
-When the sidecar response status is below 300, the plugin SHALL read the leftover response body up to 256 KiB and discard it before closing that body and calling `next`. The plugin SHALL NOT forward that body to the client. The plugin SHALL NOT expose a configuration key for this limit.
+When the sidecar response status is below 300, the plugin SHALL read the leftover response body up to 256 KiB and discard it before closing that body and calling `next`. The plugin SHALL NOT forward that body to the client. The plugin SHALL NOT expose a configuration key for this limit. The plugin SHALL NOT return HTTP 405 on that allow path.
 
 #### Scenario: Sequential allows reuse one connection
 
@@ -19,6 +19,12 @@ When the sidecar response status is below 300, the plugin SHALL read the leftove
 
 - **WHEN** the sidecar returns 200 with a non-empty body
 - **THEN** the client response SHALL be the `next` handler's response, not the sidecar body
+
+#### Scenario: Allow on Authelia login POST is not 405
+
+- **WHEN** the plugin inspects `POST /api/firstfactor` and the sidecar returns 200
+- **THEN** the client SHALL receive the `next` handler's response
+- **AND** the client status SHALL NOT be 405
 
 ### Requirement: 5xx drains the sidecar body before Close or fail-open
 
@@ -49,6 +55,12 @@ When the sidecar response status is a 3xx or a 4xx, the plugin SHALL copy that r
 
 - **WHEN** the plugin handles several sequential requests whose sidecar responses are 403 with a whoami-sized body
 - **THEN** the mock WAF SHALL see one new TCP connection for those requests
+
+#### Scenario: Sidecar 405 on Authelia login POST is copied
+
+- **WHEN** the plugin inspects `POST /api/firstfactor` and the sidecar returns 405 with a body
+- **THEN** the client SHALL receive status 405 and that body
+- **AND** `next` SHALL NOT be called
 
 ### Requirement: WAF client does not follow sidecar redirects
 
