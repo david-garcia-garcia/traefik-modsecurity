@@ -1,39 +1,39 @@
-Developer review: in progress — 2026-09-03T07:08:13.126Z
+Developer review: in progress — 2026-09-03T07:23:35.230Z
 
 ## What this changes
 **Operators.** None.
 
 **Admin users.** None.
 
-**Developers.** None.
+**Developers.** Research notes for `Client.Do` request-body lifetime and `bytes.Buffer.Bytes` aliasing; explore recorded a measured 1 MiB cross-request body leak.
 
 **End users.** None.
 
 ## Motivation
-On `main`, `readInboundBody` returns a slice that aliases a pooled `bytes.Buffer`, and `ServeHTTP` Puts that buffer when the handler returns. The sidecar `http.Client` (and `next`) can still be reading those bytes. A later request can reuse the same buffer and overwrite another tenant's POST, including onto the WAF connection. Without this PR that leak stays untested and unfixed.
+On `main`, a pooled inbound-body buffer is Put when `ServeHTTP` returns while a sidecar RoundTripper may still read the aliased bytes. A later request can overwrite that array. Without this PR, one tenant's POST can appear as another tenant's WAF body.
 
 ## Merge readiness
-Grounded and qualified; product fix not started. 7 items remain.
+Leak reproduced; product test and copy-out not landed. 6 items remain.
 
 Priority: P1 — Production is unsafe, losing data, or serving a wrong public contract today
-Reviewed head: a52b9e9
-Owner decision: None.
+Reviewed head: 533b9e6
+Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | CI still running; no product change yet |
-| CI proof | 3/6 | Checks in progress on PR 44 |
+| Overall readiness | 3/6 | CI still running; no production code change |
+| CI proof | 3/6 | Checks in progress on PR 44 after explore push |
 | Local tests proof | N/A | Before implement |
 | Review resolution | 6/6 | No PR comments |
 
 ## Verification
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Branch | 2026-09-03-pooled-body-race pushed | `git` origin/2026-09-03-pooled-body-race a52b9e9 |
+| Branch | 2026-09-03-pooled-body-race pushed | `git` 533b9e6 |
 | OpenSpec | none | `openspec/` |
-| Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/44 | pr-host Create |
-| CI | build 33726484802 in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33726484802 | pr-host check_runs: Build success, Test Runner Script Validation success, lint/build/integration in progress |
+| Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/44 | pr-host |
+| CI | build 33727841488 in progress https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33727841488 | pr-host check_runs |
 | Local tests | none | handoff.yaml localTests |
 | PR comments | no comments | inventory empty |
 | Security | None. | no codereview.md yet |
@@ -46,14 +46,21 @@ None.
 None.
 
 ## How this fits together
-Chat finding 3 became local ticket `2026-09-03-pooled-body-race` on a dedicated worktree, stub PR 44 against `main`. Next is explore, then a reproducing test, then the pool-alias fix.
+Local ticket `2026-09-03-pooled-body-race` on a dedicated worktree, PR 44. Explore measured a full 1 MiB `0xBB` overwrite of a prior `0xAA` POST after Put. Next is propose (copy-out + RoundTripper regression), then implement lands the failing test before the fix.
 
 ## Decision needed
-None.
+| Question | Decision | By |
+| --- | --- | --- |
+| Copy-out or wait until the sidecar body is consumed? | assumed — copy-out before any transport owns the slice. Waiting on Close/`next` does not match writeLoop / RoundTripper lifetime. | explore |
+| Should the regression test use a real `http.Transport` 403-without-read? | assumed — no, not as the pass/fail assertion. persistConn closes the conn so the wire never shows the second request's bytes. Use a RoundTripper that holds Body until after Put. | explore |
+| Who already owns client address, user, tenant, Host, or trust hop for this change? | assumed — none. This change does not set or reconstruct those fields. | explore |
+| Spec host for the new invariant? | assumed — fold onto `core_plugin_middleware_body-pool`. Propose confirms with FindSpecHost. | explore |
+| Local `go test -race` on this Windows agent? | assumed — not available (`CGO_ENABLED=0`). Semantic leak test is the local proof; CI `-race` if the workflow already runs it. | explore |
 
 ## Before merge
-- [ ] [P1] Record a test that fails on current `main` by reproducing cross-request body bytes or the race, then land the production fix that stops the pooled array escaping into `net/http`
+- [ ] [P1] Land a test that fails on current `main` by reproducing the 1 MiB `0xAA`→`0xBB` leak, then copy-out so the pooled array cannot escape into `net/http`
 - [x] Stub PR 44 opened
+- [x] Leak reproduced on this worktree (throwaway RoundTripper test, then deleted)
 
 ## Findings
 None.
@@ -71,24 +78,24 @@ None.
 | --- | --- | --- |
 | Specs in this PR | none | Same list as ## Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | a52b9e9017ed749319bbe596c563334a3b5ba99b | Card must match the branch you measured |
+| Reviewed head | 533b9e682d58daf3ac8505d92e9c5de20eb52847 | Card must match the branch you measured |
 
 ### Stored data model
 None.
 
 ### Technical review
-Best possible solution: not chosen yet; requirement is copy-out or wait-until-consumed so Put cannot race a live transport reader.
+Best possible solution: copy-out of `buf.Bytes()` before sidecar/`next` readers; Put the buffer after the copy.
 
-Do we have a high-confidence way to reproduce? Not yet. Existing `TestPlugin_ConcurrentMixedBodySizesDoNotRace` drains the WAF body and uses 200/4096-byte payloads.
+Do we have a high-confidence way to reproduce? Yes. Throwaway test: first sidecar read after Put was 1048576 bytes of the second POST (`0xBB`), zero `0xAA`.
 
-Is this the best way to solve the issue? Not decided. Explore will pick copy-out vs wait.
+Is this the best way to solve the issue? Yes vs DestBranch: copy-out is the smallest fix that matches the RoundTripper contract. Waiting on `resp.Body.Close` does not wait for writeLoop.
 
 ### Evidence
 What I checked:
-- `pkg/modsecurity/body.go:48-59` returns `buf.Bytes()` plus a Put `release` (worktree HEAD a52b9e9)
-- `pkg/modsecurity/serve.go:54-70` defers Put and aliases the same slice into two `bytes.NewReader`s
-- `pkg/modsecurity/body_pool_test.go` concurrent test ReadAlls the sidecar body
-- PR 44 created; comments empty; CI in progress (run 33726484802)
+- Throwaway `go test -count=1 -timeout 30s -v ./pkg/modsecurity -run TestThrowaway_PooledBodyCrossRequestLeak` FAIL: `0xAA=0 0xBB=1048576` (worktree, then file deleted)
+- Real `http.Transport` 403-without-read did not show `0xBB` on the wire (`pc.close` after `wroteRequest` 50 ms)
+- `knowledge/research/ext_http_client_request-body-lifetime/` and `ext_golang_bytes_buffer-bytes/`
+- PR 44 CI in progress (run 33727841488)
 
 ### Rank-up moves
 None.
