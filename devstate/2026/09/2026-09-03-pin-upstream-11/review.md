@@ -1,3 +1,11 @@
+## archive (2026-09-03T04:30:55Z)
+phase: archive
+findings: none
+fixed: none
+skipped: none
+verdict: in progress
+archived: openspec/changes/archive/2026-09-03-pin-upstream-issue-11/
+
 ## destateimpact (2026-09-03T04:29:58Z)
 phase: destateimpact
 findings: none
