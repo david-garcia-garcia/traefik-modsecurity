@@ -57,16 +57,15 @@ See [docker-compose.yml](docker-compose.yml)
 
 ## How it works
 
-This is a very simple plugin that proxies the query to the owasp/modsecurity apache container.
-
 The plugin classifies the sidecar HTTP status:
 
 - **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
 - **3xx / 4xx** — security block: copy the sidecar response to the client. When `modSecurityStatusRequestHeader` is set, write `blocked`.
 - **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
 
-The *dummy* service is created so the waf container forward the request to a service and respond with 200 OK all the
-time.
+This is a **shadow WAF**. The sidecar inspects a copy of the request. On allow it answers HTTP 200; Traefik `next` is the real app. Demo compose (`docker-compose.yml`) uses an inspect-only Apache overlay (`crs-apache/httpd-vhosts.drain.conf`) so CRS does not reverse-proxy to a dummy origin.
+
+Integration tests keep **four** stacks so dummy vs drain can be compared: Apache+whoami, nginx+whoami, Apache+drain, nginx+drain. Whoami stacks still run unlabeled `dummy` as `BACKEND`. See `./Test-Integration.ps1 -Stack` / `-AllStacks`.
 
 ## Trust this middleware (client IP in WAF logs)
 
