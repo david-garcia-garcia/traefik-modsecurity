@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/health"
@@ -22,7 +21,7 @@ type Plugin struct {
 	httpClient                     *http.Client
 	logger                         *slog.Logger
 	healthTracker                  *health.Tracker
-	bodyBufferPool                 *sync.Pool
+	bodyBufferPool                 bufferPool
 	modSecurityStatusRequestHeader string
 	maxBodySizeBytes               int64
 	maxBodySizeBytesForPool        int64

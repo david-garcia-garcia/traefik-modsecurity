@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -58,6 +59,30 @@ func newTestBodyPoolRoute(t *testing.T, maxBody, poolCap int64) *bodyPoolHarness
 func pooledBufferCap(p *Plugin) int {
 	buf := p.bodyBufferPool.Get().(*bytes.Buffer)
 	return buf.Cap()
+}
+
+// recordingBufferPool counts Put so a test can assert ServeHTTP returned a buffer without sync.Pool.Get after GC.
+type recordingBufferPool struct {
+	inner sync.Pool
+	puts  atomic.Int32
+}
+
+// newTestRecordingBufferPool returns a pool that counts Put for ServeHTTP assertions.
+func newTestRecordingBufferPool() *recordingBufferPool {
+	return &recordingBufferPool{
+		inner: sync.Pool{New: func() interface{} { return new(bytes.Buffer) }},
+	}
+}
+
+// Get returns a bytes.Buffer from the inner pool.
+func (p *recordingBufferPool) Get() any {
+	return p.inner.Get()
+}
+
+// Put records one return to the pool, then stores x on the inner pool.
+func (p *recordingBufferPool) Put(x any) {
+	p.puts.Add(1)
+	p.inner.Put(x)
 }
 
 // TestPlugin_UnknownLengthDoesNotRetainOversizedPoolBuffer checks a ContentLength -1 read does not Put a grown buffer.
@@ -121,6 +146,9 @@ func TestPlugin_SmallPooledReadReturnsBuffer(t *testing.T) {
 	body := bytes.Repeat([]byte("s"), 200)
 
 	h := newTestBodyPoolRoute(t, maxBody, poolCap)
+	pool := newTestRecordingBufferPool()
+	h.plugin.bodyBufferPool = pool
+
 	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 
@@ -129,12 +157,8 @@ func TestPlugin_SmallPooledReadReturnsBuffer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
 	}
-	got := pooledBufferCap(h.plugin)
-	if got == 0 {
-		t.Fatal("small pooled read must Put a buffer (Get after ServeHTTP allocated New with cap 0)")
-	}
-	if int64(got) > poolCap {
-		t.Fatalf("pool retained buffer cap %d, want <= %d", got, poolCap)
+	if got := pool.puts.Load(); got != 1 {
+		t.Fatalf("Puts %d, want 1 (ServeHTTP must Put a buffer under the pool cap)", got)
 	}
 }
 
