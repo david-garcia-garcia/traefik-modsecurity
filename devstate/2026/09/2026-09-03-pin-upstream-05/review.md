@@ -22,3 +22,11 @@ fixed: none
 skipped: none
 change: pin-upstream-issue-05
 folds: core_plugin_middleware_websocket-skip, core_plugin_middleware_request-context
+
+## implement (2026-09-03)
+phase: implement
+findings: none
+fixed: landed pkg/modsecurity/upstream_issue_05_test.go
+skipped: none
+localTests: passed
+sha: 560c084cfc22e43cb5c17a5b29bef6d7386bb740
