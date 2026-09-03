@@ -19,3 +19,10 @@ findings: none
 fixed: none
 skipped: none
 
+## implement (2026-09-03)
+
+phase: implement
+findings: leak test FAIL 0xAA=0 0xBB=1048576 then copy-out PASS
+fixed: readInboundBody copy-out before Put
+skipped: none
+
