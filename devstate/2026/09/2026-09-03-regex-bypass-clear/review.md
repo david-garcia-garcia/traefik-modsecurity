@@ -17,3 +17,9 @@ phase: propose
 findings: fold core_plugin_middleware_bypass-rules
 fixed: none
 skipped: auto-anchor
+
+## implement (2026-09-03)
+phase: implement
+findings: none
+fixed: README examples, BypassRule comment, pinning tests
+skipped: auto-anchor; RawPath guard
