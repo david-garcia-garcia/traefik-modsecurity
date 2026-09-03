@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // bodyPoolHarness is one Plugin core, a 200 WAF, and a next that records the restored body.
@@ -378,5 +379,140 @@ func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
 		if !bytes.Equal(largeSeen.waf, large) || !bytes.Equal(largeSeen.next, large) {
 			t.Fatalf("%s waf=%d next=%d, want %d", largeID, len(largeSeen.waf), len(largeSeen.next), len(large))
 		}
+	}
+}
+
+// testStickyBufferPool always returns the same *bytes.Buffer so Put then Get is deterministic.
+type testStickyBufferPool struct {
+	buf *bytes.Buffer
+}
+
+// Get returns the single sticky buffer.
+func (p *testStickyBufferPool) Get() any { return p.buf }
+
+// Put is a no-op; the same buffer is reused on the next Get.
+func (p *testStickyBufferPool) Put(any) {}
+
+// testDelayedSidecarBodyRoundTripper returns 403 immediately. For the first POST it reads
+// Request.Body only after readAfter, which is after ServeHTTP has Put the pooled buffer.
+type testDelayedSidecarBodyRoundTripper struct {
+	readAfter <-chan struct{}
+	got       chan []byte
+}
+
+// RoundTrip returns 403 without waiting for the sidecar request body.
+func (t *testDelayedSidecarBodyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("X-Req") == "first" {
+		go func(body io.ReadCloser) {
+			select {
+			case <-t.readAfter:
+			case <-time.After(15 * time.Second):
+				t.got <- []byte("timeout waiting to read sidecar body")
+				return
+			}
+			got, _ := io.ReadAll(body)
+			if body != nil {
+				_ = body.Close()
+			}
+			t.got <- append([]byte(nil), got...)
+		}(req.Body)
+	} else if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_ = req.Body.Close()
+	}
+	header := make(http.Header)
+	header.Set("Content-Type", "text/plain")
+	return &http.Response{
+		Status:        "403 Forbidden",
+		StatusCode:    http.StatusForbidden,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        header,
+		Body:          io.NopCloser(bytes.NewReader([]byte("block"))),
+		ContentLength: 5,
+		Request:       req,
+	}, nil
+}
+
+// TestPlugin_PooledBodyNotAliasedAfterPut checks a delayed sidecar body read still sees the first POST
+// after ServeHTTP Puts the pooled buffer and a second POST reuses it.
+func TestPlugin_PooledBodyNotAliasedAfterPut(t *testing.T) {
+	const bodySize = 1 << 20
+	firstPayload := bytes.Repeat([]byte{0xAA}, bodySize)
+	secondPayload := bytes.Repeat([]byte{0xBB}, bodySize)
+
+	firstServeDone := make(chan struct{})
+	secondServeDone := make(chan struct{})
+	gotFirstBody := make(chan []byte, 1)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf.test"
+	cfg.TimeoutMillis = 30000
+	plugin, err := New("body-pool-alias", cfg, NewLogger("body-pool-alias", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	plugin.bodyBufferPool = &testStickyBufferPool{buf: new(bytes.Buffer)}
+	plugin.httpClient.Transport = &testDelayedSidecarBodyRoundTripper{
+		readAfter: secondServeDone,
+		got:       gotFirstBody,
+	}
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("next must not run on a 403 block")
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req := httptest.NewRequest(http.MethodPost, "http://example/upload", bytes.NewReader(firstPayload))
+		req.Header.Set("X-Req", "first")
+		req.ContentLength = int64(len(firstPayload))
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("first status %d, want 403", rec.Code)
+		}
+		close(firstServeDone)
+	}()
+
+	select {
+	case <-firstServeDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for first ServeHTTP to return (Put)")
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "http://example/upload", bytes.NewReader(secondPayload))
+	req2.Header.Set("X-Req", "second")
+	req2.ContentLength = int64(len(secondPayload))
+	rec2 := httptest.NewRecorder()
+	route.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Errorf("second status %d, want 403", rec2.Code)
+	}
+	close(secondServeDone)
+
+	var got []byte
+	select {
+	case got = <-gotFirstBody:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for delayed sidecar body read")
+	}
+	wg.Wait()
+
+	aa := bytes.Count(got, []byte{0xAA})
+	bb := bytes.Count(got, []byte{0xBB})
+	if bb > 0 {
+		t.Fatalf("cross-request leak: first sidecar body contains %d bytes from the second request (0xBB); 0xAA=%d len=%d", bb, aa, len(got))
+	}
+	if !bytes.Equal(got, firstPayload) {
+		t.Fatalf("first sidecar body mismatch: len=%d 0xAA=%d 0xBB=%d, want %d 0xAA", len(got), aa, bb, bodySize)
 	}
 }
