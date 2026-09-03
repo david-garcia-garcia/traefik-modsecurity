@@ -2,6 +2,8 @@ package modsecurity
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,9 +13,10 @@ import (
 	"time"
 )
 
-// recordingBufferPool counts Put so tests can assert pool return.
+// recordingBufferPool counts Get/Put so tests can assert pool return.
 type recordingBufferPool struct {
 	inner sync.Pool
+	gets  atomic.Int32
 	puts  atomic.Int32
 }
 
@@ -23,7 +26,10 @@ func newTestRecordingBufferPool() *recordingBufferPool {
 	}
 }
 
-func (p *recordingBufferPool) Get() any { return p.inner.Get() }
+func (p *recordingBufferPool) Get() any {
+	p.gets.Add(1)
+	return p.inner.Get()
+}
 
 func (p *recordingBufferPool) Put(x any) {
 	p.puts.Add(1)
@@ -422,5 +428,220 @@ func TestPlugin_BlockPathClosesSidecarBody(t *testing.T) {
 	}
 	if got := pool.puts.Load(); got != 1 {
 		t.Fatalf("Puts %d, want 1 (block must Close both consumers even if Transport does not)", got)
+	}
+}
+
+// TestPlugin_TransportDoErrorFailOpenPuts proves a RoundTrip error fail-open still Puts (Opus GAP-C).
+func TestPlugin_TransportDoErrorFailOpenPuts(t *testing.T) {
+	body := bytes.Repeat([]byte("d"), 120)
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf.test"
+	cfg.MaxBodySizeBytesForPool = 1024
+	cfg.UnhealthyWafBackOffPeriodSecs = 0
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("do-err-put", cfg, NewLogger("do-err-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	pool := newTestRecordingBufferPool()
+	plugin.bodyBufferPool = pool
+
+	plugin.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// Transport error without reading/closing the body.
+		return nil, errors.New("dial waf: connection refused")
+	})
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		// Omit Close — defer must still release.
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want fail-open 200", rec.Code)
+	}
+	if got := req.Header.Get("X-Waf-Status"); got != "error" {
+		t.Fatalf("X-Waf-Status %q, want error", got)
+	}
+	if got := pool.puts.Load(); got != 1 {
+		t.Fatalf("Puts %d, want 1 after transport Do error fail-open", got)
+	}
+}
+
+// TestPlugin_InboundCancelPutsPooledBuffer proves cancel after sidecar accept Puts (Opus GAP-D).
+func TestPlugin_InboundCancelPutsPooledBuffer(t *testing.T) {
+	body := bytes.Repeat([]byte("c"), 150)
+	started := make(chan struct{})
+	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		// Stay until inbound cancel aborts the sidecar request (or a safety timeout).
+		select {
+		case <-r.Context().Done():
+		case <-time.After(500 * time.Millisecond):
+		}
+	}))
+	t.Cleanup(func() {
+		waf.CloseClientConnections()
+		waf.Close()
+	})
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.MaxBodySizeBytesForPool = 1024
+	cfg.TimeoutMillis = 5000
+	plugin, err := New("cancel-put", cfg, NewLogger("cancel-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	pool := newTestRecordingBufferPool()
+	plugin.bodyBufferPool = pool
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("next must not run on inbound cancel")
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "http://example/protected", bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		route.ServeHTTP(rec, req)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("sidecar did not receive the request")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ServeHTTP did not return after inbound cancel")
+	}
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", rec.Code)
+	}
+	if got := pool.puts.Load(); got != 1 {
+		t.Fatalf("Puts %d, want 1 after inbound cancel with pooled body", got)
+	}
+}
+
+// TestPlugin_InboundBodyReadErrorPuts proves 413 MaxBytesReader Puts immediately (Opus GAP-F).
+func TestPlugin_InboundBodyReadErrorPuts(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 100
+	body := bytes.Repeat([]byte("z"), 200)
+
+	_, route, pool := newPoolAllowRoute(t, "413-put", poolCap, maxBody, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("next must not run on 413")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://example/test", bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", rec.Code)
+	}
+	if got := pool.puts.Load(); got != 1 {
+		t.Fatalf("Puts %d, want 1 after MaxBytesReader error", got)
+	}
+}
+
+// TestPlugin_PoolGetsEqualPutsAcrossMixedPaths is a Get/Put conservation check (Opus #7).
+func TestPlugin_PoolGetsEqualPutsAcrossMixedPaths(t *testing.T) {
+	bodyOK := bytes.Repeat([]byte("m"), 80)
+	bodyOver := bytes.Repeat([]byte("o"), 200)
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf.test"
+	cfg.MaxBodySizeBytes = 150
+	cfg.MaxBodySizeBytesForPool = 1024
+	cfg.UnhealthyWafBackOffPeriodSecs = 0
+	plugin, err := New("conserve-put", cfg, NewLogger("conserve-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	pool := newTestRecordingBufferPool()
+	plugin.bodyBufferPool = pool
+
+	plugin.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Body != nil {
+			_, _ = io.Copy(io.Discard, req.Body)
+			_ = req.Body.Close()
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewReader(nil)),
+			Request:    req,
+		}, nil
+	})
+
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "http://example/ok", bytes.NewReader(bodyOK))
+		req.ContentLength = int64(len(bodyOK))
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("ok[%d] status %d", i, rec.Code)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodPost, "http://example/empty", http.NoBody)
+		req.ContentLength = 0
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("empty[%d] status %d", i, rec.Code)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "http://example/big", bytes.NewReader(bodyOver))
+		req.ContentLength = int64(len(bodyOver))
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("413[%d] status %d", i, rec.Code)
+		}
+	}
+
+	gets, puts := pool.gets.Load(), pool.puts.Load()
+	if gets != puts {
+		t.Fatalf("Gets %d Puts %d, want equal (no stranded checkout)", gets, puts)
+	}
+	if gets == 0 {
+		t.Fatal("expected at least one pool Get")
 	}
 }

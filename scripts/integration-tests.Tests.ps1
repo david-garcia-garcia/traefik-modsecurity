@@ -17,6 +17,7 @@ BeforeAll {
         @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
         @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" },
         @{ Url = "$BaseUrl/chain-retry"; Name = "WAF+retry chain service" },
+        @{ Url = "$BaseUrl/chain-retry-replay"; Name = "WAF+retry replay service" },
         @{ Url = "$BaseUrl/chain-buffer"; Name = "buffer+WAF chain service" },
         @{ Url = "$BaseUrl/reclaim-a"; Name = "Reclaim route A" },
         @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" },
@@ -735,6 +736,13 @@ Describe "Traefik middleware chain with WAF" {
                 $runspacePool.Close()
                 $runspacePool.Dispose()
             }
+        }
+
+        It "Should allow POST after a real retry when the first backend is dead" {
+            $marker = "retry-replay-" + [guid]::NewGuid().ToString("n")
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-retry-replay" -Method POST -Body $marker -TimeoutSec 20
+            $response.StatusCode | Should -Be 200 -Because "dead first LB server must trigger retry onto whoami"
+            $response.Content | Should -Match "Hostname" -Because "second server must serve whoami after retry"
         }
     }
 
