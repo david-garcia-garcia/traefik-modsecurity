@@ -675,6 +675,53 @@ Describe "WAF Health Tracker Threshold Tests" {
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
             }
         }
+
+        It "Should reject GET with body after fail-open trip" {
+            try {
+                docker stop $script:wafContainer | Out-Null
+                Start-Sleep -Seconds 2
+                1..3 | ForEach-Object {
+                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
+                    Start-Sleep -Milliseconds 500
+                }
+                $passThrough = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before the deny-verb check"
+
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -Method GET -Body "test data" -TimeoutSec 10
+                $response.StatusCode | Should -Be 400 -Because "denyVerbsWithBody must reject GET-with-body even when the WAF is already unhealthy"
+                [string]$response.Content | Should -Not -Match "Hostname" -Because "fail-open must not reach whoami for a denied-verb body"
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+            }
+        }
+
+        It "Should consult the sidecar again after backoff elapses" {
+            try {
+                docker stop $script:wafContainer | Out-Null
+                Start-Sleep -Seconds 2
+                1..3 | ForEach-Object {
+                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
+                    Start-Sleep -Milliseconds 500
+                }
+                $passThrough = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before backoff resume"
+
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                # Route unhealthyWafBackOffPeriodSecs=10; wait past expiry so the sidecar is tried again.
+                Start-Sleep -Seconds 12
+
+                $probe = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test?id=1' OR '1'='1" -TimeoutSec 10
+                $probe.StatusCode | Should -BeGreaterOrEqual 400 -Because "after backoff the plugin must inspect again; a CRS probe must not stay fail-open 200"
+                $probe.StatusCode | Should -Not -Be 200
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+            }
+        }
     }
 }
 
@@ -710,6 +757,44 @@ Describe "WebSocket through WAF middleware" {
             $payload = "ws-echo-$(Get-Random)"
             $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message $payload
             $echoed | Should -Be $payload -Because "a real WebSocket through Traefik and the plugin must stay usable after 101"
+        }
+
+        It "Should still inspect a forged Upgrade websocket header" {
+            $requestLine = "GET /protected?id=1%27+OR+%271%27%3D%271 HTTP/1.1"
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine $requestLine -Headers @{
+                Host = "localhost:8000"
+                Connection = "close"
+                Upgrade = "websocket"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] [45]\d\d' -Because "Upgrade: websocket without a Connection upgrade token must still be CRS-inspected"
+        }
+
+        It "Should skip CRS on a real handshake even with a SQL-injection query" {
+            $payload = "ws-echo-$(Get-Random)"
+            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo?id=1%27%20OR%20%271%27%3D%271" -Message $payload
+            $echoed | Should -Be $payload -Because "a real WebSocket handshake must skip the WAF even when the query looks like a CRS probe"
+        }
+    }
+}
+
+Describe "Sidecar 5xx is not a copied block" {
+    Context "Fixture origin returns 503" {
+        It "Should return 502 without the 503 fixture body" {
+            $response = $null
+            for ($i = 0; $i -lt 10; $i++) {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/waf-5xx-test" -TimeoutSec 10
+                if ($response.StatusCode -ne 404) { break }
+                Start-Sleep -Milliseconds 500
+            }
+            $response.StatusCode | Should -Be 502 -Because "sidecar 5xx with backoff off is a WAF failure, not a copied block"
+            $response.StatusCode | Should -Not -Be 503
+            [string]$response.Content | Should -Not -Match "sidecar-5xx-marker" -Because "the plugin must not copy the sidecar 5xx page"
+
+            Start-Sleep -Seconds 2
+            $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $latestEntry = Get-LastAccessLogEntryForPath -Entries $entries -PathPrefix "/waf-5xx-test"
+            $latestEntry | Should -Not -BeNullOrEmpty -Because "Traefik access.log should contain /waf-5xx-test"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "error" -Because "sidecar 5xx must be logged as error, not blocked"
         }
     }
 }
