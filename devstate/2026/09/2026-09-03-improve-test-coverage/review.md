@@ -27,3 +27,24 @@ phase: implement
 findings: four live Its + 503 fixture
 fixed: none
 skipped: none
+
+## codereview (2026-09-03)
+
+phase: codereview
+findings: Standards 1 hard (duplicated threshold trip)
+fixed: Invoke-ThresholdTestFailOpenTrip
+skipped: none
+
+## devdocsimpact (2026-09-03)
+
+phase: devdocsimpact
+findings: none
+fixed: none
+skipped: none
+
+## archive (2026-09-03)
+
+phase: archive
+findings: nginx resume flake on CI
+fixed: docker stop -t 0, Wait-ForThresholdRouteInspecting, Wait-ForWafAllowPath
+skipped: none
