@@ -20,6 +20,11 @@ priority: normal
 local: ext_modsecurity_crs-docker_nginx-real-ip/
 description: Official owasp/modsecurity-crs nginx image env vars for real_ip (REAL_IP_HEADER, SET_REAL_IP_FROM, REAL_IP_RECURSIVE) and audit log path.
 
+## CRS Docker BACKEND
+priority: normal
+local: ext_modsecurity_crs-docker_backend/
+description: Official owasp/modsecurity-crs reverse-proxy BACKEND/BACKEND_WS wiring, overlay mount paths, and inspect-only response behavior.
+
 ## Host
 priority: normal
 local: ext_modsecurity_variables_host/
