@@ -32,6 +32,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 ## Key files
 
 - `modsecurity_test.go` — `ServeHTTP` pass/block, absolute-form URI, body-size cases.
+- `pkg/modsecurity/upstream_issue_13_test.go` — Authelia-shaped `POST /api/firstfactor`: allow is not 405; sidecar 405 is copied.
 - `pkg/health/tracker_test.go` — `Tracker` trip, window, backoff, concurrency.
 - `.github/workflows/go.yml` — `go test -race -v ./...`. `build.yml` — `go test -v ./...`.
 
