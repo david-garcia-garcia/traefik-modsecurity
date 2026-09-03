@@ -13,3 +13,17 @@ phase: explore
 findings: P2 1 (nginx drain If-None-Match 304)
 fixed: none (explore does not implement)
 skipped: plugin classifier unchanged; leftover inspect-only folder not archived
+
+## propose (2026-09-03)
+
+phase: propose
+findings: none
+fixed: none
+skipped: leftover inspect-only-crs-sidecar not archived
+
+## implement (2026-09-03)
+
+phase: implement
+findings: none
+fixed: dummy origin removed; nginx 4.3.0 proxy_backend overlay clears If-None-Match/If-Modified-Since; Apache drain unsets the same; two-stack Pester
+skipped: plugin 3xx/4xx classifier; leftover inspect-only-crs-sidecar archive

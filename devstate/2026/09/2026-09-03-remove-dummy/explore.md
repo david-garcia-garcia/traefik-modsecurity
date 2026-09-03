@@ -52,8 +52,8 @@ Plugin `serve.go` unchanged.
   By: explore
 
 - Q: Keep `crs-apache/httpd-vhosts.conf` (ProxyPass) as a sample?
-  Decision: assumed — delete with dummy stacks. Apache sample is `httpd-vhosts.drain.conf`.
-  By: explore
+  Decision: resolved — deleted with dummy stacks. Apache sample is `httpd-vhosts.drain.conf`.
+  By: implement
 
 - Q: Sidecar allow via `return 204` to dodge nginx 304?
   Decision: resolved — no. Keep HTTP 200; strip conditionals on proxy_pass.

@@ -7,11 +7,11 @@ repoSlug: traefik-modsecurity
 destBranch: main
 qualify: qualified-with-gaps
 src: 6d7b897f9180b27aa8e94dac83575ed9d475cda55eb8e6c4a65f0d50b838ed46
-localTests: none
+localTests: passed
 requirement: requirement.md
 comments: none
 explore: explore.md
-change: none
+change: remove-dummy-crs-origin
 pr:
   id: 43
   url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/43
