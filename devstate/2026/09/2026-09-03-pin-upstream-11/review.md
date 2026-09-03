@@ -1,3 +1,11 @@
+## propose (2026-09-03T04:20:56Z)
+phase: propose
+findings: none
+fixed: none
+skipped: none
+verdict: in progress
+change: pin-upstream-issue-11
+
 ## explore (2026-09-03T04:18:35Z)
 phase: explore
 findings: none
