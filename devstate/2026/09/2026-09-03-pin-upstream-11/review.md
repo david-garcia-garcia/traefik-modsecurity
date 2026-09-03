@@ -1,3 +1,11 @@
+## codereview (2026-09-03T04:29:09Z)
+phase: codereview
+findings: P1 0, P2 0
+fixed: none
+skipped: none
+verdict: in progress
+pin: origin/main 2f39486
+
 ## implement (2026-09-03T04:26:50Z)
 phase: implement
 findings: none

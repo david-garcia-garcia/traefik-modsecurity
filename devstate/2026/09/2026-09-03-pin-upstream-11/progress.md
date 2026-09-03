@@ -8,7 +8,7 @@ JobName: 2026-09-03-pin-upstream-11
 | explore | [x] | [x] | 2026-09-03T04:18:35Z |
 | propose | [x] | [x] | 2026-09-03T04:20:56Z |
 | implement | [x] | [x] | 2026-09-03T04:26:50Z |
-| codereview | [ ] | [ ] | |
-| devdocsimpact | [ ] | [ ] | |
+| codereview | [x] | [x] | 2026-09-03T04:29:09Z |
+| devdocsimpact | [x] | [ ] | |
 | archive | [ ] | [ ] | |
 | pullrequest | [ ] | [ ] | |
