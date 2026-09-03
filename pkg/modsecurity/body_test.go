@@ -284,6 +284,162 @@ func TestPlugin_ConcurrentMixedBodySizesDoNotRace(t *testing.T) {
 	}
 }
 
+// recordingBufferPool counts Put and records Cap so tests can assert pool return.
+type recordingBufferPool struct {
+	inner      sync.Pool
+	mu         sync.Mutex
+	puts       int
+	lastPutCap int
+}
+
+func newRecordingBufferPool() *recordingBufferPool {
+	return &recordingBufferPool{
+		inner: sync.Pool{New: func() interface{} { return new(bytes.Buffer) }},
+	}
+}
+
+func (p *recordingBufferPool) Get() any {
+	return p.inner.Get()
+}
+
+func (p *recordingBufferPool) Put(x any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.puts++
+	if buf, ok := x.(*bytes.Buffer); ok {
+		p.lastPutCap = buf.Cap()
+	}
+	p.inner.Put(x)
+}
+
+func (p *recordingBufferPool) putCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.puts
+}
+
+func (p *recordingBufferPool) putCap() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastPutCap
+}
+
+// TestPlugin_UnknownLengthOverPoolCapPutsBoundedCheckout reproduces the pool leak where
+// unbounded io.Copy into a pooled buffer grew Cap past maxBodySizeBytesForPool and the
+// Cap guard skipped Put — abandoning an oversized buffer. LimitReader + peek must Put
+// a bounded checkout and forward an owned full body.
+func TestPlugin_UnknownLengthOverPoolCapPutsBoundedCheckout(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 8192
+	body := bytes.Repeat([]byte("x"), 4096)
+
+	pool := newRecordingBufferPool()
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ := io.ReadAll(r.Body)
+		if !bytes.Equal(got, body) {
+			t.Errorf("sidecar body len=%d, want %d", len(got), len(body))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.MaxBodySizeBytes = maxBody
+	cfg.MaxBodySizeBytesForPool = poolCap
+	plugin, err := New("chunked-pool-put", cfg, NewLogger("chunked-pool-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	plugin.bodyBufferPool = pool
+
+	var nextBody []byte
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example/upload", bytes.NewReader(body))
+	req.ContentLength = -1
+	req.Header.Del("Content-Length")
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	if !bytes.Equal(nextBody, body) {
+		t.Fatalf("next body len=%d, want %d", len(nextBody), len(body))
+	}
+	if pool.putCount() != 1 {
+		t.Fatalf("pool Put count %d, want 1 (checkout must return before serve continues)", pool.putCount())
+	}
+	if cap := pool.putCap(); int64(cap) > poolCap*2 {
+		t.Fatalf("Put buffer Cap=%d exceeds 2*poolCap=%d (unbounded Copy grew the checkout)", cap, poolCap*2)
+	}
+}
+
+// TestPlugin_SpoofedSmallContentLengthOverPoolCapPutsBoundedCheckout covers a declared
+// ContentLength under the pool cap with a larger actual body — without LimitReader the
+// pooled buffer would still grow past the Cap Put guard.
+func TestPlugin_SpoofedSmallContentLengthOverPoolCapPutsBoundedCheckout(t *testing.T) {
+	const poolCap int64 = 1024
+	const maxBody int64 = 8192
+	body := bytes.Repeat([]byte("y"), 4096)
+
+	pool := newRecordingBufferPool()
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ := io.ReadAll(r.Body)
+		if !bytes.Equal(got, body) {
+			t.Errorf("sidecar body len=%d, want %d", len(got), len(body))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.MaxBodySizeBytes = maxBody
+	cfg.MaxBodySizeBytesForPool = poolCap
+	plugin, err := New("spoof-cl-pool-put", cfg, NewLogger("spoof-cl-pool-put", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	plugin.bodyBufferPool = pool
+
+	var nextBody []byte
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example/upload", bytes.NewReader(body))
+	req.ContentLength = 100 // under poolCap; actual body is larger
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	if !bytes.Equal(nextBody, body) {
+		t.Fatalf("next body len=%d, want %d", len(nextBody), len(body))
+	}
+	if pool.putCount() != 1 {
+		t.Fatalf("pool Put count %d, want 1", pool.putCount())
+	}
+	if cap := pool.putCap(); int64(cap) > poolCap*2 {
+		t.Fatalf("Put buffer Cap=%d exceeds 2*poolCap=%d", cap, poolCap*2)
+	}
+}
+
 // checkoutStickyPool returns the same buffer only when not checked out (Put returned).
 type checkoutStickyPool struct {
 	mu  sync.Mutex
