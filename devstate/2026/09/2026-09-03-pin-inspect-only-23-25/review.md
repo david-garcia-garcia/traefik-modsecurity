@@ -1,3 +1,10 @@
+## explore (2026-09-03T05:29:16Z)
+phase: explore
+findings: assumed Decisions on Range status, nginx 416, CRS 413 vs 200, whoami large-POST skip
+fixed: none
+skipped: none
+card: PR #38 summary (commentId: pr-body)
+
 ## prepare (2026-09-03T05:27:07Z)
 phase: prepare
 findings: none
