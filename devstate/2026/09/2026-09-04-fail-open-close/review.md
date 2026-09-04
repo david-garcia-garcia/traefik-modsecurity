@@ -32,3 +32,10 @@ phase: implement (human: cite upstream issue on delivery card)
 findings: none
 fixed: PR summary cites https://github.com/madebymode/traefik-modsecurity-plugin/issues/20; `error` token WAF-only; `serveFailClosedOrNext`
 skipped: none
+
+## implement (2026-09-04 failMode)
+
+phase: implement
+findings: none
+fixed: `failClosed` bool replaced with `failMode` `open`|`close` default `open`; local `go test ./...` passed
+skipped: none
