@@ -25,3 +25,10 @@ phase: implement
 findings: none
 fixed: failClosed Config/ServeHTTP; local go test ./... passed
 skipped: none
+
+## card refresh (2026-09-04)
+
+phase: implement (human: cite upstream issue on delivery card)
+findings: none
+fixed: PR summary cites https://github.com/madebymode/traefik-modsecurity-plugin/issues/20; `error` token WAF-only; `serveFailClosedOrNext`
+skipped: none

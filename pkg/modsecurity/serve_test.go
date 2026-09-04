@@ -149,7 +149,7 @@ func TestPlugin_InboundCancelAbortsSidecarCall(t *testing.T) {
 	}
 }
 
-// TestPlugin_WafFailureDefaultFailOpen checks omitted failClosed fail-opens to next (200), never 502.
+// TestPlugin_WafFailureDefaultFailOpen checks omitted failMode fail-opens to next (200), never 502.
 func TestPlugin_WafFailureDefaultFailOpen(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -255,8 +255,8 @@ func TestPlugin_WafFailureDefaultFailOpen(t *testing.T) {
 	}
 }
 
-// TestPlugin_FailClosedWafFailureReturns502 checks failClosed refuses the client and does not call next.
-func TestPlugin_FailClosedWafFailureReturns502(t *testing.T) {
+// TestPlugin_FailModeCloseWafFailureReturns502 checks failMode close refuses the client and does not call next.
+func TestPlugin_FailModeCloseWafFailureReturns502(t *testing.T) {
 	tests := []struct {
 		name     string
 		setupWAF func() (url string, cleanup func())
@@ -301,9 +301,9 @@ func TestPlugin_FailClosedWafFailureReturns502(t *testing.T) {
 
 			cfg := CreateConfig()
 			cfg.ModSecurityUrl = wafURL
-			cfg.FailClosed = true
+			cfg.FailMode = FailModeClose
 			cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
-			plugin, err := New("waf-fail-closed-"+tt.name, cfg, NewLogger("waf-fail-closed-"+tt.name, cfg))
+			plugin, err := New("waf-fail-close-"+tt.name, cfg, NewLogger("waf-fail-close-"+tt.name, cfg))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -326,7 +326,7 @@ func TestPlugin_FailClosedWafFailureReturns502(t *testing.T) {
 				t.Fatalf("status %d, want 502", rec.Code)
 			}
 			if nextCalled {
-				t.Fatal("next must not run when failClosed")
+				t.Fatal("next must not run when failMode is close")
 			}
 			if got := req.Header.Get("X-Waf-Status"); got != "error" {
 				t.Fatalf("status header %q, want error", got)
@@ -335,8 +335,8 @@ func TestPlugin_FailClosedWafFailureReturns502(t *testing.T) {
 	}
 }
 
-// TestPlugin_FailClosedUnhealthySkipReturns502 checks an already-unhealthy skip fail-closes without calling the sidecar.
-func TestPlugin_FailClosedUnhealthySkipReturns502(t *testing.T) {
+// TestPlugin_FailModeCloseUnhealthySkipReturns502 checks an already-unhealthy skip fail-closes without calling the sidecar.
+func TestPlugin_FailModeCloseUnhealthySkipReturns502(t *testing.T) {
 	sidecarCalls := 0
 	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		sidecarCalls++
@@ -346,11 +346,11 @@ func TestPlugin_FailClosedUnhealthySkipReturns502(t *testing.T) {
 
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = waf.URL
-	cfg.FailClosed = true
+	cfg.FailMode = FailModeClose
 	cfg.UnhealthyWafBackOffPeriodSecs = 30
 	cfg.UnhealthyWafFailureThreshold = 1
 	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
-	plugin, err := New("waf-fail-closed-unhealthy", cfg, NewLogger("waf-fail-closed-unhealthy", cfg))
+	plugin, err := New("waf-fail-close-unhealthy", cfg, NewLogger("waf-fail-close-unhealthy", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

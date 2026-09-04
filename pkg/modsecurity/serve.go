@@ -142,9 +142,9 @@ func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.R
 	http.Error(rw, "", http.StatusBadGateway)
 }
 
-// serveFailClosedOrNext calls next on fail-open, or writes empty HTTP 502 when failClosed is set.
+// serveFailClosedOrNext calls next when failMode is open, or writes empty HTTP 502 when failMode is close.
 func (p *Plugin) serveFailClosedOrNext(rw http.ResponseWriter, req *http.Request, next http.Handler) {
-	if p.failClosed {
+	if p.failMode == FailModeClose {
 		http.Error(rw, "", http.StatusBadGateway)
 		return
 	}
@@ -152,7 +152,7 @@ func (p *Plugin) serveFailClosedOrNext(rw http.ResponseWriter, req *http.Request
 }
 
 // recordWafFailure records a WAF communication failure: status header, optional health tracker, and log.
-// The caller then fail-opens to next or fail-closes with HTTP 502 when failClosed is set.
+// The caller then fail-opens to next or fail-closes with HTTP 502 according to failMode.
 func (p *Plugin) recordWafFailure(req *http.Request, cause error) {
 	p.setStatusRequestHeader(req, "error")
 

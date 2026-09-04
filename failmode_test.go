@@ -9,12 +9,12 @@ import (
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/reclaim"
 )
 
-func TestPluginConfigHash_FailClosedChangesKey(t *testing.T) {
+func TestPluginConfigHash_FailModeChangesKey(t *testing.T) {
 	openCfg := CreateConfig()
 	openCfg.ModSecurityUrl = "http://waf"
 	closedCfg := CreateConfig()
 	closedCfg.ModSecurityUrl = "http://waf"
-	closedCfg.FailClosed = true
+	closedCfg.FailMode = modsecurity.FailModeClose
 	if err := modsecurity.Prepare(openCfg, "n"); err != nil {
 		t.Fatal(err)
 	}
@@ -22,11 +22,11 @@ func TestPluginConfigHash_FailClosedChangesKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pluginConfigHash(openCfg) == pluginConfigHash(closedCfg) {
-		t.Fatal("prepared failClosed must change the reclaim hash")
+		t.Fatal("prepared failMode must change the reclaim hash")
 	}
 }
 
-func TestNew_DifferentFailClosedCreatesTwoCores(t *testing.T) {
+func TestNew_DifferentFailModeCreatesTwoCores(t *testing.T) {
 	t.Cleanup(reclaim.Reset)
 	reclaim.Reset()
 
@@ -35,7 +35,7 @@ func TestNew_DifferentFailClosedCreatesTwoCores(t *testing.T) {
 	openCfg.ModSecurityUrl = "http://waf"
 	closedCfg := CreateConfig()
 	closedCfg.ModSecurityUrl = "http://waf"
-	closedCfg.FailClosed = true
+	closedCfg.FailMode = modsecurity.FailModeClose
 
 	first, err := New(context.Background(), next, openCfg, "waf")
 	if err != nil {
@@ -54,6 +54,6 @@ func TestNew_DifferentFailClosedCreatesTwoCores(t *testing.T) {
 		t.Fatalf("want *modsecurity.Route, got %T", second)
 	}
 	if openRoute.SameCore(closedRoute) {
-		t.Fatal("different failClosed must not share a core")
+		t.Fatal("different failMode must not share a core")
 	}
 }
