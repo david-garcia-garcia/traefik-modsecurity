@@ -1,11 +1,11 @@
-Developer review: in progress — 2026-09-04T06:10:00Z
+Developer review: in progress — 2026-09-04T06:14:28Z
 
 ## What this changes
-**Operators.** None.
+**Operators.** None yet versus `main` (proposal only). Planned knob: `failClosed` (default false).
 
 **Admin users.** None.
 
-**Developers.** None.
+**Developers.** OpenSpec change `waf-fail-closed` adds `core_plugin_middleware_fail-closed` and modifies waf-status, health-tracker, log-level, and sidecar-response.
 
 **End users.** None.
 
@@ -13,40 +13,44 @@ Developer review: in progress — 2026-09-04T06:10:00Z
 On `main`, a sidecar transport error or sidecar 5xx always calls the next handler. An operator who must not send traffic to the backend when ModSecurity cannot inspect the request has no plugin setting. Without this PR they stay fail-open.
 
 ## Merge readiness
-Explore recorded assumed knob shape and fail-close scope. Product code is unchanged versus `main`. 6 items remain.
+Proposal is apply-ready; product code is still unchanged versus `main`. 5 items remain.
 
 Priority: P2 — operator cannot fail-close when the WAF is down; current deploys keep fail-open
-Reviewed head: 742e0c9
+Reviewed head: 943f2d6
 Owner decision: Required. See Decision needed.
 
 ## Review scores
 | Measure | Result | What it means |
 | --- | --- | --- |
-| Overall readiness | 3/6 | Integration tests still running; no product apply yet |
-| CI proof | 3/6 | lint/build succeeded; Integration Tests (nginx-drain) and (apache-drain) in progress: [nginx-drain](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33843181281/job/100929465552), [apache-drain](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33843181281/job/100929465281) |
+| Overall readiness | 3/6 | New CI run in progress on the proposal commit |
+| CI proof | 3/6 | in progress [33843540752](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33843540752) |
 | Local tests proof | N/A | `localTests: none`; remote CI is the proof axis |
 | Review resolution | 6/6 | OPEN PR; no review comments |
 
 ## Verification
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Branch | 2026-09-04-fail-open-close pushed | git worktree `wt-modsec-2026-09-04-fail-open-close` |
-| OpenSpec | none | `openspec/` |
+| Branch | 2026-09-04-fail-open-close pushed | worktree `wt-modsec-2026-09-04-fail-open-close` |
+| OpenSpec | waf-fail-closed | `openspec/changes/waf-fail-closed/` |
 | Pull request | https://github.com/david-garcia-garcia/traefik-modsecurity/pull/45 | GitHub |
-| CI | in progress [33843181281](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33843181281) | GitHub check runs |
+| CI | in progress [33843540752](https://github.com/david-garcia-garcia/traefik-modsecurity/actions/runs/33843540752) | GitHub check runs |
 | Local tests | none | handoff.yaml localTests |
-| PR comments | no comments | GitHub comment list |
+| PR comments | no comments | GitHub |
 | Security | None. | no `devstate/codereview.md` yet |
 | Performance | None. | no `devstate/codereview.md` yet |
 
 ## Specs
-None.
+- [core_plugin_middleware_fail-closed](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-04-fail-open-close/openspec/changes/waf-fail-closed/proposal.md) — added
+- [core_plugin_middleware_waf-status](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-04-fail-open-close/openspec/changes/waf-fail-closed/proposal.md) — modified
+- [core_plugin_middleware_health-tracker](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-04-fail-open-close/openspec/changes/waf-fail-closed/proposal.md) — modified
+- [core_plugin_middleware_log-level](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-04-fail-open-close/openspec/changes/waf-fail-closed/proposal.md) — modified
+- [core_plugin_middleware_sidecar-response](https://github.com/david-garcia-garcia/traefik-modsecurity/blob/2026-09-04-fail-open-close/openspec/changes/waf-fail-closed/proposal.md) — modified
 
 ## Follow-up issues
 None.
 
 ## How this fits together
-Local spec → dedicated worktree from `origin/main` → branch `2026-09-04-fail-open-close` → stub PR 45. Explore assumed `failClosed` bool (default false), fail-close on unhealthy skip, empty 502.
+Dedicated worktree from `origin/main` → branch `2026-09-04-fail-open-close` → PR 45. Change `waf-fail-closed` is apply-ready.
 
 ## Decision needed
 | Question | Decision | By |
@@ -56,9 +60,8 @@ Local spec → dedicated worktree from `origin/main` → branch `2026-09-04-fail
 | What does the client receive on fail-close? | assumed — empty HTTP 502, same as existing plugin-owned 502s. Status-header `error` or `unhealthy` as today. | explore |
 
 ## Before merge
-- [ ] Add `failClosed` so WAF communication failure can fail-close (default remains fail-open)
-- [ ] Update specs that currently forbid HTTP 502 on WAF failure
-- [ ] Green CI on the apply, not only bus commits
+- [ ] Apply `failClosed` in Config, Plugin, and ServeHTTP
+- [ ] Green CI on the apply
 
 ## Findings
 None.
@@ -74,26 +77,25 @@ None.
 ### Review metrics
 | Metric | Value | Why it matters |
 | --- | --- | --- |
-| Specs in this PR | none | Same list as ## Specs |
+| Specs in this PR | 1 added / 4 modified | Same list as ## Specs |
 | Open reviewer comments walked | 0 FIX / 0 ANSWER / 0 open | Unanswered review is merge risk |
-| Reviewed head | 742e0c9b06e76b068ebedb6243b086bb6cd1d0f5 | Card must match the branch you measured |
+| Reviewed head | 943f2d6944a06188f0c58e41676315b49eb38d66 | Card must match the branch you measured |
 
 ### Stored data model
-None.
+Public Traefik plugin YAML/JSON will gain `failClosed` (bool). Omitted stays fail-open. Upgrade compatible.
 
 ### Technical review
-Best possible solution: not applied yet versus `main`. Explore chose a bool `failClosed` default false over a string mode.
+Best possible solution versus `main`: one bool on existing Config, fail-close on WAF failure and unhealthy skip, empty 502.
 
-Do we have a high-confidence way to reproduce? Yes, `TestPlugin_WafFailureNeverFailClosed` and `pkg/modsecurity/serve.go` after sidecar 5xx / transport error.
+Do we have a high-confidence way to reproduce? Yes, current fail-open tests and `serve.go`.
 
-Is this the best way to solve the issue? Yes versus `main` — one existing-pattern Config bool, fail-close on both the failing request and the unhealthy skip.
+Is this the best way to solve the issue? Yes versus `main` — matches other typed Config knobs.
 
 ### Evidence
 What I checked:
-- Dedicated worktree `D:/repositories/wt-modsec-2026-09-04-fail-open-close` from `origin/main` `aa6714d` (git worktree list)
-- `openspec/specs/core_plugin_middleware_waf-status/spec.md` forbids 502 on WAF failure (read)
-- `openspec/specs/core_plugin_middleware_health-tracker/spec.md` unhealthy path always calls `next` (read)
-- CI: lint/build success; apache-drain and nginx-drain in progress (GitHub get_check_runs)
+- Worktree `D:/repositories/wt-modsec-2026-09-04-fail-open-close` at `943f2d6` from `origin/main` `aa6714d` (git)
+- `openspec validate waf-fail-closed` passed
+- PR https://github.com/david-garcia-garcia/traefik-modsecurity/pull/45
 
 ### Rank-up moves
 None.

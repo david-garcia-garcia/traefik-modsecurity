@@ -11,3 +11,10 @@ phase: explore
 findings: none
 fixed: assumed `failClosed` bool default false; fail-close includes unhealthy skip; empty 502
 skipped: none
+
+## propose (2026-09-04)
+
+phase: propose
+findings: none
+fixed: OpenSpec change waf-fail-closed apply-ready
+skipped: none
