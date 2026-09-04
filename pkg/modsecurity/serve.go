@@ -51,10 +51,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}
 
 	// Read the inbound body for the sidecar and restore it for next.
-	body, releasePooledBuffer, err := p.readInboundBody(rw, req)
-	if releasePooledBuffer != nil {
-		defer releasePooledBuffer()
-	}
+	body, err := p.readInboundBody(rw, req)
 	if err != nil {
 		p.replyInboundBodyReadFailure(rw, req, err)
 		return
