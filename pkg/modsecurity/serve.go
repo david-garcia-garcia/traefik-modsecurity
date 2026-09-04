@@ -51,9 +51,6 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		return
 	}
 
-	// Build the WAF request and send it on the shared client.
-	url := p.modSecurityUrl + req.URL.RequestURI()
-
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -62,6 +59,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	}
 
 	// Bind the sidecar request to the inbound context so a client disconnect cancels it.
+	url := p.modSecurityUrl + req.URL.RequestURI()
 	proxyReq, err := http.NewRequestWithContext(req.Context(), req.Method, url, bodyReader)
 	if err != nil {
 		p.setStatusRequestHeader(req, "error")
