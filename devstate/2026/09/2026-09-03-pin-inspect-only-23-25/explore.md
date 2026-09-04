@@ -38,7 +38,7 @@
   By: implement
 
 - Q: Does nginx dummy 416 on `Range: bytes=10240-`?
-  Decision: assumed — still skip `nginx-whoami` (not measured this run). `apache-whoami` Range 416 is resolved (Pester passed).
+  Decision: resolved — whoami stacks and dummy origin were removed on `main` (#43). Dummy 416 contrast is gone; the pin is drain Range labeled-app success plus large POST not-5xx.
   By: implement
 
 - Q: Does a 12–16 MiB POST to `/large-body-test` return 200 on drain, or CRS 413?
@@ -46,7 +46,7 @@
   By: implement
 
 - Q: Is apache-whoami 12–16 MiB POST stably 5xx (dummy AH01084)?
-  Decision: resolved — skip remains. Not measured; drain not-5xx is the pin.
+  Decision: resolved — whoami stacks were removed on `main` (#43). Dummy 5xx contrast is gone; drain large-POST not-5xx is the pin.
   By: implement
 
 - Q: Who already owns client identity for these tests?

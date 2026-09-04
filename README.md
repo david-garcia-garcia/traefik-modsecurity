@@ -60,14 +60,13 @@ See [docker-compose.yml](docker-compose.yml)
 
 Every request goes through Traefik. This plugin sends a **copy** to the WAF. If the WAF allows it, Traefik forwards the original request to **your** application. If the WAF blocks it, the client gets that block and your app is never called.
 
-The `whoami` containers in the demo are only sample websites. Swap them for your real services.
+The `whoami` containers in the demo are only sample websites. Swap them for your real services. The WAF container is inspect-only: after CRS request phases it answers HTTP 200. It does **not** reverse-proxy to a second site.
 
 ```mermaid
 flowchart LR
   Client --> Traefik
   Traefik -->|"copy"| WAF[WAF]
   Traefik -->|"if allowed"| App[Your application]
-  WAF -.-> Dummy["dummy whoami\noptional"]
 ```
 
 | Box | What it is |
@@ -75,26 +74,23 @@ flowchart LR
 | Traefik | Reverse proxy. Runs this plugin. |
 | WAF | ModSecurity CRS container. Looks at the copy and says allow or block. |
 | Your application | The real site or API. Demo uses `whoami` as a placeholder. |
-| dummy whoami | **Optional.** An extra dummy site so the WAF image has something to talk to. It is **not** your application. The demo does not use it. |
 
 ### What to expect (speed)
 
-Treat them as a ballpark, not a promise.
+Treat these as a ballpark, not a promise. CRS sidecar throughput after ModSecurity (HTTP 200 allow):
 
 | Setup | GET | POST |
 | --- | --- | --- |
-| Apache + dummy whoami | ~5000 req/s (10 ms) | ~1150 req/s (43 ms) |
-| Apache, no dummy | ~5200 req/s (10 ms) | ~1350 req/s (37 ms) |
-| nginx + dummy whoami | ~4000 req/s (13 ms) | ~1950 req/s (26 ms) |
-| nginx, no dummy | ~3600 req/s (14 ms) | ~2550 req/s (20 ms) |
+| Apache | ~5200 req/s (10 ms) | ~1350 req/s (37 ms) |
+| nginx | ~3600 req/s (14 ms) | ~2550 req/s (20 ms) |
 
 ## How it works
 
 The plugin classifies the sidecar HTTP status (see [Architecture](#architecture) for the service layout):
 
 - **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
-- **3xx / 4xx** — security block: copy the sidecar response to the client. When `modSecurityStatusRequestHeader` is set, write `blocked`.
-- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure, then fail-open or return 502. The sidecar 5xx body is not forwarded.
+- **3xx / 4xx** — security block: copy the sidecar response to the client, omitting hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server`. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible. When `modSecurityStatusRequestHeader` is set, write `blocked`.
+- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure when backoff is enabled, then fail-open to `next` unless `failMode: close` (empty HTTP 502, no `next`). The sidecar 5xx body is not forwarded.
 
 ## Trust this middleware (client IP in WAF logs)
 
@@ -120,7 +116,7 @@ REMOTEIP_INT_PROXY: 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
 
 `REMOTEIP_INT_PROXY` must include the network Traefik uses to reach the sidecar (Docker bridge is usually `172.16.0.0/12`). The image default `10.1.0.0/16` does not. Do **not** set `0.0.0.0/0`.
 
-The shipped `4.3.0-apache-alpine-202406090906` pin hardcodes `RemoteIPHeader X-Forwarded-For`, so `REMOTEIP_HEADER` alone does nothing. Compose also mounts [crs-apache/httpd-vhosts.conf](crs-apache/httpd-vhosts.conf) to set `RemoteIPHeader X-Real-IP`.
+The shipped `4.3.0-apache-alpine-202406090906` pin hardcodes `RemoteIPHeader X-Forwarded-For`, so `REMOTEIP_HEADER` alone does nothing. Compose also mounts [crs-apache/httpd-vhosts.drain.conf](crs-apache/httpd-vhosts.drain.conf) (inspect-only 200 after CRS, `RemoteIPHeader X-Real-IP`).
 
 ### nginx CRS (test compose is the reference)
 
@@ -134,7 +130,7 @@ REAL_IP_RECURSIVE: on
 
 Those become `real_ip_header X-Real-IP` and `set_real_ip_from` for the Traefik net. `SET_REAL_IP_FROM` is comma-separated. Do **not** set `0.0.0.0/0`.
 
-The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
+The shipped `4.3.0-nginx-alpine-202406090906` pin applies those env vars only inside `location /`, which is too late for ModSecurity. Compose also mounts [crs-nginx/realip.conf](crs-nginx/realip.conf) at http level. After CRS, [crs-nginx/drain-origin.conf](crs-nginx/drain-origin.conf) listens on `unix:/tmp/modsecurity/crs-drain.sock` and [crs-nginx/proxy_backend.drain.conf.template](crs-nginx/proxy_backend.drain.conf.template) `proxy_pass`es that socket so `If-None-Match` cannot 304 the tiny 200. Do not put `return` on CRS `location /` (that skips request-body inspection). The nginx user cannot write `/var/log`; the test compose sets `MODSEC_AUDIT_LOG=/tmp/modsecurity/modsec_audit.log`.
 
 Operators who set Traefik `forwardedHeaders.trustedIPs` and want leftover XFF as `REMOTE_ADDR` configure that on CRS themselves (`REMOTEIP_HEADER=X-Forwarded-For` or `REAL_IP_HEADER=X-Forwarded-For`).
 
@@ -147,11 +143,14 @@ Without this, every deny is attributed to the Traefik container IP. An IPS that 
 Run the complete test suite against real Docker services:
 
 ```bash
-# Run all tests (Apache CRS)
+# Apache CRS (default stack)
 ./Test-Integration.ps1
 
-# Same suite against nginx CRS
-./Test-Integration.ps1 -ComposeFile ./docker-compose.test.nginx.yml
+# nginx CRS
+./Test-Integration.ps1 -Stack nginx-drain
+
+# Both stacks
+./Test-Integration.ps1 -AllStacks
 
 # Keep services running for debugging
 ./Test-Integration.ps1 -SkipDockerCleanup
@@ -216,12 +215,21 @@ http:
           # Increase for slow ModSecurity instances or large payloads
           # Set to 0 for no timeout (not recommended in production)
           
+          failMode: open
+          # OPTIONAL: When ModSecurity cannot inspect the request
+          # Default: open (fail-open: call next / the backend)
+          # close: fail-close with empty HTTP 502; do not call next
+          # Allowed values: open, close (case-insensitive). Other values fail plugin construction
+          # Applies to sidecar transport errors (not inbound cancel), sidecar 5xx,
+          # and the already-unhealthy skip after the health tracker trips
+          # Existing deploys that omit this field stay fail-open
+
           unhealthyWafBackOffPeriodSecs: 30
           # OPTIONAL: Backoff period in seconds when ModSecurity is unavailable
-          # Default: 0 (return 502 Bad Gateway immediately)
-          # When ModSecurity is down, this plugin can temporarily bypass it
-          # Set to 0 to disable bypass (always return 502 when WAF is down)
-          # Set to 30+ seconds for production environments with automatic failover
+          # Default: 0 (tracker unused; each WAF failure still follows failMode)
+          # When ModSecurity is down, this plugin fail-opens the current request unless failMode is close
+          # Set to 30+ so later requests skip the sidecar for that backoff after threshold
+          # Set to 0 to disable unhealthy skip of later requests (each failure still follows failMode)
           # Omitted unhealthyWafFailureThreshold defaults to 5 (one error does not trip)
           # Omitted unhealthyWafFailureWindowSecs defaults to 10 (tumbling window)
           # Set unhealthyWafFailureThreshold: 1 to trip on the first sidecar error
@@ -235,8 +243,30 @@ http:
           # - "blocked" when the sidecar returns 3xx/4xx, or this plugin rejects an oversize body
           # - "error" when the sidecar is unreachable, returns 5xx, or the sidecar request cannot be built
           # - "unhealthy" when ModSecurity is down and backoff is already tripped
+          # - "bypassrule" when a bypassRules entry matched (sidecar was not called)
           # Configure Traefik access logs to capture this header:
           # accesslog.fields.headers.names.X-Waf-Status=keep
+
+          bypassRules: []
+          # OPTIONAL: Skip the sidecar for matching method+path patterns (no body buffer, no WAF hop)
+          # Default: empty (inspect every request, subject to already-unhealthy backoff)
+          # Each entry:
+          #   method: HTTP method (case-insensitive). Empty = any method
+          #   pathRegexp: Go RE2 regexp, unanchored MatchString against req.URL.Path
+          #     (percent-decoded, not slash-normalized; not the query). Empty = any path
+          # Both set: both must match. `health` matches `/unhealthy`; `/health` matches
+          # `/healthz` and `/index.php/health`. Write `^/health$` for an exact path,
+          # `^/admin/` for a prefix. The plugin does not insert those anchors.
+          # Invalid pathRegexp fails plugin construction.
+          # Example:
+          # bypassRules:
+          #   - method: GET
+          #     pathRegexp: ^/admin/
+          #   - pathRegexp: ^/healthz$
+          # When modSecurityStatusRequestHeader is set, matching requests get "bypassrule"
+          # WebSocket handshake GETs are inspected like any other GET. After a sidecar allow,
+          # Traefik tunnels frames; this plugin does not see them. If CRS false-positives a
+          # real WebSocket path, add a bypassRules entry (or omit this middleware on that router).
           
           #-------------------------------
           # Advanced Transport Configuration
