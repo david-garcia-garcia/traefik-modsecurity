@@ -4,6 +4,7 @@ Hand-kept permission list of root + domain. Add the domain bullet in the same ed
 
 ## ext
 - http
+- nginx
 - traefik
 - geoblock
 - golangci-lint
@@ -11,3 +12,10 @@ Hand-kept permission list of root + domain. Add the domain bullet in the same ed
 - modsecurity
 - authelia
 - dnastack
+- cloudflare
+- aws
+- azure
+- coraza
+- google
+- fastly
+- haproxy

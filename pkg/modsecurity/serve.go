@@ -16,16 +16,16 @@ const sidecarBodyDrainLimit = 256 << 10
 
 // ServeHTTP proxies req to ModSecurity, then either blocks or calls next.
 func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.Handler) {
+	// Drop a client-supplied status token so every path writes the outcome we took.
+	if p.modSecurityStatusRequestHeader != "" {
+		req.Header.Del(p.modSecurityStatusRequestHeader)
+	}
+
 	// Operator allowlist: skip sidecar, body buffer, and local verb-body reject.
 	if p.compiledBypass.match(req) {
 		if p.modSecurityStatusRequestHeader != "" {
 			req.Header.Set(p.modSecurityStatusRequestHeader, bypassStatusToken)
 		}
-		next.ServeHTTP(rw, req)
-		return
-	}
-
-	if isWebsocket(req) {
 		next.ServeHTTP(rw, req)
 		return
 	}
@@ -159,22 +159,6 @@ func (p *Plugin) recordWafFailure(req *http.Request, cause error) {
 // discardSidecarBody discards leftover sidecar response bytes up to sidecarBodyDrainLimit so Close can return the TCP connection to the pool.
 func discardSidecarBody(body io.Reader) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, sidecarBodyDrainLimit))
-}
-
-// isWebsocket reports whether req is an HTTP/1.1 WebSocket handshake.
-func isWebsocket(req *http.Request) bool {
-	if req.Method != http.MethodGet {
-		return false
-	}
-	if !headerValuesContainToken(req.Header.Values("Connection"), "upgrade") {
-		return false
-	}
-	for _, value := range req.Header.Values("Upgrade") {
-		if strings.EqualFold(value, "websocket") {
-			return true
-		}
-	}
-	return false
 }
 
 // headerValuesContainToken reports whether any comma-separated token in values equals token, ignoring ASCII case.

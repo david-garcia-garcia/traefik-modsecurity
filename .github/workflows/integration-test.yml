@@ -21,18 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - stack: apache-whoami
-            compose_file: docker-compose.test.yml
-            override_file: ""
-          - stack: nginx-whoami
-            compose_file: docker-compose.test.nginx.yml
-            override_file: ""
           - stack: apache-drain
             compose_file: docker-compose.test.yml
-            override_file: docker-compose.test.apache-drain.yml
           - stack: nginx-drain
             compose_file: docker-compose.test.nginx.yml
-            override_file: docker-compose.test.nginx-drain.yml
 
     steps:
     - name: Checkout Repository
@@ -48,11 +40,7 @@ jobs:
 
     - name: Set compose args
       run: |
-        ARGS="-f ${{ matrix.compose_file }}"
-        if [ -n "${{ matrix.override_file }}" ]; then
-          ARGS="$ARGS -f ${{ matrix.override_file }}"
-        fi
-        echo "COMPOSE_ARGS=$ARGS" >> "$GITHUB_ENV"
+        echo "COMPOSE_ARGS=-f ${{ matrix.compose_file }}" >> "$GITHUB_ENV"
 
     - name: Setup Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -85,11 +73,7 @@ jobs:
           echo "❌ ${{ matrix.compose_file }} not found"
           exit 1
         fi
-        if [ -n "${{ matrix.override_file }}" ] && [ ! -f "${{ matrix.override_file }}" ]; then
-          echo "❌ ${{ matrix.override_file }} not found"
-          exit 1
-        fi
-        echo "✅ Docker Compose test file(s) found"
+        echo "✅ Docker Compose test file found"
         
         # Validate Docker Compose file
         # shellcheck disable=SC2086
@@ -287,11 +271,9 @@ jobs:
         $requiredFiles = @(
             "./docker-compose.test.yml",
             "./docker-compose.test.nginx.yml",
-            "./docker-compose.test.apache-drain.yml",
-            "./docker-compose.test.nginx-drain.yml",
-            "./crs-apache/httpd-vhosts.conf",
             "./crs-apache/httpd-vhosts.drain.conf",
             "./crs-nginx/drain-origin.conf",
+            "./crs-nginx/proxy_backend.drain.conf.template",
             "./scripts/integration-tests.Tests.ps1"
         )
         
@@ -309,6 +291,4 @@ jobs:
       run: |
         docker compose -f docker-compose.test.yml config >/dev/null
         docker compose -f docker-compose.test.nginx.yml config >/dev/null
-        docker compose -f docker-compose.test.yml -f docker-compose.test.apache-drain.yml config >/dev/null
-        docker compose -f docker-compose.test.nginx.yml -f docker-compose.test.nginx-drain.yml config >/dev/null
-        echo "✅ All four compose stacks validate"
+        echo "✅ Both integration compose stacks validate"

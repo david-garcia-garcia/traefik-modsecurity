@@ -53,20 +53,8 @@ Describe "ModSecurity Plugin Basic Functionality" {
             $response.Content | Should -Match "Hostname"
         }
 
-        It "Should not run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami-origin stacks keep dummy as the CRS BACKEND"
-                return
-            }
-            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Drain overlay must not start dummy; only labeled whoami apps remain"
-        }
-
-        It "Should run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsWhoamiOrigin)) {
-                Set-ItResult -Skipped -Because "drain stacks do not run dummy"
-                return
-            }
-            Get-DummyContainerName | Should -Not -BeNullOrEmpty -Because "whoami-origin stacks proxy CRS BACKEND to dummy"
+        It "Should not run a CRS dummy origin container" {
+            Get-DummyContainerName | Should -BeNullOrEmpty -Because "The CRS sidecar is inspect-only; labeled whoami services are Traefik next, not the sidecar BACKEND"
         }
     }
 }
@@ -147,12 +135,27 @@ Describe "WAF Protection Tests" {
         }
 
         It "Should not copy a sidecar 416 for Range bytes=10240- on a small GET" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami dummy origin is expected to 416 on an unsatisfiable Range"
-                return
-            }
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
             $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
+            $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 304 for If-None-Match asterisk" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ "If-None-Match" = "*" }
+            $response.StatusCode | Should -Not -Be 304 -Because "Inspect-only sidecar must not 304 on If-None-Match; plugin copies sidecar 3xx as a block"
+            $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 304 for If-Modified-Since" {
+            # Invoke-WebRequest types If-Modified-Since as DateTime and rejects this
+            # RFC 1123 value. Send it on the wire so the sidecar still sees the header.
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine "GET /protected HTTP/1.1" -Headers @{
+                Host = "localhost:8000"
+                "If-Modified-Since" = "Wed, 21 Oct 2030 07:28:00 GMT"
+                Connection = "close"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] 200' -Because "Inspect-only sidecar must not 304 on If-Modified-Since; plugin copies sidecar 3xx as a block"
+            $responseText | Should -Not -Match '^HTTP/1\.[01] 304'
         }
 
         It "Should block a CRS SQL-injection probe in the POST body" {
@@ -788,11 +791,23 @@ Describe "Plugin reclaim logs" -Tag Reclaim {
 }
 
 Describe "WebSocket through WAF middleware" {
-    Context "Live upgrade" {
-        It "Should complete a handshake and echo a text frame" {
-            $payload = "ws-echo-$(Get-Random)"
-            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message $payload
-            $echoed | Should -Be $payload -Because "a real WebSocket through Traefik and the plugin must stay usable after 101"
+    Context "Live communication after handshake inspect" {
+        It "Should echo two text frames on one connection" {
+            $first = "ws-echo-a-$(Get-Random)"
+            $second = "ws-echo-b-$(Get-Random)"
+            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message @($first, $second)
+            $echoed | Should -Be @($first, $second) -Because "inspecting the handshake GET must still leave a working WebSocket tunnel (send, echo, send, echo, close), not 101-only"
+        }
+
+        It "Should still block SQLi on GET /protected with Upgrade websocket" {
+            $headers = @{
+                "Upgrade"                = "websocket"
+                "Connection"             = "Upgrade"
+                "Sec-WebSocket-Key"      = "dGhlIHNhbXBsZSBub25jZQ=="
+                "Sec-WebSocket-Version"   = "13"
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected?id=1' OR '1'='1" -Headers $headers
+            $response.StatusCode | Should -Be 403 -Because "Upgrade headers must not skip CRS on an ordinary GET"
         }
     }
 }
