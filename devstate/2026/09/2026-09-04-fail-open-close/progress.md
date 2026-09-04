@@ -9,6 +9,6 @@ JobName: 2026-09-04-fail-open-close
 | propose | [x] | [x] | 2026-09-04T06:14:28Z |
 | implement | [x] | [x] | 2026-09-04T06:18:17Z |
 | codereview | [x] | [x] | 2026-09-04T16:10:46Z |
-| devdocsimpact | [ ] | [ ] | |
-| archive | [ ] | [ ] | |
+| devdocsimpact | [x] | [ ] | |
+| archive | [x] | [ ] | |
 | pullrequest | [ ] | [ ] | |
