@@ -39,3 +39,10 @@ phase: implement
 findings: none
 fixed: `failClosed` bool replaced with `failMode` `open`|`close` default `open`; local `go test ./...` passed
 skipped: none
+
+## codereview (2026-09-04)
+
+phase: codereview
+findings: Spec 2 extra (inbound body-read header unset test/docs); Standards/Security/Performance none
+fixed: none (no hard findings)
+skipped: Spec extras kept (human WAF-only error correction)
