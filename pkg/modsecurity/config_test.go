@@ -72,6 +72,39 @@ func TestPrepare_LogLevelRejectsUnknown(t *testing.T) {
 	}
 }
 
+func TestPrepare_FailModeDefaultOpen(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.FailMode = ""
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FailMode != FailModeOpen {
+		t.Fatalf("FailMode = %q, want open", cfg.FailMode)
+	}
+}
+
+func TestPrepare_FailModeNormalizesCase(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.FailMode = "CLOSE"
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FailMode != FailModeClose {
+		t.Fatalf("FailMode = %q, want close", cfg.FailMode)
+	}
+}
+
+func TestPrepare_FailModeRejectsUnknown(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.FailMode = "closed"
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for failMode=closed")
+	}
+}
+
 func TestPrepare_ZeroTimeoutMillisDefaults(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.ModSecurityUrl = "http://waf"

@@ -37,10 +37,10 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}
 
-	// If the WAF is unhealthy just forward the request early.
+	// If the WAF is unhealthy skip the sidecar; fail-open to next or fail-close with 502.
 	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
 		p.setStatusRequestHeader(req, "unhealthy")
-		next.ServeHTTP(rw, req)
+		p.serveFailClosedOrNext(rw, req, next)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			return
 		}
 		p.recordWafFailure(req, err)
-		next.ServeHTTP(rw, req)
+		p.serveFailClosedOrNext(rw, req, next)
 		return
 	}
 	defer func() {
@@ -106,7 +106,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 	// Sidecar 5xx is a WAF failure, not a security block.
 	if resp.StatusCode >= 500 {
 		p.recordWafFailure(req, fmt.Errorf("waf status %d", resp.StatusCode))
-		next.ServeHTTP(rw, req)
+		p.serveFailClosedOrNext(rw, req, next)
 		return
 	}
 	// Sidecar allow: mark ok for access logs, then Traefik continues.
@@ -142,8 +142,17 @@ func (p *Plugin) replyInboundBodyReadFailure(rw http.ResponseWriter, req *http.R
 	http.Error(rw, "", http.StatusBadGateway)
 }
 
+// serveFailClosedOrNext calls next when failMode is open, or writes empty HTTP 502 when failMode is close.
+func (p *Plugin) serveFailClosedOrNext(rw http.ResponseWriter, req *http.Request, next http.Handler) {
+	if p.failMode == FailModeClose {
+		http.Error(rw, "", http.StatusBadGateway)
+		return
+	}
+	next.ServeHTTP(rw, req)
+}
+
 // recordWafFailure records a WAF communication failure: status header, optional health tracker, and log.
-// The caller must fail-open to next; a WAF failure is never HTTP 502 Bad Gateway.
+// The caller then fail-opens to next or fail-closes with HTTP 502 according to failMode.
 func (p *Plugin) recordWafFailure(req *http.Request, cause error) {
 	p.setStatusRequestHeader(req, "error")
 

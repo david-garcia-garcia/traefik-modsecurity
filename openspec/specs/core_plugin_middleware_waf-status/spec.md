@@ -74,13 +74,14 @@ When the sidecar answers with a 5xx status, the plugin SHALL treat that as a WAF
 - **THEN** the request header SHALL be `error`
 - **AND** the request header SHALL NOT be `blocked`
 
-### Requirement: Sidecar 5xx uses the same fail-open path as a transport error
+### Requirement: Sidecar 5xx uses the same WAF-failure path as a transport error
 
-A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffPeriodSecs` is greater than zero. Whether or not the tracker is configured, a WAF communication failure (sidecar 5xx or transport error, excluding inbound cancel) SHALL call the next handler (fail-open). The plugin SHALL NOT return HTTP 502 for a WAF failure. When `modSecurityStatusRequestHeader` is configured, the plugin SHALL set that header to `error` before calling next.
+A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffPeriodSecs` is greater than zero. Whether or not the tracker is configured, a WAF communication failure (sidecar 5xx or transport error, excluding inbound cancel) SHALL follow `failMode`: when `failMode` is `open` or omitted, the plugin SHALL call the next handler (fail-open) and SHALL NOT return HTTP 502; when `failMode` is `close`, the plugin SHALL return empty HTTP 502 and SHALL NOT call `next`. When `modSecurityStatusRequestHeader` is configured, the plugin SHALL set that header to `error` before fail-open or fail-close.
 
 #### Scenario: 503 trips fail-open at threshold 1
 
-- **WHEN** `unhealthyWafBackOffPeriodSecs` is greater than zero
+- **WHEN** `failMode` is `open` or omitted
+- **AND** `unhealthyWafBackOffPeriodSecs` is greater than zero
 - **AND** `unhealthyWafFailureThreshold` is 1
 - **AND** the sidecar responds with HTTP 503
 - **THEN** the plugin SHALL call the next handler
@@ -88,23 +89,30 @@ A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffP
 
 #### Scenario: 500 trips fail-open at threshold 1
 
-- **WHEN** `unhealthyWafBackOffPeriodSecs` is greater than zero
+- **WHEN** `failMode` is `open` or omitted
+- **AND** `unhealthyWafBackOffPeriodSecs` is greater than zero
 - **AND** `unhealthyWafFailureThreshold` is 1
 - **AND** the sidecar responds with HTTP 500
 - **THEN** the plugin SHALL call the next handler
-- **AND** the client SHALL receive the next handler's response
 
 #### Scenario: 503 without backoff fail-opens to next
 
-- **WHEN** `unhealthyWafBackOffPeriodSecs` is 0
+- **WHEN** `failMode` is `open` or omitted
+- **AND** fail-open backoff is not configured
 - **AND** the sidecar responds with HTTP 503
 - **THEN** the plugin SHALL call the next handler
-- **AND** the client SHALL receive the next handler's response
 - **AND** the client SHALL NOT receive HTTP 502
+
+#### Scenario: 503 fail-closes with 502 when failMode is close
+
+- **WHEN** `failMode` is `close`
+- **AND** the sidecar responds with HTTP 503
+- **THEN** the client SHALL receive HTTP 502
+- **AND** the next handler SHALL NOT run
 
 ### Requirement: Large non-file body never returns client 500
 
-A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plugin oversize SHALL be HTTP 413 with status-header `blocked` and SHALL NOT call the sidecar. A sidecar HTTP 413 SHALL be copied as a security block (`blocked`). A sidecar HTTP 5xx SHALL be a WAF failure: status-header `error` and fail-open to next (never a copied 500, never HTTP 502). The plugin SHALL NOT treat file vs non-file as a distinct mapping.
+A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plugin oversize SHALL be HTTP 413 with status-header `blocked` and SHALL NOT call the sidecar. A sidecar HTTP 413 SHALL be copied as a security block (`blocked`). A sidecar HTTP 5xx SHALL be a WAF failure: status-header `error` and SHALL follow `failMode` (fail-open to next when `open` or omitted; empty HTTP 502 when `close`; never a copied 500). The plugin SHALL NOT treat file vs non-file as a distinct mapping.
 
 #### Scenario: Plugin cap exceeded is 413 not 500
 
@@ -128,6 +136,7 @@ A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plug
 #### Scenario: Sidecar 500 fail-opens not a copied 500
 
 - **WHEN** the inbound body is under `maxBodySizeBytes`
+- **AND** `failMode` is `open` or omitted
 - **AND** fail-open backoff is not configured
 - **AND** the sidecar responds with HTTP 500
 - **THEN** the plugin SHALL call the next handler

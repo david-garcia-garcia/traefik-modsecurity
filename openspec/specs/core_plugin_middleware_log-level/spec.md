@@ -55,7 +55,7 @@ The plugin SHALL emit client-fault request rejections at `warn`: a body on a met
 
 #### Scenario: WAF forward failure is error
 
-- **WHEN** the plugin cannot send the request to ModSecurity (and then fail-opens to next)
+- **WHEN** the plugin cannot send the request to ModSecurity (then fail-open to next, or fail-close with HTTP 502 when `failMode` is `close`)
 - **THEN** the plugin SHALL emit the failure line at `error`
 
 #### Scenario: Body too large is warn

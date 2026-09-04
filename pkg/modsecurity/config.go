@@ -15,6 +15,12 @@ const (
 	LogLevelError = "error"
 )
 
+// Accepted failMode strings after Prepare. Stored lowercase.
+const (
+	FailModeOpen  = "open"
+	FailModeClose = "close"
+)
+
 // BypassRule is one operator allowlist entry: optional method and optional path regexp.
 // Empty method matches every method. Empty pathRegexp matches every path.
 // PathRegexp is Go RE2, matched with unanchored MatchString against req.URL.Path
@@ -42,6 +48,7 @@ type Config struct {
 	DenyVerbsWithBody              []string     `json:"denyVerbsWithBody,omitempty"`
 	LogLevel                       string       `json:"logLevel,omitempty"`
 	BypassRules                    []BypassRule `json:"bypassRules,omitempty"`
+	FailMode                       string       `json:"failMode,omitempty"`
 }
 
 // CreateConfig returns default plugin configuration.
@@ -60,6 +67,7 @@ func CreateConfig() *Config {
 		MaxBodySizeBytesForPool:        5 * 1024 * 1024,
 		DenyVerbsWithBody:              []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
 		LogLevel:                       LogLevelInfo,
+		FailMode:                       FailModeOpen,
 	}
 }
 
@@ -146,6 +154,15 @@ func Prepare(cfg *Config, name string) error {
 		return err
 	}
 	cfg.LogLevel = normalizedLevel
+	// Normalize failMode so the reclaim hash is stable across case and omitted values.
+	normalizedFailMode := strings.ToLower(strings.TrimSpace(cfg.FailMode))
+	if normalizedFailMode == "" {
+		normalizedFailMode = defaults.FailMode
+	}
+	if err := parseFailMode(normalizedFailMode); err != nil {
+		return err
+	}
+	cfg.FailMode = normalizedFailMode
 	// Fail construction on a bad pathRegexp before New stores a compiled map.
 	if _, err := compileBypassByMethod(cfg.BypassRules); err != nil {
 		return err
@@ -207,5 +224,15 @@ func parseLogLevel(level string) (slog.Level, error) {
 		return slog.LevelError, nil
 	default:
 		return 0, fmt.Errorf("logLevel must be debug, info, warn, or error")
+	}
+}
+
+// parseFailMode accepts a prepared failMode string. Empty is not accepted here; Prepare fills open first.
+func parseFailMode(mode string) error {
+	switch mode {
+	case FailModeOpen, FailModeClose:
+		return nil
+	default:
+		return fmt.Errorf("failMode must be open or close")
 	}
 }

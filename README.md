@@ -90,7 +90,7 @@ The plugin classifies the sidecar HTTP status (see [Architecture](#architecture)
 
 - **2xx** — allow: write `ok` on `modSecurityStatusRequestHeader` when that name is set, then forward the request to the real service.
 - **3xx / 4xx** — security block: copy the sidecar response to the client, omitting hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, `Proxy-*`, `Te`, `Trailer`) and `Server`. The body is whatever page ModSecurity produced — operators who customize that page or enable verbose reporting should treat it as client-visible. When `modSecurityStatusRequestHeader` is set, write `blocked`.
-- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure when backoff is enabled, then always fail-open to `next`. The sidecar 5xx body is not forwarded.
+- **5xx** — WAF failure, not a block: set `modSecurityStatusRequestHeader` to `error` when configured, count a health-tracker failure when backoff is enabled, then fail-open to `next` unless `failMode: close` (empty HTTP 502, no `next`). The sidecar 5xx body is not forwarded.
 
 ## Trust this middleware (client IP in WAF logs)
 
@@ -215,12 +215,21 @@ http:
           # Increase for slow ModSecurity instances or large payloads
           # Set to 0 for no timeout (not recommended in production)
           
+          failMode: open
+          # OPTIONAL: When ModSecurity cannot inspect the request
+          # Default: open (fail-open: call next / the backend)
+          # close: fail-close with empty HTTP 502; do not call next
+          # Allowed values: open, close (case-insensitive). Other values fail plugin construction
+          # Applies to sidecar transport errors (not inbound cancel), sidecar 5xx,
+          # and the already-unhealthy skip after the health tracker trips
+          # Existing deploys that omit this field stay fail-open
+
           unhealthyWafBackOffPeriodSecs: 30
           # OPTIONAL: Backoff period in seconds when ModSecurity is unavailable
-          # Default: 0 (tracker unused; each WAF failure still fail-opens to next)
-          # When ModSecurity is down, this plugin always fail-opens the current request
+          # Default: 0 (tracker unused; each WAF failure still follows failMode)
+          # When ModSecurity is down, this plugin fail-opens the current request unless failMode is close
           # Set to 30+ so later requests skip the sidecar for that backoff after threshold
-          # Set to 0 to disable unhealthy skip of later requests (each failure still fail-opens)
+          # Set to 0 to disable unhealthy skip of later requests (each failure still follows failMode)
           # Omitted unhealthyWafFailureThreshold defaults to 5 (one error does not trip)
           # Omitted unhealthyWafFailureWindowSecs defaults to 10 (tumbling window)
           # Set unhealthyWafFailureThreshold: 1 to trip on the first sidecar error
