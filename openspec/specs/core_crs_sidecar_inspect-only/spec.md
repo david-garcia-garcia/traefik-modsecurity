@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how this repo’s OWASP CRS Docker sidecar inspects a request copy and answers HTTP 200 after ModSecurity request phases. Demo compose and integration test stacks use that inspect-only pattern only. CRS request rules still apply. The sidecar MUST NOT turn `Range` or conditional request headers into a 3xx/4xx that the plugin copies as a block.
+Defines how this repo’s OWASP CRS Docker sidecar inspects a request copy and answers HTTP 200 after ModSecurity request phases. Demo compose and integration test stacks use that inspect-only pattern only. CRS request rules still apply. The sidecar MUST NOT turn `Range` or conditional request headers into a 3xx/4xx that the plugin copies as a block. CI-visible Pester MUST pin Range as a labeled-app success and large POST as not 5xx.
 
 ## Requirements
 
@@ -45,13 +45,15 @@ The inspect-only 200 handler SHALL NOT skip ModSecurity request-header or reques
 
 ### Requirement: Range does not become a sidecar security block
 
-A client `Range` that would be unsatisfiable on a small sidecar body (including `Range: bytes=10240-` on a tiny inspect-only 200) SHALL NOT produce a sidecar 4xx. The sidecar SHALL respond HTTP 200 for that inspect. Traefik `next` may still return 206 or 200 from the application. Client IP for WAF audit SHALL remain Traefik `ClientHost` via the existing `X-Real-IP` overlays (`RemoteIPHeader` / nginx `real_ip`). The plugin SHALL NOT reconstruct client IP.
+A client `Range` that would be unsatisfiable on a small sidecar body (including `Range: bytes=10240-` on a tiny inspect-only 200) SHALL NOT produce a sidecar 4xx. The sidecar SHALL respond HTTP 200 for that inspect. The client SHALL receive a successful labeled-application response (HTTP 200, or 206 if that application serves partial content), and the body or headers SHALL identify the labeled application, not a WAF 416 page. Client IP for WAF audit SHALL remain Traefik `ClientHost` via the existing `X-Real-IP` overlays (`RemoteIPHeader` / nginx `real_ip`). The plugin SHALL NOT reconstruct client IP.
 
 #### Scenario: Large Range on a small GET
 
 - **WHEN** a client GET to a WAF-protected route includes `Range: bytes=10240-`
 - **THEN** the sidecar SHALL respond HTTP 200
 - **AND** the client SHALL NOT receive a sidecar 416 copied as a WAF block
+- **AND** the client SHALL receive HTTP 200 or 206 from the labeled application
+- **AND** the response body or headers SHALL identify the labeled application
 
 #### Scenario: Deny audit still has Traefik ClientHost
 
@@ -84,3 +86,23 @@ The integration suite SHALL include `apache-drain` and `nginx-drain` only. Each 
 - **THEN** it SHALL start `apache-drain` and `nginx-drain`
 - **AND** it SHALL NOT start `apache-whoami` or `nginx-whoami`
 - **AND** it SHALL print a `BENCH stack=... method=... rps=...` line for GET and POST when bombardier is installed
+
+### Requirement: Drain large POST is not a sidecar 5xx
+
+A benign POST of about 12–16 MiB to the large-body test route (`maxBodySizeBytes` 20 MiB) SHALL NOT produce a sidecar 5xx (Apache AH01084 class). CRS may still reject that body with 413 when image or compose request-body limits are smaller than the POST.
+
+#### Scenario: Large POST on drain
+
+- **WHEN** a client POSTs about 12–16 MiB to `/large-body-test` on `apache-drain` or `nginx-drain`
+- **THEN** the client SHALL NOT receive HTTP 5xx
+- **AND** the client MAY receive HTTP 200 when CRS allows the body, or HTTP 413 when CRS request-body limits reject it
+
+### Requirement: CI-visible main suite pins Range and large POST
+
+The two-stack integration workflow SHALL run the Range success and large-POST scenarios from `scripts/integration-tests.Tests.ps1`. The CRS POST-body probe on a WAF-protected route SHALL remain a deny (typically 403).
+
+#### Scenario: Main Pester file covers the pins
+
+- **WHEN** the integration-test workflow runs the two-stack matrix
+- **THEN** it SHALL execute `scripts/integration-tests.Tests.ps1`
+- **AND** that file SHALL contain the Range labeled-app success, large-POST not-5xx, and CRS POST-body deny scenarios

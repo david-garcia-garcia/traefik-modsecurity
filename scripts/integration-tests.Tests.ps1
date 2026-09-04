@@ -11,6 +11,7 @@ BeforeAll {
         @{ Url = "$TraefikApiUrl/api/rawdata"; Name = "Traefik API" },
         @{ Url = "$BaseUrl/bypass"; Name = "Bypass service" },
         @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
+        @{ Url = "$BaseUrl/large-body-test"; Name = "Large body test service" },
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
@@ -137,7 +138,8 @@ Describe "WAF Protection Tests" {
         It "Should not copy a sidecar 416 for Range bytes=10240- on a small GET" {
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
             $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
-            $response.StatusCode | Should -Be 200
+            $response.StatusCode | Should -BeIn @(200, 206) -Because "Client must get the labeled app (200) or partial content (206), not a WAF page"
+            $response.Content | Should -Match "Hostname" -Because "Body must be the labeled whoami app, not a sidecar 416 page"
         }
 
         It "Should not copy a sidecar 304 for If-None-Match asterisk" {
@@ -156,6 +158,12 @@ Describe "WAF Protection Tests" {
             }
             $responseText | Should -Match '^HTTP/1\.[01] 200' -Because "Inspect-only sidecar must not 304 on If-Modified-Since; plugin copies sidecar 3xx as a block"
             $responseText | Should -Not -Match '^HTTP/1\.[01] 304'
+        }
+
+        It "Should not 5xx a 16MiB POST to /large-body-test" {
+            $largeData = New-RequestBodyOfSizeBytes -TargetSizeBytes (16 * 1024 * 1024)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/large-body-test" -Method POST -Body $largeData -TimeoutSec 60
+            [int]$response.StatusCode | Should -BeLessThan 500 -Because "Inspect-only drain must not copy Apache AH01084 / dummy 5xx; CRS 413 is allowed"
         }
 
         It "Should block a CRS SQL-injection probe in the POST body" {
