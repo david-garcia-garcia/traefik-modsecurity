@@ -1,12 +1,12 @@
 ## pullrequest (2026-09-04T16:36:32Z)
 phase: pullrequest
-findings: none
+findings: Build workflow Test step failed on 6db6046 after succeeding on merge 87be18e
 fixed: merged origin/main; dropped apache-whoami 416 contrast (dummy origin gone on main #43); kept Range 200/206+Hostname and 16 MiB POST not-5xx
 skipped: none
 card: PR #38 summary (commentId: pr-body)
-ci: run 33895567416 succeeded (apache-drain, nginx-drain)
-verdict: ready for review
-head: 87be18ed305be5659aa22f459b4458daa77420d4
+ci: run 33896259120 integration succeeded (apache-drain, nginx-drain); Build run 33896259020 failed (go test step)
+verdict: needs changes
+head: 6db604655c79e71c8d2e472451747d90dad42652
 
 ## pullrequest (2026-09-03T05:43:17Z)
 phase: pullrequest
