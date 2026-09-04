@@ -122,6 +122,32 @@ func TestPlugin_UnknownLengthOverMaxReturns413(t *testing.T) {
 	}
 }
 
+// failingBodyRead is a request body that always fails so ServeHTTP takes the non-413 read-error path.
+type failingBodyRead struct{}
+
+func (failingBodyRead) Read([]byte) (int, error) { return 0, fmt.Errorf("inbound body read failed") }
+func (failingBodyRead) Close() error             { return nil }
+
+func TestPlugin_InboundBodyReadFailureLeavesStatusHeaderUnset(t *testing.T) {
+	h := newTestBodyReadRoute(t, 8192)
+	req := httptest.NewRequest(http.MethodPost, "http://example/test", nil)
+	req.Body = failingBodyRead{}
+	req.ContentLength = -1
+	req.Header.Del("Content-Length")
+
+	rec := httptest.NewRecorder()
+	h.route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", rec.Code)
+	}
+	if h.nextCalled {
+		t.Fatal("next must not run on inbound body read failure")
+	}
+	if got := req.Header.Get("X-Waf-Status"); got != "" {
+		t.Fatalf("status header %q, want unset (error is WAF-only)", got)
+	}
+}
+
 func TestPlugin_HTTP1ChunkedForwardsBody(t *testing.T) {
 	const maxBody int64 = 8192
 	body := bytes.Repeat([]byte("c"), 4096)
