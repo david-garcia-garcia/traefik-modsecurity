@@ -11,6 +11,10 @@ Allowlist of root + domain: `openspec/specs/domains.md`.
 
 ## core
 
+### crs
+
+- sidecar
+
 ### plugin
 
 - middleware

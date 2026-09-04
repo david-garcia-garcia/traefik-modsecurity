@@ -31,7 +31,6 @@ services:
       - PARANOIA=1
       - ANOMALY_INBOUND=5
       - ANOMALY_OUTBOUND=4
-      - BACKEND=http://dummy
       - MODSEC_RULE_ENGINE=On
       - MODSEC_REQ_BODY_LIMIT=10485760        # 10MB limit
       - MODSEC_REQ_BODY_NOFILES_LIMIT=1048576 # 1MB limit for non-file uploads
@@ -49,10 +48,7 @@ services:
       - REMOTEIP_HEADER=X-Real-IP
       - "REMOTEIP_INT_PROXY=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
     volumes:
-      - ./crs-apache/httpd-vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
-
-  dummy:
-    image: traefik/whoami
+      - ./crs-apache/httpd-vhosts.drain.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf:ro
 
   # Backend for file-provider reclaim routers (/reclaim-a, /reclaim-b). No Docker labels.
   whoami-reclaim:
@@ -170,7 +166,7 @@ services:
     volumes:
       - ./test-fixtures/waf-5xx.conf:/etc/nginx/conf.d/default.conf:ro
 
-  # Backoff off: sidecar 503 must become client 502, not a copied 503 page.
+  # Backoff off: sidecar 503 must fail-open to whoami, not a copied 503 page.
   whoami-waf-5xx-test:
     image: traefik/whoami
     labels:
@@ -180,6 +176,35 @@ services:
       - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf-5xx:80"
       - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
       - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+
+  # WAF + Traefik retry: body Close / pool interaction after allow (Opus concern).
+  whoami-chain-retry:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chain-retry.rule=PathPrefix(`/chain-retry`)"
+      - "traefik.http.routers.chain-retry.middlewares=waf-chain-retry,retry-chain"
+      - "traefik.http.middlewares.retry-chain.retry.attempts=3"
+      - "traefik.http.middlewares.retry-chain.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.maxBodySizeBytes=8192"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
+
+  # Traefik buffering then WAF: body already consumed/replaced before plugin.
+  whoami-chain-buffer:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chain-buffer.rule=PathPrefix(`/chain-buffer`)"
+      - "traefik.http.routers.chain-buffer.middlewares=buf-chain,waf-chain-buffer"
+      - "traefik.http.middlewares.buf-chain.buffering.maxRequestBodyBytes=1048576"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.maxBodySizeBytes=8192"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
 
   # WebSocket echo behind the same WAF middleware as /protected.
   echo-ws:

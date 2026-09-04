@@ -9,14 +9,12 @@ import (
 )
 
 // largeNonFileFormBody is a text form POST (not multipart / not a file).
-// Size is above the default pool cap so readInboundBody uses the ad-hoc path,
-// same class as the reporter's ~8 MiB base64-in-form body.
 const largeNonFileFormBodyBytes = 6 * 1024 * 1024
 
 // TestPlugin_UpstreamIssue11_LargeNonFileBodyNeverReturns500 maps
 // acouvreur/traefik-modsecurity-plugin#11: a large non-file body must not
 // become a client 500. Plugin oversize is 413; sidecar 413 is a block;
-// sidecar 5xx is a WAF failure (502), never a forwarded 500.
+// sidecar 5xx is a WAF failure (fail-open to next), never a forwarded 500.
 func TestPlugin_UpstreamIssue11_LargeNonFileBodyNeverReturns500(t *testing.T) {
 	body := strings.Repeat("a", largeNonFileFormBodyBytes)
 
@@ -48,12 +46,12 @@ func TestPlugin_UpstreamIssue11_LargeNonFileBodyNeverReturns500(t *testing.T) {
 			wantSidecarHit:   true,
 		},
 		{
-			name:             "sidecar 500 is 502 WAF failure not a copied 500",
+			name:             "sidecar 500 fail-opens not a copied 500",
 			maxBody:          10 * 1024 * 1024,
 			sidecarStatus:    http.StatusInternalServerError,
-			wantClientStatus: http.StatusBadGateway,
+			wantClientStatus: http.StatusOK,
 			wantHeader:       "error",
-			wantNext:         false,
+			wantNext:         true,
 			wantSidecarHit:   true,
 		},
 	}

@@ -79,7 +79,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "",
 		},
 		{
-			name: "Does not forward Websockets",
+			name: "Inspects WebSocket handshake GET",
 			request: &http.Request{
 				Body: http.NoBody,
 				Header: http.Header{
@@ -91,8 +91,8 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			},
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
-			expectBody:                     "Response from service",
-			expectStatus:                   200,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "",
 			expectHeader:                   "",
 			expectHeaderValue:              "",
@@ -114,7 +114,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			expectHeaderValue:              "",
 		},
 		{
-			name: "Does not forward mixed-case WebSocket handshake",
+			name: "Inspects mixed-case WebSocket handshake",
 			request: &http.Request{
 				Body: http.NoBody,
 				Header: http.Header{
@@ -126,11 +126,50 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 			},
 			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
 			serviceResponse:                serviceResponse,
-			expectBody:                     "Response from service",
-			expectStatus:                   200,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
 			modSecurityStatusRequestHeader: "",
 			expectHeader:                   "",
 			expectHeaderValue:              "",
+		},
+		{
+			name: "Overwrites forged status header on handshake block",
+			request: &http.Request{
+				Body: http.NoBody,
+				Header: http.Header{
+					"Upgrade":      []string{"websocket"},
+					"Connection":   []string{"upgrade"},
+					"X-Waf-Status": []string{"ok"},
+				},
+				Method: http.MethodGet,
+				URL:    req.URL,
+			},
+			wafResponse:                    response{StatusCode: 403, Body: "Response from waf"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Response from waf",
+			expectStatus:                   403,
+			modSecurityStatusRequestHeader: "X-Waf-Status",
+			expectHeader:                   "X-Waf-Status",
+			expectHeaderValue:              "blocked",
+		},
+		{
+			name: "Allows handshake GET after sidecar 200",
+			request: &http.Request{
+				Body: http.NoBody,
+				Header: http.Header{
+					"Upgrade":    []string{"websocket"},
+					"Connection": []string{"upgrade"},
+				},
+				Method: http.MethodGet,
+				URL:    req.URL,
+			},
+			wafResponse:                    response{StatusCode: 200, Body: "Response from waf"},
+			serviceResponse:                serviceResponse,
+			expectBody:                     "Response from service",
+			expectStatus:                   200,
+			modSecurityStatusRequestHeader: "X-Waf-Status",
+			expectHeader:                   "X-Waf-Status",
+			expectHeaderValue:              "ok",
 		},
 		{
 			name:                           "Adds remediation header when request is blocked",
@@ -691,11 +730,11 @@ func TestModsecurity_StatusHeader_SidecarError(t *testing.T) {
 	rw := httptest.NewRecorder()
 	middleware.ServeHTTP(rw, req)
 
-	if nextCalled {
-		t.Fatal("next must not run when the sidecar call fails and no tracker exists")
+	if !nextCalled {
+		t.Fatal("next must run when the sidecar call fails")
 	}
-	if rw.Result().StatusCode != http.StatusBadGateway {
-		t.Fatalf("status: got %d, want 502", rw.Result().StatusCode)
+	if rw.Result().StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 fail-open", rw.Result().StatusCode)
 	}
 	if got := req.Header.Get("X-Waf-Status"); got != "error" {
 		t.Fatalf("status header: got %q, want error", got)
@@ -760,23 +799,23 @@ func TestModsecurity_Sidecar5xxIsWafFailure(t *testing.T) {
 		middlewareName string
 	}{
 		{
-			name:           "503 without backoff returns 502 and error header",
+			name:           "503 without backoff fail-opens to next",
 			wafStatus:      http.StatusServiceUnavailable,
 			backoffSecs:    0,
-			expectStatus:   http.StatusBadGateway,
-			expectBody:     "sidecar down",
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
 			expectHeader:   "error",
-			expectBackend:  false,
+			expectBackend:  true,
 			middlewareName: "sidecar-5xx-nobackoff",
 		},
 		{
-			name:           "500 without backoff returns 502 and error header",
+			name:           "500 without backoff fail-opens to next",
 			wafStatus:      http.StatusInternalServerError,
 			backoffSecs:    0,
-			expectStatus:   http.StatusBadGateway,
-			expectBody:     "sidecar down",
+			expectStatus:   http.StatusOK,
+			expectBody:     "from backend",
 			expectHeader:   "error",
-			expectBackend:  false,
+			expectBackend:  true,
 			middlewareName: "sidecar-500-nobackoff",
 		},
 		{

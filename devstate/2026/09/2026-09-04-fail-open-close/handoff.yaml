@@ -1,0 +1,17 @@
+issueKey: 2026-09-04-fail-open-close
+jobName: 2026-09-04-fail-open-close
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified-with-gaps
+src: 51584421307be783ea7f71a85c47dda5bb633f5ab7944b002a735ec6740b85ee
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: waf-fail-closed
+pr:
+  id: 45
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/45

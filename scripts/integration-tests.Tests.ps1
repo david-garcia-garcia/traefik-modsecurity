@@ -11,11 +11,15 @@ BeforeAll {
         @{ Url = "$TraefikApiUrl/api/rawdata"; Name = "Traefik API" },
         @{ Url = "$BaseUrl/bypass"; Name = "Bypass service" },
         @{ Url = "$BaseUrl/protected"; Name = "Protected service" },
+        @{ Url = "$BaseUrl/large-body-test"; Name = "Large body test service" },
         @{ Url = "$BaseUrl/remediation-test"; Name = "Remediation test service" },
         @{ Url = "$BaseUrl/error-test"; Name = "Error test service" },
         @{ Url = "$BaseUrl/force-test"; Name = "Force test service" },
         @{ Url = "$BaseUrl/pool-test"; Name = "Pool test service" },
         @{ Url = "$BaseUrl/threshold-test"; Name = "Threshold test service" },
+        @{ Url = "$BaseUrl/chain-retry"; Name = "WAF+retry chain service" },
+        @{ Url = "$BaseUrl/retry-force"; Name = "WAF+retry force-replay service" },
+        @{ Url = "$BaseUrl/chain-buffer"; Name = "buffer+WAF chain service" },
         @{ Url = "$BaseUrl/reclaim-a"; Name = "Reclaim route A" },
         @{ Url = "$BaseUrl/reclaim-b"; Name = "Reclaim route B" },
         @{ Url = "$BaseUrl/ws-echo"; Name = "WebSocket echo service" }
@@ -50,20 +54,8 @@ Describe "ModSecurity Plugin Basic Functionality" {
             $response.Content | Should -Match "Hostname"
         }
 
-        It "Should not run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami-origin stacks keep dummy as the CRS BACKEND"
-                return
-            }
-            Get-DummyContainerName | Should -BeNullOrEmpty -Because "Drain overlay must not start dummy; only labeled whoami apps remain"
-        }
-
-        It "Should run an unlabeled dummy CRS origin" {
-            if (-not (Test-IsWhoamiOrigin)) {
-                Set-ItResult -Skipped -Because "drain stacks do not run dummy"
-                return
-            }
-            Get-DummyContainerName | Should -Not -BeNullOrEmpty -Because "whoami-origin stacks proxy CRS BACKEND to dummy"
+        It "Should not run a CRS dummy origin container" {
+            Get-DummyContainerName | Should -BeNullOrEmpty -Because "The CRS sidecar is inspect-only; labeled whoami services are Traefik next, not the sidecar BACKEND"
         }
     }
 }
@@ -144,12 +136,34 @@ Describe "WAF Protection Tests" {
         }
 
         It "Should not copy a sidecar 416 for Range bytes=10240- on a small GET" {
-            if (-not (Test-IsDrainOrigin)) {
-                Set-ItResult -Skipped -Because "whoami dummy origin is expected to 416 on an unsatisfiable Range"
-                return
-            }
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ Range = "bytes=10240-" }
             $response.StatusCode | Should -Not -Be 416 -Because "Inspect-only sidecar must not 416 on Range; plugin copies sidecar 4xx as a block"
+            $response.StatusCode | Should -BeIn @(200, 206) -Because "Client must get the labeled app (200) or partial content (206), not a WAF page"
+            $response.Content | Should -Match "Hostname" -Because "Body must be the labeled whoami app, not a sidecar 416 page"
+        }
+
+        It "Should not copy a sidecar 304 for If-None-Match asterisk" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected" -Headers @{ "If-None-Match" = "*" }
+            $response.StatusCode | Should -Not -Be 304 -Because "Inspect-only sidecar must not 304 on If-None-Match; plugin copies sidecar 3xx as a block"
+            $response.StatusCode | Should -Be 200
+        }
+
+        It "Should not copy a sidecar 304 for If-Modified-Since" {
+            # Invoke-WebRequest types If-Modified-Since as DateTime and rejects this
+            # RFC 1123 value. Send it on the wire so the sidecar still sees the header.
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine "GET /protected HTTP/1.1" -Headers @{
+                Host = "localhost:8000"
+                "If-Modified-Since" = "Wed, 21 Oct 2030 07:28:00 GMT"
+                Connection = "close"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] 200' -Because "Inspect-only sidecar must not 304 on If-Modified-Since; plugin copies sidecar 3xx as a block"
+            $responseText | Should -Not -Match '^HTTP/1\.[01] 304'
+        }
+
+        It "Should not 5xx a 16MiB POST to /large-body-test" {
+            $largeData = New-RequestBodyOfSizeBytes -TargetSizeBytes (16 * 1024 * 1024)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/large-body-test" -Method POST -Body $largeData -TimeoutSec 60
+            [int]$response.StatusCode | Should -BeLessThan 500 -Because "Inspect-only drain must not copy Apache AH01084 / dummy 5xx; CRS 413 is allowed"
         }
 
         It "Should block a CRS SQL-injection probe in the POST body" {
@@ -626,22 +640,30 @@ Describe "WAF Health Tracker Threshold Tests" {
         It "Should not trip unhealthy on fewer than threshold failures" {
             try {
                 docker stop -t 0 $script:wafContainer | Out-Null
-                # Poll until WAF is down (502); then one more request must still be 502 (2 failures, threshold=3, no trip)
+                # Poll until WAF is down (fail-open 200 with error status); then one more must still be error not unhealthy
                 $maxWait = 15
-                $first502 = $null
+                $firstError = $null
                 for ($i = 0; $i -lt $maxWait; $i++) {
                     $r = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 5
-                    if ($r.StatusCode -eq 502) {
-                        $first502 = $r
-                        break
+                    if ($r.StatusCode -eq 200) {
+                        Start-Sleep -Seconds 1
+                        $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                        $last = $entries | Where-Object { $_.RequestPath -like "/threshold-test*" } | Select-Object -Last 1
+                        if ($last.'request_X-Waf-Status' -eq "error") {
+                            $firstError = $last
+                            break
+                        }
                     }
                     Start-Sleep -Seconds 1
                 }
-                $first502 | Should -Not -BeNullOrEmpty -Because "WAF must eventually return 502 when stopped"
+                $firstError | Should -Not -BeNullOrEmpty -Because "WAF down must fail-open with X-Waf-Status error"
 
-                # Second failure under threshold=3 must still return 502 (no pass-through)
-                $r2 = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
-                $r2.StatusCode | Should -Be 502 -Because "two failures under threshold must not trip; still 502"
+                # Second failure under threshold=3 must still fail-open as error (not unhealthy skip)
+                $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                Start-Sleep -Seconds 1
+                $entries2 = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                $last2 = $entries2 | Where-Object { $_.RequestPath -like "/threshold-test*" } | Select-Object -Last 1
+                $last2.'request_X-Waf-Status' | Should -Be "error" -Because "two failures under threshold must not mark unhealthy"
             }
             finally {
                 docker start $script:wafContainer | Out-Null
@@ -726,6 +748,78 @@ Describe "WAF Health Tracker Threshold Tests" {
     }
 }
 
+Describe "Traefik middleware chain with WAF" {
+    # Smoke that retry/buffering do not hang, lock, or drop POST bodies after the pooled body Close fix.
+    Context "WAF then retry (/chain-retry)" {
+        It "Should allow POST with body through WAF+retry" {
+            $body = "chain-retry-payload-" + ("x" * 200)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-retry" -Method POST -Body $body -TimeoutSec 15
+            $response.StatusCode | Should -Be 200 -Because "WAF allow + retry must reach whoami"
+            $response.Content | Should -Match "Hostname"
+        }
+
+        It "Should block attacks through WAF+retry" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-retry?id=1' OR '1'='1" -TimeoutSec 10
+            $response.StatusCode | Should -Be 403 -Because "CRS must still block before retry sees the request"
+        }
+
+        It "Should complete concurrent POSTs without hang" {
+            $uri = "$BaseUrl/chain-retry"
+            $runspacePool = [runspacefactory]::CreateRunspacePool(1, 8)
+            $runspacePool.Open()
+            $workers = @()
+            try {
+                1..8 | ForEach-Object {
+                    $ps = [powershell]::Create().AddScript({
+                        param($Uri)
+                        try {
+                            $body = "concurrent-" + ("y" * 150)
+                            $r = Invoke-WebRequest -Uri $Uri -Method POST -Body $body -TimeoutSec 20 -UseBasicParsing
+                            return @{ Ok = $true; StatusCode = [int]$r.StatusCode; Error = $null }
+                        } catch {
+                            return @{ Ok = $false; StatusCode = 0; Error = $_.Exception.Message }
+                        }
+                    }).AddArgument($uri)
+                    $ps.RunspacePool = $runspacePool
+                    $workers += [pscustomobject]@{ PowerShell = $ps; Handle = $ps.BeginInvoke() }
+                }
+                $results = foreach ($w in $workers) {
+                    $out = $w.PowerShell.EndInvoke($w.Handle)
+                    $w.PowerShell.Dispose()
+                    $out
+                }
+                ($results | Where-Object { -not $_.Ok -or $_.StatusCode -ne 200 }).Count |
+                    Should -Be 0 -Because "no request may hang or fail under concurrent WAF+retry"
+            }
+            finally {
+                $runspacePool.Close()
+                $runspacePool.Dispose()
+            }
+        }
+
+        It "Should allow POST after a real retry when the first backend is dead" {
+            $marker = "retry-force-" + [guid]::NewGuid().ToString("n")
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/retry-force" -Method POST -Body $marker -TimeoutSec 20
+            $response.StatusCode | Should -Be 200 -Because "dead first LB server must trigger retry onto whoami"
+            $response.Content | Should -Match "Hostname" -Because "second server must serve whoami after retry"
+        }
+    }
+
+    Context "buffering then WAF (/chain-buffer)" {
+        It "Should allow POST with body through buffering+WAF" {
+            $body = "chain-buffer-payload-" + ("z" * 500)
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-buffer" -Method POST -Body $body -TimeoutSec 15
+            $response.StatusCode | Should -Be 200 -Because "buffering then WAF must reach whoami"
+            $response.Content | Should -Match "Hostname"
+        }
+
+        It "Should block attacks through buffering+WAF" {
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/chain-buffer?search=<script>alert(1)</script>" -TimeoutSec 10
+            $response.StatusCode | Should -Be 403
+        }
+    }
+}
+
 Describe "Plugin reclaim logs" -Tag Reclaim {
     AfterAll {
         Set-ReclaimDynamicTimeoutMillis -TimeoutMillis 3000 -TraefikContainerName $script:traefikContainer
@@ -753,11 +847,23 @@ Describe "Plugin reclaim logs" -Tag Reclaim {
 }
 
 Describe "WebSocket through WAF middleware" {
-    Context "Live upgrade" {
-        It "Should complete a handshake and echo a text frame" {
-            $payload = "ws-echo-$(Get-Random)"
-            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message $payload
-            $echoed | Should -Be $payload -Because "a real WebSocket through Traefik and the plugin must stay usable after 101"
+    Context "Live communication after handshake inspect" {
+        It "Should echo two text frames on one connection" {
+            $first = "ws-echo-a-$(Get-Random)"
+            $second = "ws-echo-b-$(Get-Random)"
+            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo" -Message @($first, $second)
+            $echoed | Should -Be @($first, $second) -Because "inspecting the handshake GET must still leave a working WebSocket tunnel (send, echo, send, echo, close), not 101-only"
+        }
+
+        It "Should still block SQLi on GET /protected with Upgrade websocket" {
+            $headers = @{
+                "Upgrade"                = "websocket"
+                "Connection"             = "Upgrade"
+                "Sec-WebSocket-Key"      = "dGhlIHNhbXBsZSBub25jZQ=="
+                "Sec-WebSocket-Version"   = "13"
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected?id=1' OR '1'='1" -Headers $headers
+            $response.StatusCode | Should -Be 403 -Because "Upgrade headers must not skip CRS on an ordinary GET"
         }
 
         It "Should still inspect a forged Upgrade websocket header" {
@@ -770,26 +876,33 @@ Describe "WebSocket through WAF middleware" {
             $responseText | Should -Match '^HTTP/1\.[01] [45]\d\d' -Because "Upgrade: websocket without a Connection upgrade token must still be CRS-inspected"
         }
 
-        It "Should skip CRS on a real handshake even with a SQL-injection query" {
-            $payload = "ws-echo-$(Get-Random)"
-            $echoed = Invoke-WebSocketEcho -Uri "ws://localhost:8000/ws-echo?id=1%27%20OR%20%271%27%3D%271" -Message $payload
-            $echoed | Should -Be $payload -Because "a real WebSocket handshake must skip the WAF even when the query looks like a CRS probe"
+        It "Should block a real handshake with a SQL-injection query" {
+            $headers = @{
+                "Upgrade"                = "websocket"
+                "Connection"             = "Upgrade"
+                "Sec-WebSocket-Key"      = "dGhlIHNhbXBsZSBub25jZQ=="
+                "Sec-WebSocket-Version"   = "13"
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/ws-echo?id=1' OR '1'='1" -Headers $headers
+            $response.StatusCode | Should -Be 403 -Because "a handshake-shaped GET on /ws-echo must still be CRS-inspected"
         }
     }
 }
 
 Describe "Sidecar 5xx is not a copied block" {
     Context "Fixture origin returns 503" {
-        It "Should return 502 without the 503 fixture body" {
+        It "Should fail-open without the 503 fixture body" {
             $response = $null
             for ($i = 0; $i -lt 10; $i++) {
                 $response = Invoke-SafeWebRequest -Uri "$BaseUrl/waf-5xx-test" -TimeoutSec 10
                 if ($response.StatusCode -ne 404) { break }
                 Start-Sleep -Milliseconds 500
             }
-            $response.StatusCode | Should -Be 502 -Because "sidecar 5xx with backoff off is a WAF failure, not a copied block"
+            $response.StatusCode | Should -Be 200 -Because "sidecar 5xx with backoff off and failMode open calls next"
             $response.StatusCode | Should -Not -Be 503
+            $response.StatusCode | Should -Not -Be 502
             [string]$response.Content | Should -Not -Match "sidecar-5xx-marker" -Because "the plugin must not copy the sidecar 5xx page"
+            [string]$response.Content | Should -Match "Hostname" -Because "fail-open must reach whoami"
 
             Start-Sleep -Seconds 2
             $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer

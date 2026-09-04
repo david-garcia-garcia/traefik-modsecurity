@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Finish the ModSecurity sidecar HTTP response so the shared WAF client can reuse the TCP connection.
+Finish the ModSecurity sidecar HTTP response: drain leftover body so the shared WAF client can reuse the TCP connection, and copy a filtered block-path response to the client.
 
 ## Requirements
 
@@ -26,9 +26,9 @@ When the sidecar response status is below 300, the plugin SHALL read the leftove
 - **THEN** the client SHALL receive the `next` handler's response
 - **AND** the client status SHALL NOT be 405
 
-### Requirement: 5xx drains the sidecar body before Close or fail-open
+### Requirement: 5xx drains the sidecar body before Close or WAF-failure handling
 
-When the sidecar response status is a 5xx, the plugin SHALL read leftover response bytes up to 256 KiB and discard them before closing that body and before fail-open or 502. The plugin SHALL NOT copy that 5xx body to the client.
+When the sidecar response status is a 5xx, the plugin SHALL read leftover response bytes up to 256 KiB and discard them before closing that body and before fail-open to next or fail-close HTTP 502. The plugin SHALL NOT copy that 5xx body to the client.
 
 #### Scenario: Sequential 5xx reuse one connection
 
@@ -38,12 +38,23 @@ When the sidecar response status is a 5xx, the plugin SHALL read leftover respon
 
 ### Requirement: Block path still copies the sidecar response
 
-When the sidecar response status is a 3xx or a 4xx, the plugin SHALL copy that response to the client and SHALL NOT call `next`. Leftover bytes after that copy SHALL still be drained up to 256 KiB. Sidecar 5xx is a WAF failure (`core_plugin_middleware_waf-status`), not a copied block.
+When the sidecar response status is a 3xx or a 4xx, the plugin SHALL copy that status and body to the client and SHALL NOT call `next`. The plugin SHALL NOT forward hop-by-hop headers (`Connection`, `Keep-Alive`, `Transfer-Encoding`, `Upgrade`, any header whose name starts with `Proxy-`, `Te`, `Trailer`, and any header named by a token in the sidecar `Connection` field) or `Server`. The plugin SHALL NOT expose a configuration key for this filter. Leftover bytes after that copy SHALL still be drained up to 256 KiB. Sidecar 5xx is a WAF failure (`core_plugin_middleware_waf-status`), not a copied block.
 
 #### Scenario: Block still returns the sidecar page
 
 - **WHEN** the sidecar returns 403 with a body
 - **THEN** the client SHALL receive status 403 and that body
+
+#### Scenario: Block drops hop-by-hop and Server headers
+
+- **WHEN** the sidecar returns 403 with `Connection: close`, `Server: Apache`, and `Content-Type: text/html`
+- **THEN** the client response SHALL include `Content-Type: text/html`
+- **AND** the client response SHALL NOT include `Connection` or `Server`
+
+#### Scenario: Block drops Proxy- prefix and Connection-listed names
+
+- **WHEN** the sidecar returns 403 with `Proxy-Authenticate: Basic`, `X-Sidecar-Hop: 1`, and `Connection: close, X-Sidecar-Hop`
+- **THEN** the client response SHALL NOT include `Proxy-Authenticate` or `X-Sidecar-Hop`
 
 #### Scenario: Redirect status is a block
 

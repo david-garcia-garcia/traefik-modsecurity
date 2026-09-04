@@ -15,22 +15,40 @@ const (
 	LogLevelError = "error"
 )
 
+// Accepted failMode strings after Prepare. Stored lowercase.
+const (
+	FailModeOpen  = "open"
+	FailModeClose = "close"
+)
+
+// BypassRule is one operator allowlist entry: optional method and optional path regexp.
+// Empty method matches every method. Empty pathRegexp matches every path.
+// PathRegexp is Go RE2, matched with unanchored MatchString against req.URL.Path
+// (percent-decoded, not slash-normalized). The plugin does not insert ^ or $.
+// Write ^/health$ for an exact path, ^/admin/ for a prefix.
+type BypassRule struct {
+	Method     string `json:"method,omitempty"`
+	PathRegexp string `json:"pathRegexp,omitempty"`
+}
+
 // Config is the Traefik plugin configuration Yaegi decodes.
 type Config struct {
-	TimeoutMillis                  int64    `json:"timeoutMillis,omitempty"`
-	ModSecurityUrl                 string   `json:"modSecurityUrl,omitempty"`
-	UnhealthyWafBackOffPeriodSecs  int      `json:"unhealthyWafBackOffPeriodSecs,omitempty"`
-	UnhealthyWafFailureThreshold   int      `json:"unhealthyWafFailureThreshold,omitempty"`
-	UnhealthyWafFailureWindowSecs  int      `json:"unhealthyWafFailureWindowSecs,omitempty"`
-	ModSecurityStatusRequestHeader string   `json:"modSecurityStatusRequestHeader,omitempty"`
-	MaxConnsPerHost                int      `json:"maxConnsPerHost,omitempty"`
-	MaxIdleConnsPerHost            int      `json:"maxIdleConnsPerHost,omitempty"`
-	ResponseHeaderTimeoutMillis    int64    `json:"responseHeaderTimeoutMillis,omitempty"`
-	ExpectContinueTimeoutMillis    int64    `json:"expectContinueTimeoutMillis,omitempty"`
-	MaxBodySizeBytes               int64    `json:"maxBodySizeBytes,omitempty"`
-	MaxBodySizeBytesForPool        int64    `json:"maxBodySizeBytesForPool,omitempty"`
-	DenyVerbsWithBody              []string `json:"denyVerbsWithBody,omitempty"`
-	LogLevel                       string   `json:"logLevel,omitempty"`
+	TimeoutMillis                  int64        `json:"timeoutMillis,omitempty"`
+	ModSecurityUrl                 string       `json:"modSecurityUrl,omitempty"`
+	UnhealthyWafBackOffPeriodSecs  int          `json:"unhealthyWafBackOffPeriodSecs,omitempty"`
+	UnhealthyWafFailureThreshold   int          `json:"unhealthyWafFailureThreshold,omitempty"`
+	UnhealthyWafFailureWindowSecs  int          `json:"unhealthyWafFailureWindowSecs,omitempty"`
+	ModSecurityStatusRequestHeader string       `json:"modSecurityStatusRequestHeader,omitempty"`
+	MaxConnsPerHost                int          `json:"maxConnsPerHost,omitempty"`
+	MaxIdleConnsPerHost            int          `json:"maxIdleConnsPerHost,omitempty"`
+	ResponseHeaderTimeoutMillis    int64        `json:"responseHeaderTimeoutMillis,omitempty"`
+	ExpectContinueTimeoutMillis    int64        `json:"expectContinueTimeoutMillis,omitempty"`
+	MaxBodySizeBytes               int64        `json:"maxBodySizeBytes,omitempty"`
+	MaxBodySizeBytesForPool        int64        `json:"maxBodySizeBytesForPool,omitempty"`
+	DenyVerbsWithBody              []string     `json:"denyVerbsWithBody,omitempty"`
+	LogLevel                       string       `json:"logLevel,omitempty"`
+	BypassRules                    []BypassRule `json:"bypassRules,omitempty"`
+	FailMode                       string       `json:"failMode,omitempty"`
 }
 
 // CreateConfig returns default plugin configuration.
@@ -49,6 +67,7 @@ func CreateConfig() *Config {
 		MaxBodySizeBytesForPool:        5 * 1024 * 1024,
 		DenyVerbsWithBody:              []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
 		LogLevel:                       LogLevelInfo,
+		FailMode:                       FailModeOpen,
 	}
 }
 
@@ -135,6 +154,19 @@ func Prepare(cfg *Config, name string) error {
 		return err
 	}
 	cfg.LogLevel = normalizedLevel
+	// Normalize failMode so the reclaim hash is stable across case and omitted values.
+	normalizedFailMode := strings.ToLower(strings.TrimSpace(cfg.FailMode))
+	if normalizedFailMode == "" {
+		normalizedFailMode = defaults.FailMode
+	}
+	if err := parseFailMode(normalizedFailMode); err != nil {
+		return err
+	}
+	cfg.FailMode = normalizedFailMode
+	// Fail construction on a bad pathRegexp before New stores a compiled map.
+	if _, err := compileBypassByMethod(cfg.BypassRules); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -192,5 +224,15 @@ func parseLogLevel(level string) (slog.Level, error) {
 		return slog.LevelError, nil
 	default:
 		return 0, fmt.Errorf("logLevel must be debug, info, warn, or error")
+	}
+}
+
+// parseFailMode accepts a prepared failMode string. Empty is not accepted here; Prepare fills open first.
+func parseFailMode(mode string) error {
+	switch mode {
+	case FailModeOpen, FailModeClose:
+		return nil
+	default:
+		return fmt.Errorf("failMode must be open or close")
 	}
 }

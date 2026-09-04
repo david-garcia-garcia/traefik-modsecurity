@@ -36,7 +36,8 @@ func TestPlugin_SidecarResponseReusesConnection(t *testing.T) {
 		{
 			name:             "failure 503",
 			wafStatus:        http.StatusServiceUnavailable,
-			wantClientStatus: http.StatusBadGateway,
+			wantClientStatus: http.StatusOK,
+			wantNext:         true,
 		},
 	}
 
@@ -145,6 +146,249 @@ func TestPlugin_InboundCancelAbortsSidecarCall(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("ServeHTTP did not return after inbound cancel")
+	}
+}
+
+// TestPlugin_WafFailureDefaultFailOpen checks omitted failMode fail-opens to next (200), never 502.
+func TestPlugin_WafFailureDefaultFailOpen(t *testing.T) {
+	tests := []struct {
+		name        string
+		backoffSecs int
+		threshold   int
+		setupWAF    func() (url string, cleanup func())
+	}{
+		{
+			name:        "sidecar 503 without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name:        "sidecar 500 without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name:        "transport error without backoff",
+			backoffSecs: 0,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				url := waf.URL
+				waf.Close()
+				return url, func() {}
+			},
+		},
+		{
+			name:        "sidecar 503 below unhealthy threshold",
+			backoffSecs: 30,
+			threshold:   3,
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wafURL, cleanup := tt.setupWAF()
+			t.Cleanup(cleanup)
+
+			cfg := CreateConfig()
+			cfg.ModSecurityUrl = wafURL
+			cfg.UnhealthyWafBackOffPeriodSecs = tt.backoffSecs
+			if tt.threshold > 0 {
+				cfg.UnhealthyWafFailureThreshold = tt.threshold
+			}
+			cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+			plugin, err := New("waf-fail-open-"+tt.name, cfg, NewLogger("waf-fail-open-"+tt.name, cfg))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(plugin.Close)
+
+			nextCalled := false
+			route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				nextCalled = true
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, "next")
+			}))
+			if err != nil {
+				t.Fatalf("ForRoute: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+			rec := httptest.NewRecorder()
+			route.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusBadGateway {
+				t.Fatal("WAF failure must not return 502 Bad Gateway")
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d, want 200 fail-open", rec.Code)
+			}
+			if !nextCalled {
+				t.Fatal("next must run on WAF failure")
+			}
+			if rec.Body.String() != "next" {
+				t.Fatalf("body %q, want next", rec.Body.String())
+			}
+			if got := req.Header.Get("X-Waf-Status"); got != "error" {
+				t.Fatalf("status header %q, want error", got)
+			}
+		})
+	}
+}
+
+// TestPlugin_FailModeCloseWafFailureReturns502 checks failMode close refuses the client and does not call next.
+func TestPlugin_FailModeCloseWafFailureReturns502(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupWAF func() (url string, cleanup func())
+	}{
+		{
+			name: "sidecar 503",
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name: "sidecar 500",
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, "sidecar down")
+				}))
+				return waf.URL, waf.Close
+			},
+		},
+		{
+			name: "transport error",
+			setupWAF: func() (string, func()) {
+				waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}))
+				url := waf.URL
+				waf.Close()
+				return url, func() {}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wafURL, cleanup := tt.setupWAF()
+			t.Cleanup(cleanup)
+
+			cfg := CreateConfig()
+			cfg.ModSecurityUrl = wafURL
+			cfg.FailMode = FailModeClose
+			cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+			plugin, err := New("waf-fail-close-"+tt.name, cfg, NewLogger("waf-fail-close-"+tt.name, cfg))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			t.Cleanup(plugin.Close)
+
+			nextCalled := false
+			route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				nextCalled = true
+				w.WriteHeader(http.StatusOK)
+			}))
+			if err != nil {
+				t.Fatalf("ForRoute: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+			rec := httptest.NewRecorder()
+			route.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status %d, want 502", rec.Code)
+			}
+			if nextCalled {
+				t.Fatal("next must not run when failMode is close")
+			}
+			if got := req.Header.Get("X-Waf-Status"); got != "error" {
+				t.Fatalf("status header %q, want error", got)
+			}
+		})
+	}
+}
+
+// TestPlugin_FailModeCloseUnhealthySkipReturns502 checks an already-unhealthy skip fail-closes without calling the sidecar.
+func TestPlugin_FailModeCloseUnhealthySkipReturns502(t *testing.T) {
+	sidecarCalls := 0
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sidecarCalls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.FailMode = FailModeClose
+	cfg.UnhealthyWafBackOffPeriodSecs = 30
+	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("waf-fail-close-unhealthy", cfg, NewLogger("waf-fail-close-unhealthy", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+
+	nextCalled := 0
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled++
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	first := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	firstRec := httptest.NewRecorder()
+	route.ServeHTTP(firstRec, first)
+	if firstRec.Code != http.StatusBadGateway {
+		t.Fatalf("first status %d, want 502", firstRec.Code)
+	}
+	if sidecarCalls != 1 {
+		t.Fatalf("sidecar calls %d, want 1 after first WAF failure", sidecarCalls)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	secondRec := httptest.NewRecorder()
+	route.ServeHTTP(secondRec, second)
+	if secondRec.Code != http.StatusBadGateway {
+		t.Fatalf("second status %d, want 502", secondRec.Code)
+	}
+	if sidecarCalls != 1 {
+		t.Fatalf("sidecar calls %d, want 1 (unhealthy skip)", sidecarCalls)
+	}
+	if nextCalled != 0 {
+		t.Fatalf("next called %d, want 0", nextCalled)
+	}
+	if got := second.Header.Get("X-Waf-Status"); got != "unhealthy" {
+		t.Fatalf("status header %q, want unhealthy", got)
 	}
 }
 
@@ -472,5 +716,105 @@ func TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders(t *testing.T) {
 				t.Fatalf("sidecar X-Real-Ip = %q, want %q", sawRealIP, tt.wantRealIP)
 			}
 		})
+	}
+}
+
+func TestPlugin_BlockPathStripsHopByHopAndServer(t *testing.T) {
+	const blockBody = "sidecar error page"
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Connection", "close")
+		w.Header().Set("Proxy-Authenticate", "Basic")
+		w.Header().Set("Server", "Apache")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, blockBody)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	plugin, err := New("block-header-test", cfg, NewLogger("block-header-test", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+
+	nextCalled := false
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "next")
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+
+	if nextCalled {
+		t.Fatal("next was called on a block")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", rec.Code)
+	}
+	if rec.Body.String() != blockBody {
+		t.Fatalf("body %q, want %q", rec.Body.String(), blockBody)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/html" {
+		t.Fatalf("Content-Type %q, want text/html", got)
+	}
+	if got := rec.Header().Get("Server"); got != "" {
+		t.Fatalf("Server %q, want empty", got)
+	}
+	if got := rec.Header().Get("Connection"); got != "" {
+		t.Fatalf("Connection %q, want empty", got)
+	}
+	if got := rec.Header().Get("Proxy-Authenticate"); got != "" {
+		t.Fatalf("Proxy-Authenticate %q, want empty", got)
+	}
+}
+
+func TestForwardResponse_StripsHopByHopAndServer(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header: http.Header{
+			"Content-Type":       []string{"text/html"},
+			"Connection":         []string{"close, X-Sidecar-Hop"},
+			"X-Sidecar-Hop":      []string{"1"},
+			"Proxy-Authenticate": []string{"Basic"},
+			"Keep-Alive":         []string{"timeout=5"},
+			"Transfer-Encoding":  []string{"chunked"},
+			"Upgrade":            []string{"websocket"},
+			"Te":                 []string{"trailers"},
+			"Trailer":            []string{"Expires"},
+			"Server":             []string{"Apache"},
+			"Set-Cookie":         []string{"sid=1"},
+		},
+		Body: io.NopCloser(strings.NewReader("sidecar error page")),
+	}
+	rec := httptest.NewRecorder()
+	forwardResponse(resp, rec)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d, want 403", rec.Code)
+	}
+	if rec.Body.String() != "sidecar error page" {
+		t.Fatalf("body %q, want sidecar error page", rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/html" {
+		t.Fatalf("Content-Type %q, want text/html", got)
+	}
+	if got := rec.Header().Get("Set-Cookie"); got != "sid=1" {
+		t.Fatalf("Set-Cookie %q, want sid=1", got)
+	}
+	for _, name := range []string{
+		"Connection", "X-Sidecar-Hop", "Proxy-Authenticate", "Keep-Alive",
+		"Transfer-Encoding", "Upgrade", "Te", "Trailer", "Server",
+	} {
+		if got := rec.Header().Get(name); got != "" {
+			t.Fatalf("%s %q, want empty", name, got)
+		}
 	}
 }

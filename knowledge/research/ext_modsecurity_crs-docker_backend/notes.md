@@ -4,7 +4,7 @@ Official `owasp/modsecurity-crs` images are reverse proxies. `BACKEND` / `BACKEN
 
 This product’s pins are `owasp/modsecurity-crs:4.3.0-apache-alpine-202406090906` and `4.3.0-nginx-alpine-202406090906`. Templates below were read from `coreruleset/modsecurity-crs-docker@5e3cda3` (2026-08-19). The 4.3.0 pin was not docker-inspected; this worktree’s Apache overlay is a copy of that pin’s vhost and still uses the same `ProxyPass` / `BACKEND_WS` lines.
 
-Do not duplicate [CRS Docker nginx real_ip env](../ext_modsecurity_crs-docker_nginx-real-ip/notes.md).
+Do not duplicate [CRS Docker nginx real_ip env](../ext_modsecurity_crs-docker_nginx-real-ip/notes.md). Do not duplicate [If-None-Match asterisk](../ext_nginx_not-modified_if-none-match/notes.md) for the 200→304 header filter.
 
 ## BACKEND and BACKEND_WS
 
