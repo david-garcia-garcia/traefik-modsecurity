@@ -164,6 +164,23 @@ services:
       - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
       # 5KB max body size, 1KB pool threshold - requests > 1KB will use usePool=false path
 
+  # Sidecar that always returns HTTP 503 so Pester can prove 5xx is not copied as a block.
+  waf-5xx:
+    image: nginx:alpine
+    volumes:
+      - ./test-fixtures/waf-5xx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # Backoff off: sidecar 503 must fail-open to whoami, not a copied 503 page.
+  whoami-waf-5xx-test:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.waf-5xx-test.rule=PathPrefix(`/waf-5xx-test`)"
+      - "traefik.http.routers.waf-5xx-test.middlewares=waf-5xx-middleware"
+      - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.modSecurityUrl=http://waf-5xx:80"
+      - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-5xx-middleware.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+
   # WAF + Traefik retry: body Close / pool interaction after allow (Opus concern).
   whoami-chain-retry:
     image: traefik/whoami

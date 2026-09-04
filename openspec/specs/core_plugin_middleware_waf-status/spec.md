@@ -143,3 +143,18 @@ A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plug
 - **AND** the status request header SHALL be `error`
 - **AND** the client SHALL NOT receive HTTP 500
 - **AND** the client SHALL NOT receive HTTP 502
+
+### Requirement: Drain-stack suite proves sidecar 5xx is not copied
+
+The drain-stack integration suite SHALL include Pester coverage that a sidecar HTTP 5xx with a distinctive body is treated as a WAF failure, not a copied security block. The suite SHALL use a fixture origin that returns HTTP 503 with that body, not CRS `deny,status:500`. The Traefik route under test SHALL have fail-open backoff off and `failMode` open or omitted.
+
+#### Scenario: Sidecar 503 fail-opens without the fixture body
+
+- **WHEN** the suite GET the fixture-backed route whose `modSecurityUrl` is the 503 origin
+- **AND** that middleware has `unhealthyWafBackOffPeriodSecs` omitted or 0
+- **AND** `failMode` is `open` or omitted
+- **THEN** the client status SHALL be HTTP 200 from the next handler
+- **AND** the client status SHALL NOT be HTTP 503
+- **AND** the client status SHALL NOT be HTTP 502
+- **AND** the client body SHALL NOT contain the fixture's distinctive marker
+- **AND** Traefik access log `X-Waf-Status` for that path SHALL be `error`

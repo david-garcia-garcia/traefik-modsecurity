@@ -639,7 +639,7 @@ Describe "WAF Health Tracker Threshold Tests" {
     Context "Threshold and bypass behaviour" {
         It "Should not trip unhealthy on fewer than threshold failures" {
             try {
-                docker stop $script:wafContainer | Out-Null
+                docker stop -t 0 $script:wafContainer | Out-Null
                 # Poll until WAF is down (fail-open 200 with error status); then one more must still be error not unhealthy
                 $maxWait = 15
                 $firstError = $null
@@ -668,33 +668,81 @@ Describe "WAF Health Tracker Threshold Tests" {
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
 
         It "Should trip unhealthy after threshold failures and bypass WAF" {
             try {
-                docker stop $script:wafContainer | Out-Null
-                Start-Sleep -Seconds 2
-
-                # Trigger 3 failures to reach threshold (middleware: threshold=3, window=30s, backoff=10s)
-                1..3 | ForEach-Object {
-                    try { $null = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10 } catch { }
-                    Start-Sleep -Milliseconds 500
-                }
-
-                # Next request should be pass-through (200); request gets X-Waf-Status: unhealthy (visible in access log)
-                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -TimeoutSec 10
+                $response = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
                 $response.StatusCode | Should -Be 200 -Because "after threshold we bypass WAF and get backend response"
-                Start-Sleep -Seconds 2
-                $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
-                $unhealthyPassThrough = ($allLogEntries | Where-Object {
-                    $_.'request_X-Waf-Status' -eq "unhealthy" -and $_.RequestPath -like "/threshold-test*"
-                } | Select-Object -Last 1)
+                $unhealthyPassThrough = $null
+                for ($i = 0; $i -lt 10; $i++) {
+                    Start-Sleep -Milliseconds 500
+                    $allLogEntries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+                    $unhealthyPassThrough = ($allLogEntries | Where-Object {
+                        $_.'request_X-Waf-Status' -eq "unhealthy" -and $_.RequestPath -like "/threshold-test*"
+                    } | Select-Object -Last 1)
+                    if ($unhealthyPassThrough) { break }
+                }
                 $unhealthyPassThrough | Should -Not -BeNullOrEmpty -Because "pass-through when unhealthy adds X-Waf-Status: unhealthy to request"
             }
             finally {
                 docker start $script:wafContainer | Out-Null
                 Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
+            }
+        }
+
+        It "Should reject GET with body after fail-open trip" {
+            try {
+                $passThrough = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
+                $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before the deny-verb check"
+
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test" -Method GET -Body "test data" -TimeoutSec 10
+                $response.StatusCode | Should -Be 400 -Because "denyVerbsWithBody must reject GET-with-body even when the WAF is already unhealthy"
+                [string]$response.Content | Should -Not -Match "Hostname" -Because "fail-open must not reach whoami for a denied-verb body"
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
+            }
+        }
+
+        It "Should consult the sidecar again after backoff elapses" {
+            try {
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
+                Wait-ForThresholdRouteInspecting -BaseUrl $BaseUrl
+
+                $passThrough = Invoke-ThresholdTestFailOpenTrip -BaseUrl $BaseUrl -WafContainerName $script:wafContainer
+                $passThrough.StatusCode | Should -Be 200 -Because "threshold must trip before backoff resume"
+                $trippedAt = Get-Date
+
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
+
+                # Route unhealthyWafBackOffPeriodSecs=10; wait from the trip, not from docker healthy.
+                $backoffRemainSec = 11 - ((Get-Date) - $trippedAt).TotalSeconds
+                if ($backoffRemainSec -gt 0) {
+                    Start-Sleep -Seconds ([Math]::Ceiling($backoffRemainSec))
+                }
+
+                $probe = $null
+                for ($i = 0; $i -lt 8; $i++) {
+                    $probe = Invoke-SafeWebRequest -Uri "$BaseUrl/threshold-test?id=1%27+OR+%271%27%3D%271" -TimeoutSec 10
+                    if ($probe.StatusCode -ge 400 -and $probe.StatusCode -ne 200) { break }
+                    Start-Sleep -Milliseconds 500
+                }
+                $probe.StatusCode | Should -BeGreaterOrEqual 400 -Because "after backoff the plugin must inspect again; a CRS probe must not stay fail-open 200"
+                $probe.StatusCode | Should -Not -Be 200
+            }
+            finally {
+                docker start $script:wafContainer | Out-Null
+                Wait-ForWafHealthy -ContainerName $script:wafContainer
+                Wait-ForWafAllowPath -Url "$BaseUrl/protected"
             }
         }
     }
@@ -816,6 +864,51 @@ Describe "WebSocket through WAF middleware" {
             }
             $response = Invoke-SafeWebRequest -Uri "$BaseUrl/protected?id=1' OR '1'='1" -Headers $headers
             $response.StatusCode | Should -Be 403 -Because "Upgrade headers must not skip CRS on an ordinary GET"
+        }
+
+        It "Should still inspect a forged Upgrade websocket header" {
+            $requestLine = "GET /protected?id=1%27+OR+%271%27%3D%271 HTTP/1.1"
+            $responseText = Invoke-TcpHttpRequest -TargetHost "localhost" -Port 8000 -RequestLine $requestLine -Headers @{
+                Host = "localhost:8000"
+                Connection = "close"
+                Upgrade = "websocket"
+            }
+            $responseText | Should -Match '^HTTP/1\.[01] [45]\d\d' -Because "Upgrade: websocket without a Connection upgrade token must still be CRS-inspected"
+        }
+
+        It "Should block a real handshake with a SQL-injection query" {
+            $headers = @{
+                "Upgrade"                = "websocket"
+                "Connection"             = "Upgrade"
+                "Sec-WebSocket-Key"      = "dGhlIHNhbXBsZSBub25jZQ=="
+                "Sec-WebSocket-Version"   = "13"
+            }
+            $response = Invoke-SafeWebRequest -Uri "$BaseUrl/ws-echo?id=1' OR '1'='1" -Headers $headers
+            $response.StatusCode | Should -Be 403 -Because "a handshake-shaped GET on /ws-echo must still be CRS-inspected"
+        }
+    }
+}
+
+Describe "Sidecar 5xx is not a copied block" {
+    Context "Fixture origin returns 503" {
+        It "Should fail-open without the 503 fixture body" {
+            $response = $null
+            for ($i = 0; $i -lt 10; $i++) {
+                $response = Invoke-SafeWebRequest -Uri "$BaseUrl/waf-5xx-test" -TimeoutSec 10
+                if ($response.StatusCode -ne 404) { break }
+                Start-Sleep -Milliseconds 500
+            }
+            $response.StatusCode | Should -Be 200 -Because "sidecar 5xx with backoff off and failMode open calls next"
+            $response.StatusCode | Should -Not -Be 503
+            $response.StatusCode | Should -Not -Be 502
+            [string]$response.Content | Should -Not -Match "sidecar-5xx-marker" -Because "the plugin must not copy the sidecar 5xx page"
+            [string]$response.Content | Should -Match "Hostname" -Because "fail-open must reach whoami"
+
+            Start-Sleep -Seconds 2
+            $entries = Get-TraefikAccessLogEntries -TraefikContainerName $script:traefikContainer
+            $latestEntry = Get-LastAccessLogEntryForPath -Entries $entries -PathPrefix "/waf-5xx-test"
+            $latestEntry | Should -Not -BeNullOrEmpty -Because "Traefik access.log should contain /waf-5xx-test"
+            $latestEntry.'request_X-Waf-Status' | Should -Be "error" -Because "sidecar 5xx must be logged as error, not blocked"
         }
     }
 }

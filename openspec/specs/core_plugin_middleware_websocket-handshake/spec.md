@@ -41,3 +41,19 @@ The plugin SHALL send a request to ModSecurity even when the method is `GET`, so
 - **WHEN** a GET request has a nil header map
 - **AND** the sidecar allows the request
 - **THEN** the plugin SHALL complete the request without panicking and SHALL call the next handler
+
+### Requirement: Drain-stack suite proves handshake inspect
+
+The drain-stack integration suite SHALL include Pester coverage that a forged WebSocket Upgrade is still inspected by CRS and that a handshake-shaped GET with a CRS SQL-injection query is blocked.
+
+#### Scenario: Forged Upgrade with a CRS probe is blocked
+
+- **WHEN** the suite GET `/protected` with a CRS SQL-injection query, `Upgrade: websocket`, and `Connection` without the token `upgrade`
+- **THEN** the client status SHALL be 4xx or 5xx at or above 400
+- **AND** the request SHALL NOT complete as an HTTP 200 from whoami
+
+#### Scenario: Handshake-shaped GET on /ws-echo with a CRS probe is blocked
+
+- **WHEN** the suite GET `/ws-echo` with a CRS SQL-injection query, `Connection` containing the token `upgrade`, and `Upgrade: websocket`
+- **THEN** the client status SHALL be HTTP 403
+- **AND** the handshake SHALL NOT complete
