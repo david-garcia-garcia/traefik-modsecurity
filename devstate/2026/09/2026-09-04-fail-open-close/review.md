@@ -18,3 +18,10 @@ phase: propose
 findings: none
 fixed: OpenSpec change waf-fail-closed apply-ready
 skipped: none
+
+## implement (2026-09-04)
+
+phase: implement
+findings: none
+fixed: failClosed Config/ServeHTTP; local go test ./... passed
+skipped: none
