@@ -42,6 +42,7 @@ type Config struct {
 	DenyVerbsWithBody              []string     `json:"denyVerbsWithBody,omitempty"`
 	LogLevel                       string       `json:"logLevel,omitempty"`
 	BypassRules                    []BypassRule `json:"bypassRules,omitempty"`
+	FailClosed                     bool         `json:"failClosed,omitempty"`
 }
 
 // CreateConfig returns default plugin configuration.

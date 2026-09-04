@@ -27,6 +27,8 @@ type Plugin struct {
 	maxBodySizeBytesForPool        int64
 	denyVerbsWithBody              map[string]bool
 	compiledBypass                 compiledBypass
+	// failClosed refuses the client with HTTP 502 on WAF communication failure instead of calling next.
+	failClosed bool
 }
 
 // New builds the Plugin. cfg must already be Prepare'd. logger is the shared core logger.
@@ -108,6 +110,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		maxBodySizeBytesForPool:        cfg.MaxBodySizeBytesForPool,
 		denyVerbsWithBody:              createMethodSet(cfg.DenyVerbsWithBody),
 		compiledBypass:                 compiledBypass,
+		failClosed:                     cfg.FailClosed,
 	}, nil
 }
 
