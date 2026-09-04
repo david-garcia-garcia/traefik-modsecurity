@@ -1,3 +1,13 @@
+## pullrequest (2026-09-04T16:36:32Z)
+phase: pullrequest
+findings: none
+fixed: merged origin/main; dropped apache-whoami 416 contrast (dummy origin gone on main #43); kept Range 200/206+Hostname and 16 MiB POST not-5xx
+skipped: none
+card: PR #38 summary (commentId: pr-body)
+ci: run 33895567416 succeeded (apache-drain, nginx-drain)
+verdict: ready for review
+head: 87be18ed305be5659aa22f459b4458daa77420d4
+
 ## pullrequest (2026-09-03T05:43:17Z)
 phase: pullrequest
 findings: none
