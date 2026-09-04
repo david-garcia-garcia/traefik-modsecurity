@@ -76,7 +76,7 @@ When the sidecar answers with a 5xx status, the plugin SHALL treat that as a WAF
 
 ### Requirement: Sidecar 5xx uses the same fail-open path as a transport error
 
-A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffPeriodSecs` is greater than zero. If the tracker is unhealthy after that failure, the plugin SHALL call the next handler (fail-open). If the tracker is not configured, or is configured and still healthy, the plugin SHALL return HTTP 502 with an empty body.
+A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffPeriodSecs` is greater than zero. Whether or not the tracker is configured, a WAF communication failure (sidecar 5xx or transport error, excluding inbound cancel) SHALL call the next handler (fail-open). The plugin SHALL NOT return HTTP 502 for a WAF failure. When `modSecurityStatusRequestHeader` is configured, the plugin SHALL set that header to `error` before calling next.
 
 #### Scenario: 503 trips fail-open at threshold 1
 
@@ -94,16 +94,17 @@ A sidecar 5xx SHALL count as a health-tracker failure when `unhealthyWafBackOffP
 - **THEN** the plugin SHALL call the next handler
 - **AND** the client SHALL receive the next handler's response
 
-#### Scenario: 503 without backoff returns 502
+#### Scenario: 503 without backoff fail-opens to next
 
 - **WHEN** `unhealthyWafBackOffPeriodSecs` is 0
 - **AND** the sidecar responds with HTTP 503
-- **THEN** the client SHALL receive HTTP 502 with an empty body
-- **AND** the next handler SHALL NOT run
+- **THEN** the plugin SHALL call the next handler
+- **AND** the client SHALL receive the next handler's response
+- **AND** the client SHALL NOT receive HTTP 502
 
 ### Requirement: Large non-file body never returns client 500
 
-A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plugin oversize SHALL be HTTP 413 with status-header `blocked` and SHALL NOT call the sidecar. A sidecar HTTP 413 SHALL be copied as a security block (`blocked`). A sidecar HTTP 5xx SHALL be a WAF failure: HTTP 502 and status-header `error` when fail-open backoff is not configured. The plugin SHALL NOT treat file vs non-file as a distinct mapping.
+A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plugin oversize SHALL be HTTP 413 with status-header `blocked` and SHALL NOT call the sidecar. A sidecar HTTP 413 SHALL be copied as a security block (`blocked`). A sidecar HTTP 5xx SHALL be a WAF failure: status-header `error` and fail-open to next (never a copied 500, never HTTP 502). The plugin SHALL NOT treat file vs non-file as a distinct mapping.
 
 #### Scenario: Plugin cap exceeded is 413 not 500
 
@@ -124,12 +125,12 @@ A large non-file request body SHALL NOT become a forwarded client HTTP 500. Plug
 - **AND** the next handler SHALL NOT run
 - **AND** the client SHALL NOT receive HTTP 500
 
-#### Scenario: Sidecar 500 is 502 not a copied 500
+#### Scenario: Sidecar 500 fail-opens not a copied 500
 
 - **WHEN** the inbound body is under `maxBodySizeBytes`
 - **AND** fail-open backoff is not configured
 - **AND** the sidecar responds with HTTP 500
-- **THEN** the client SHALL receive HTTP 502
+- **THEN** the plugin SHALL call the next handler
 - **AND** the status request header SHALL be `error`
-- **AND** the next handler SHALL NOT run
 - **AND** the client SHALL NOT receive HTTP 500
+- **AND** the client SHALL NOT receive HTTP 502

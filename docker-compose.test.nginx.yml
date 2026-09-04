@@ -164,6 +164,35 @@ services:
       - "traefik.http.middlewares.waf-pool-middleware.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
       # 5KB max body size, 1KB pool threshold - requests > 1KB will use usePool=false path
 
+  # WAF + Traefik retry: body Close / pool interaction after allow (Opus concern).
+  whoami-chain-retry:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chain-retry.rule=PathPrefix(`/chain-retry`)"
+      - "traefik.http.routers.chain-retry.middlewares=waf-chain-retry,retry-chain"
+      - "traefik.http.middlewares.retry-chain.retry.attempts=3"
+      - "traefik.http.middlewares.retry-chain.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.maxBodySizeBytes=8192"
+      - "traefik.http.middlewares.waf-chain-retry.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
+
+  # Traefik buffering then WAF: body already consumed/replaced before plugin.
+  whoami-chain-buffer:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chain-buffer.rule=PathPrefix(`/chain-buffer`)"
+      - "traefik.http.routers.chain-buffer.middlewares=buf-chain,waf-chain-buffer"
+      - "traefik.http.middlewares.buf-chain.buffering.maxRequestBodyBytes=1048576"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.modSecurityUrl=http://waf:8080"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.timeoutMillis=3000"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.modSecurityStatusRequestHeader=X-Waf-Status"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.maxBodySizeBytes=8192"
+      - "traefik.http.middlewares.waf-chain-buffer.plugin.traefik-modsecurity.maxBodySizeBytesForPool=1024"
+
   # WebSocket echo behind the same WAF middleware as /protected.
   echo-ws:
     image: jmalloc/echo-server:v0.3.7

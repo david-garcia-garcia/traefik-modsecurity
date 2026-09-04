@@ -48,10 +48,11 @@ When the WAF is marked unhealthy, the plugin SHALL forward the request to `next`
 
 ### Requirement: Backoff off leaves the tracker unused
 
-When `unhealthyWafBackOffPeriodSecs` is 0 or omitted, the plugin SHALL NOT mark the WAF unhealthy and SHALL return 502 Bad Gateway when the sidecar client call fails.
+When `unhealthyWafBackOffPeriodSecs` is 0 or omitted, the plugin SHALL NOT mark the WAF unhealthy. A sidecar client call failure SHALL still fail-open to the next handler (never HTTP 502 for a WAF failure). Later requests SHALL still call the sidecar because the tracker is unused.
 
-#### Scenario: Default config does not fail open
+#### Scenario: Default config fail-opens without marking unhealthy
 
 - **WHEN** the operator leaves `unhealthyWafBackOffPeriodSecs` unset
 - **AND** the sidecar client call fails
-- **THEN** the plugin SHALL respond 502 and SHALL NOT skip the sidecar on later requests
+- **THEN** the plugin SHALL call the next handler
+- **AND** the plugin SHALL NOT skip the sidecar on later requests due to unhealthy state

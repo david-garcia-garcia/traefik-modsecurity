@@ -1,0 +1,20 @@
+# File-provider router that forces Traefik retry: first LB server is a missing
+# Docker DNS name (fast fail), second is whoami-chain-retry.
+# Path is distinct so PathPrefix(`/chain-retry`) cannot shadow it.
+http:
+  routers:
+    retry-force:
+      rule: "PathPrefix(`/retry-force`)"
+      entryPoints:
+        - web
+      priority: 100
+      middlewares:
+        - waf-chain-retry@docker
+        - retry-chain@docker
+      service: retry-force
+  services:
+    retry-force:
+      loadBalancer:
+        servers:
+          - url: "http://no-such-backend:80"
+          - url: "http://whoami-chain-retry:80"
