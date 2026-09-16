@@ -85,8 +85,8 @@ After import, the table instance lives in `traefik_modsecurity` (Yaegi-visible r
 
 - Q: When should `knowledge/devdocs/core_plugin_reclaim.md` reflect the upstream import?
   Rank: additive asked — subsystem usage changes when `pkg/reclaim` is removed
-  Decision: assumed — update during implement / devdocsimpact: import path, `OpenTyped` + package-scoped `Table`, test reset helper; remove references to `pkg/reclaim`.
-  By: explore
+  Decision: resolved — `core_plugin_reclaim.md` and `core_plugin_layout.md` now name the utilities import and vendor path.
+  By: devdocsimpact
 
 ## Measured
 

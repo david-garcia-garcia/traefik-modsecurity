@@ -19,4 +19,4 @@
 ## 4. Verification
 
 - [ ] 4.1 Run reclaim-related Pester integration tests (if tagged) without fixture changes
-- [ ] 4.2 Update `knowledge/devdocs/core_plugin_reclaim.md` during devdocsimpact (import path, table scope, test helper)
+- [x] 4.2 Update `knowledge/devdocs/core_plugin_reclaim.md` during devdocsimpact (import path, table scope, test helper)
