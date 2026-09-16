@@ -1,0 +1,15 @@
+issueKey: 2026-09-16-import-middleware-utilities
+jobName: 2026-09-16-import-middleware-utilities
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: sha256:174a206cd3b0711c22d7a13519a673c50ad1481f7987eba293a0a1d5936036a4
+localTests: none
+requirement: requirement.md
+comments: none
+explore: none
+change: none
+pr: none
