@@ -31,8 +31,8 @@ origin/main filenames
 
 - Q: Should live docs that cite old test basenames be updated in this change?
   Rank: additive incidental — string updates on existing usage/docs; requirement Affected calls them optional, not a Desired SHALL
-  Decision: assumed — update `knowledge/devdocs/build_testing_go.md` and `openspec/project.md` when files move; leave `openspec/changes/archive/**` unchanged.
-  By: explore
+  Decision: resolved — updated `knowledge/devdocs/build_testing_go.md` and `openspec/project.md`; archive folders unchanged.
+  By: implement
 
 - Q: Does any in-repo runner hard-code old test filenames?
   Rank: additive asked — Desired is a rename; a pinned basename would break CI or scripts
