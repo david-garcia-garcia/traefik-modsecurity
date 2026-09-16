@@ -75,8 +75,8 @@ After import, the table instance lives in `traefik_modsecurity` (Yaegi-visible r
 
 - Q: Will Yaegi still construct the plugin if `bindPlugin` uses `OpenTyped[*modsecurity.Plugin]`?
   Rank: bounded asked — production Traefik path; **1** Yaegi entry constructor chain via `New` → `bindPlugin` in `modsecurity.go`
-  Decision: assumed — yes, provided `OpenTyped` remains a direct call expression in package `traefik_modsecurity` (not a generic alias). Confirm in implement with existing CI/Yaegi coverage if present.
-  By: explore
+  Decision: resolved — yes. `OpenTyped` stays a call expression in `modsecurity.go`. CI Integration Tests (apache-drain, nginx-drain) succeeded on this head.
+  By: pullrequest
 
 - Q: Who already owns client identity (address, user, tenant, Host, trust hop) for this change?
   Rank: additive asked — no identity fields in reclaim key

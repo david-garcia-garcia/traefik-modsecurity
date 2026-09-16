@@ -27,3 +27,21 @@ phase: codereview
 findings: none on eight axes
 fixed: none
 skipped: eight-way Task spawn (ran axes on conductor thread after crashes)
+
+## devdocsimpact (2026-09-16T18:16:20Z)
+phase: devdocsimpact
+findings: stale-usage on core_plugin_reclaim.md and core_plugin_layout.md
+fixed: both packets
+skipped: none
+
+## archive (2026-09-16T18:16:20Z)
+phase: archive
+findings: no spec delta; folder moved
+fixed: none
+skipped: task 4.1 Pester left to CI (now green)
+
+## pullrequest (2026-09-16T18:16:20Z)
+phase: pullrequest
+findings: all required checks success
+fixed: none
+skipped: none
