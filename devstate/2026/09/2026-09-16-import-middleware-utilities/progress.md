@@ -5,7 +5,7 @@ JobName: 2026-09-16-import-middleware-utilities
 | Phase | Work | Card | At |
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-16T17:48:34Z |
-| explore | [ ] | [ ] | |
+| explore | [x] | [x] | 2026-09-16T17:52:39Z |
 | propose | [ ] | [ ] | |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
