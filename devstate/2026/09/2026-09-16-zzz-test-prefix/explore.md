@@ -46,5 +46,5 @@ origin/main filenames
 
 - Q: Should this change add an OpenSpec spec for the `zzz_` filename convention?
   Rank: additive incidental — Out of scope says adding OpenSpec unless a later phase requires it
-  Decision: assumed — propose adds a change leaf only if FindSpecHost needs one for the naming convention; do not invent middleware behavior specs.
-  By: explore
+  Decision: resolved — FindSpecHost `new` `build_testing_go_test-file-prefix` (do not fold into `build_ci_github_go-test`); change `prefix-go-tests-zzz`.
+  By: propose
