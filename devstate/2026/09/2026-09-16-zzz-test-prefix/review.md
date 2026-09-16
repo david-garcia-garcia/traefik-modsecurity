@@ -26,3 +26,9 @@ findings: P3 1 (coverage hard)
 fixed: TestProductGoTestFiles_HaveZzzPrefix (9ec22d3)
 skipped: none
 
+## devdocsimpact (2026-09-16T19:24:40.817Z)
+phase: devdocsimpact
+findings: language-gap, stale-usage
+fixed: Language + How-to/Gotchas on knowledge/devdocs/build_testing_go.md
+skipped: none
+
