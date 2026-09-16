@@ -11,4 +11,4 @@ JobName: 2026-09-16-import-middleware-utilities
 | codereview | [x] | [x] | 2026-09-16T18:09:31Z |
 | devdocsimpact | [x] | [x] | 2026-09-16T18:16:20Z |
 | archive | [x] | [x] | 2026-09-16T18:16:20Z |
-| pullrequest | [x] | [ ] | |
+| pullrequest | [x] | [x] | 2026-09-16T18:17:45Z |
