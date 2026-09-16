@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/david-garcia-garcia/traefik-middleware-utilities/reclaim"
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/modsecurity"
-	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/reclaim"
 )
+
+// pluginReclaim keeps one Plugin core per name+config across Traefik constructor reloads.
+var pluginReclaim = reclaim.New(reclaim.Config{Grace: reclaim.DefaultGrace})
 
 const keyPrefixPlugin = "plugin:"
 
@@ -40,15 +43,18 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 // bindPlugin stores or reclaims the Plugin, then ForRoute this next.
 func bindPlugin(ctx context.Context, next http.Handler, name string, cfg *Config) (http.Handler, error) {
 	logger := modsecurity.NewLogger(name, cfg)
-	stored, err := reclaim.Open(ctx, pluginKey(name, cfg), logger, func() (any, error) {
-		return modsecurity.New(name, cfg, logger)
+	pluginInstance, err := reclaim.OpenTyped[*modsecurity.Plugin](ctx, pluginReclaim, pluginKey(name, cfg), logger, func() (any, reclaim.Hooks, error) {
+		created, createErr := modsecurity.New(name, cfg, logger)
+		if createErr != nil {
+			return nil, reclaim.Hooks{}, createErr
+		}
+		return created, reclaim.Hooks{
+			Close:                  func() { created.Close() },
+			EnforceCloseBeforeOpen: false,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
-	}
-	pluginInstance, ok := stored.(*modsecurity.Plugin)
-	if !ok {
-		return nil, fmt.Errorf("%s: reclaim: want *modsecurity.Plugin, got %T", name, stored)
 	}
 	return pluginInstance.ForRoute(next)
 }

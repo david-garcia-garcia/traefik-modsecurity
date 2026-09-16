@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/modsecurity"
-	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/reclaim"
 )
 
 func testReuseConfig(wafURL string) *Config {
@@ -33,8 +32,7 @@ func testRoute(t *testing.T, h http.Handler) *modsecurity.Route {
 }
 
 func TestNew_SameNameAndConfig_SharesCore(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	cfg := testReuseConfig("http://127.0.0.1:9")
 	ctx := context.Background()
@@ -56,8 +54,7 @@ func TestNew_SameNameAndConfig_SharesCore(t *testing.T) {
 }
 
 func TestNew_DifferentName_DoesNotShareCore(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	cfg := testReuseConfig("http://127.0.0.1:9")
 	ctx := context.Background()
@@ -75,8 +72,7 @@ func TestNew_DifferentName_DoesNotShareCore(t *testing.T) {
 }
 
 func TestNew_OmittedDefaults_SharesCore(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	minimal := &Config{ModSecurityUrl: "http://127.0.0.1:9"}
 	full := CreateConfig()
@@ -96,8 +92,7 @@ func TestNew_OmittedDefaults_SharesCore(t *testing.T) {
 }
 
 func TestNew_DifferentConfig_DoesNotShareCore(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	cfgA := testReuseConfig("http://127.0.0.1:9")
 	cfgB := testReuseConfig("http://127.0.0.1:9")
@@ -117,8 +112,7 @@ func TestNew_DifferentConfig_DoesNotShareCore(t *testing.T) {
 }
 
 func TestNew_AfterDispose_NewIncarnation(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	cfg := testReuseConfig("http://127.0.0.1:9")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -147,8 +141,7 @@ func TestNew_AfterDispose_NewIncarnation(t *testing.T) {
 }
 
 func TestNew_SharedHealthTracker(t *testing.T) {
-	reclaim.ResetWith(0)
-	t.Cleanup(func() { reclaim.ResetWith(reclaim.DefaultGrace) })
+	resetPluginReclaimForTest(t, 0)
 
 	cfg := testReuseConfig("http://127.0.0.1:1")
 	cfg.UnhealthyWafBackOffPeriodSecs = 30

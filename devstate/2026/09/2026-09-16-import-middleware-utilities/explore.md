@@ -55,23 +55,23 @@ After import, the table instance lives in `traefik_modsecurity` (Yaegi-visible r
 
 - Q: How should `bindPlugin` wire `modsecurity.Plugin` teardown on upstream reclaim?
   Rank: bounded asked — reshapes existing `bindPlugin`; Desired routes all reclaim through upstream; **1** production call site (`modsecurity.go`, searched repo for `reclaim.Open`)
-  Decision: assumed — use `OpenTyped[*modsecurity.Plugin]`; in `create`, return the plugin as `any` and `Hooks{Close: func() { plugin.Close() }}` with `EnforceCloseBeforeOpen: false` (same permissive unmap-then-close shape as today’s value `Close()`).
-  By: explore
+  Decision: resolved — `OpenTyped[*modsecurity.Plugin]` in `bindPlugin`; create returns `Hooks{Close: Plugin.Close, EnforceCloseBeforeOpen: false}`.
+  By: implement
 
 - Q: How do `plugin_reuse_test.go` and `loglevel_test.go` reset reclaim without upstream `ResetWith`?
-  Rank: bounded asked — **2** test files, **7** `Reset`/`ResetWith` call sites (searched `*_test.go` for `reclaim.Reset`)
-  Decision: assumed — add a test-only reset on the root package’s shared `*reclaim.Table` (wrap `(*Table).Reset()` and restore default grace in `t.Cleanup`); update imports to the upstream module.
-  By: explore
+  Rank: bounded asked — **3** test files (`plugin_reuse_test.go`, `loglevel_test.go`, `failmode_test.go`), **8** former `Reset`/`ResetWith` sites
+  Decision: resolved — `resetPluginReclaimForTest` in `reclaim_test.go` replaces the shared table and restores `DefaultGrace` on cleanup.
+  By: implement
 
 - Q: Should in-tree `pkg/reclaim/table_test.go` move or stay after delete?
   Rank: bounded asked — Desired deletes `pkg/reclaim/`; table tests only lived there
-  Decision: assumed — delete with `pkg/reclaim/`; rely on `plugin_reuse_test.go`, `loglevel_test.go`, Pester reclaim logs, and upstream’s own reclaim tests inside vendored source.
-  By: explore
+  Decision: resolved — deleted `pkg/reclaim/` with the apply.
+  By: implement
 
 - Q: After `go get`, must `vendor/` include the module (and its transitives)?
   Rank: additive asked — Affected lists `go.mod`/`go.sum`; `build_go_modules.md` requires vendor refresh for Yaegi/CI
-  Decision: assumed — yes — `go mod vendor` after adding the require (includes `yaegi` transitive even though reclaim prod code is stdlib-only).
-  By: explore
+  Decision: resolved — `go.mod` pins v1.0.3; `vendor/` lists only `…/reclaim` (yaegi is not a reclaim import, so it was not vendored).
+  By: implement
 
 - Q: Will Yaegi still construct the plugin if `bindPlugin` uses `OpenTyped[*modsecurity.Plugin]`?
   Rank: bounded asked — production Traefik path; **1** Yaegi entry constructor chain via `New` → `bindPlugin` in `modsecurity.go`
