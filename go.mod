@@ -2,7 +2,10 @@ module github.com/david-garcia-garcia/traefik-modsecurity
 
 go 1.21
 
-require github.com/stretchr/testify v1.9.0
+require (
+	github.com/david-garcia-garcia/traefik-middleware-utilities v1.0.3
+	github.com/stretchr/testify v1.9.0
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

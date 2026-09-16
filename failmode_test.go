@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/modsecurity"
-	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/reclaim"
 )
 
 func TestPluginConfigHash_FailModeChangesKey(t *testing.T) {
@@ -27,8 +26,7 @@ func TestPluginConfigHash_FailModeChangesKey(t *testing.T) {
 }
 
 func TestNew_DifferentFailModeCreatesTwoCores(t *testing.T) {
-	t.Cleanup(reclaim.Reset)
-	reclaim.Reset()
+	resetPluginReclaimForTest(t, 0)
 
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	openCfg := CreateConfig()
