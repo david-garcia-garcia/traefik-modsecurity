@@ -14,3 +14,9 @@ findings: FindSpecHost new build_testing_go_test-file-prefix
 fixed: none
 skipped: none
 
+## implement (2026-09-16T19:17:38.851Z)
+phase: implement
+findings: 19 product test files prefixed; localTests passed
+fixed: git mv zzz_ + live citations
+skipped: none
+
