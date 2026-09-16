@@ -8,3 +8,9 @@ findings: P3 0, open questions 4 (3 assumed, 1 resolved)
 fixed: none
 skipped: none
 
+## propose (2026-09-16T19:15:45.592Z)
+phase: propose
+findings: FindSpecHost new build_testing_go_test-file-prefix
+fixed: none
+skipped: none
+
