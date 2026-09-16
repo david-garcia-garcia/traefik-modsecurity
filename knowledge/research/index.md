@@ -79,3 +79,8 @@ description: Official Azure Front Door and Application Gateway WAF WebSocket beh
 priority: normal
 local: index_ext_haproxy.md
 description: Official HAProxy HTTP upgrade and tunnel behavior this product compares to.
+
+## traefik-middleware-utilities
+priority: normal
+local: index_ext_traefik-middleware-utilities.md
+description: Shared Go libraries from david-garcia-garcia/traefik-middleware-utilities used by Traefik Yaegi plugins.
