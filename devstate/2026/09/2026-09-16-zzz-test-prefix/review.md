@@ -20,3 +20,9 @@ findings: 19 product test files prefixed; localTests passed
 fixed: git mv zzz_ + live citations
 skipped: none
 
+## codereview (2026-09-16T19:20:48.748Z)
+phase: codereview
+findings: P3 1 (coverage hard)
+fixed: TestProductGoTestFiles_HaveZzzPrefix (9ec22d3)
+skipped: none
+
