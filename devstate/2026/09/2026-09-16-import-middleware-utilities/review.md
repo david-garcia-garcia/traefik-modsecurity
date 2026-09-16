@@ -9,3 +9,9 @@ phase: explore
 findings: DestBranch gap reproduced; upstream v1.0.3 is not drop-in
 fixed: none
 skipped: none
+
+## propose (2026-09-16T17:55:11Z)
+phase: propose
+findings: FindSpecHost fold, skip_specs true
+fixed: none
+skipped: none

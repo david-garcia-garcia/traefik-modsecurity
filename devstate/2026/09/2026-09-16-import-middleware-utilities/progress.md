@@ -6,7 +6,7 @@ JobName: 2026-09-16-import-middleware-utilities
 |-------|------|------|----|
 | prepare | [x] | [x] | 2026-09-16T17:48:34Z |
 | explore | [x] | [x] | 2026-09-16T17:52:39Z |
-| propose | [ ] | [ ] | |
+| propose | [x] | [x] | 2026-09-16T17:55:32Z |
 | implement | [ ] | [ ] | |
 | codereview | [ ] | [ ] | |
 | devdocsimpact | [ ] | [ ] | |
