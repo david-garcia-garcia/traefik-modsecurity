@@ -15,3 +15,9 @@ phase: propose
 findings: FindSpecHost fold, skip_specs true
 fixed: none
 skipped: none
+
+## implement (2026-09-16T18:08:09Z)
+phase: implement
+findings: applied OpenTyped + vendor v1.0.3; deleted pkg/reclaim
+fixed: bindPlugin, tests, go.mod
+skipped: Pester reclaim (left to CI); core_plugin_reclaim.md (devdocsimpact)
