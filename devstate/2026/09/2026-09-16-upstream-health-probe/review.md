@@ -33,3 +33,9 @@ phase: devdocsimpact
 findings: one stale-usage on build_testing_go
 fixed: replaced TestRecordFailure_WindowReset example
 skipped: none
+
+## archive (2026-09-17T04:31:43Z)
+phase: archive
+findings: five deltas synced; names OK
+fixed: live waf-backoff spec; health-tracker requirements removed; change folder moved
+skipped: none
