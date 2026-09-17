@@ -740,6 +740,130 @@ func TestPlugin_ConcurrentRequestsDuringProbeStaySkipped(t *testing.T) {
 	}
 }
 
+// TestPlugin_FailOpenUnhealthySkipCallsNext checks a follow-up during cooldown fail-opens to next.
+func TestPlugin_FailOpenUnhealthySkipCallsNext(t *testing.T) {
+	var sidecarCalls atomic.Int32
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sidecarCalls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.UnhealthyWafBackOffPeriodSecs = 30
+	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("fail-open-skip-next", cfg, NewLogger("fail-open-skip-next", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	nextCalled := 0
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled++
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "next")
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	route.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example/protected", nil))
+	follow := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	followRec := httptest.NewRecorder()
+	route.ServeHTTP(followRec, follow)
+	if followRec.Code != http.StatusOK {
+		t.Fatalf("follow-up status %d, want 200", followRec.Code)
+	}
+	if followRec.Body.String() != "next" {
+		t.Fatalf("follow-up body %q, want next", followRec.Body.String())
+	}
+	if nextCalled != 2 {
+		t.Fatalf("next called %d, want 2", nextCalled)
+	}
+	if sidecarCalls.Load() != 1 {
+		t.Fatalf("sidecar calls %d, want 1", sidecarCalls.Load())
+	}
+	if got := follow.Header.Get("X-Waf-Status"); got != "unhealthy" {
+		t.Fatalf("follow-up status header %q, want unhealthy", got)
+	}
+}
+
+// TestPlugin_AlreadyCanceledAllowDoesNotTripHealth checks Allow on a canceled inbound ctx is 502 and does not skip later calls.
+func TestPlugin_AlreadyCanceledAllowDoesNotTripHealth(t *testing.T) {
+	var sidecarCalls atomic.Int32
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sidecarCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+	_, route := newTestHealthRoute(t, "allow-already-canceled", waf.URL, 2000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", rec.Code)
+	}
+	if sidecarCalls.Load() != 0 {
+		t.Fatalf("sidecar calls %d, want 0", sidecarCalls.Load())
+	}
+
+	follow := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	followRec := httptest.NewRecorder()
+	route.ServeHTTP(followRec, follow)
+	if sidecarCalls.Load() != 1 {
+		t.Fatalf("later sidecar calls %d, want 1", sidecarCalls.Load())
+	}
+	if got := follow.Header.Get("X-Waf-Status"); got == "unhealthy" {
+		t.Fatal("canceled Allow must not skip later sidecar calls")
+	}
+}
+
+// TestPlugin_BackoffOffStillCallsSidecarLater checks a failure with backoff unset does not skip later sidecar calls.
+func TestPlugin_BackoffOffStillCallsSidecarLater(t *testing.T) {
+	var sidecarCalls atomic.Int32
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := sidecarCalls.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.UnhealthyWafBackOffPeriodSecs = 0
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("backoff-off-later", cfg, NewLogger("backoff-off-later", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	route.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example/protected", nil))
+	follow := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	followRec := httptest.NewRecorder()
+	route.ServeHTTP(followRec, follow)
+	if sidecarCalls.Load() != 2 {
+		t.Fatalf("sidecar calls %d, want 2", sidecarCalls.Load())
+	}
+	if got := follow.Header.Get("X-Waf-Status"); got != "ok" {
+		t.Fatalf("later status header %q, want ok", got)
+	}
+}
+
 // TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders checks Host is set and Traefik headers are copied as-is.
 func TestPlugin_SidecarRequestCopiesHostAndForwardingHeaders(t *testing.T) {
 	tests := []struct {
