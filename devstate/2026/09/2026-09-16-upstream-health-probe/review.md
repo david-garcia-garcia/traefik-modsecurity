@@ -15,3 +15,9 @@ phase: propose
 findings: apply-ready adopt-upstream-backendbackoff
 fixed: proposal, five spec deltas, design, tasks
 skipped: none
+
+## implement (2026-09-17T04:21:58Z)
+phase: implement
+findings: pkg/health removed; Allow/Report wired; local go test passed
+fixed: backendbackoff gate, new knobs, plugin tests, usage packet rename
+skipped: go test -race (CGO unavailable on this host)
