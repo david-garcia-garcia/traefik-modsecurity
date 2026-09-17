@@ -9,6 +9,10 @@ Allowlist of root + domain: `openspec/specs/domains.md`.
 
 - github
 
+### testing
+
+- go
+
 ## core
 
 ### crs

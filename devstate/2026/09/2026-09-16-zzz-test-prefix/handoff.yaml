@@ -1,0 +1,17 @@
+issueKey: 2026-09-16-zzz-test-prefix
+jobName: 2026-09-16-zzz-test-prefix
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified
+src: 9b967196b3d26fd170ff34cce4d3d888ab2585a48050bcc723b8be1f9a68ff5e
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: prefix-go-tests-zzz
+pr:
+  id: 47
+  url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/47
