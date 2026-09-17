@@ -9,3 +9,9 @@ phase: explore
 findings: mapping, knobs, and gate key resolved; four deviations taken
 fixed: explore.md and deviations.md written
 skipped: none
+
+## propose (2026-09-17T04:18:16Z)
+phase: propose
+findings: apply-ready adopt-upstream-backendbackoff
+fixed: proposal, five spec deltas, design, tasks
+skipped: none
