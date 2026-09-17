@@ -27,3 +27,9 @@ phase: codereview
 findings: 7 axes clean; coverage 3 hard + 2 judgement
 fixed: TestPlugin_FailOpenUnhealthySkipCallsNext, TestPlugin_AlreadyCanceledAllowDoesNotTripHealth, TestPlugin_BackoffOffStillCallsSidecarLater
 skipped: judgement ratio/max ServeHTTP proof; judgement Allow error after Gate Close
+
+## devdocsimpact (2026-09-17T04:28:34Z)
+phase: devdocsimpact
+findings: one stale-usage on build_testing_go
+fixed: replaced TestRecordFailure_WindowReset example
+skipped: none

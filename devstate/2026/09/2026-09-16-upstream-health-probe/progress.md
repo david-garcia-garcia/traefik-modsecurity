@@ -9,6 +9,6 @@ JobName: 2026-09-16-upstream-health-probe
 | propose | [x] | [x] | 2026-09-17T04:18:16Z |
 | implement | [x] | [x] | 2026-09-17T04:21:58Z |
 | codereview | [x] | [x] | 2026-09-17T04:26:46Z |
-| devdocsimpact | [x] | [ ] | |
+| devdocsimpact | [x] | [x] | 2026-09-17T04:28:34Z |
 | archive | [ ] | [ ] | |
 | pullrequest | [ ] | [ ] | |
