@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Reuse one plugin core per Traefik middleware name and prepared config so routes share the WAF HTTP client, logger, and health tracker.
+Reuse one plugin core per Traefik middleware name and prepared config so routes share the WAF HTTP client, logger, and WAF admission gate.
 
 ## Requirements
 
@@ -13,7 +13,7 @@ The plugin SHALL create at most one plugin core for a given Traefik middleware n
 #### Scenario: Same name and config reuse the core
 
 - **WHEN** Traefik calls `New` twice with the same middleware name and the same prepared `Config`
-- **THEN** both handlers SHALL use the same plugin core (same HTTP client and, when backoff is enabled, the same health tracker)
+- **THEN** both handlers SHALL use the same plugin core (same HTTP client and, when backoff is enabled, the same WAF admission gate)
 
 #### Scenario: Different name creates a new core
 
@@ -27,13 +27,13 @@ The plugin SHALL create at most one plugin core for a given Traefik middleware n
 
 ### Requirement: Shared core owns client, logger, and health tracker
 
-The shared core SHALL own the HTTP client used to call `ModSecurityUrl` (including its transport and dialer), the plugin logger, and the WAF health tracker when `unhealthyWafBackOffPeriodSecs` is greater than zero. Per-route wrappers SHALL NOT create their own client, logger, or tracker.
+The shared core SHALL own the HTTP client used to call `ModSecurityUrl` (including its transport and dialer), the plugin logger, and the WAF admission gate when `unhealthyWafBackOffPeriodSecs` is greater than zero. Per-route wrappers SHALL NOT create their own client, logger, or gate.
 
 #### Scenario: Health trip is shared
 
 - **WHEN** two handlers share a core with backoff enabled
-- **AND** the core marks the WAF unhealthy
-- **THEN** both handlers SHALL observe unhealthy on the next request
+- **AND** the core is skipping the sidecar after a trip
+- **THEN** both handlers SHALL skip the sidecar on the next request
 
 ### Requirement: Core is disposed after last holder
 

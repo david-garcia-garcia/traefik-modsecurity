@@ -1,0 +1,15 @@
+issueKey: 2026-09-16-upstream-health-probe
+jobName: 2026-09-16-upstream-health-probe
+issueHost: local
+issueRef: none
+prHost: github
+repoSlug: traefik-modsecurity
+destBranch: main
+qualify: qualified-with-gaps
+src: sha256:06cb3981f11f5fbb832b4659d4e4907c9acc05217d159961e1e654740e411837
+localTests: passed
+requirement: requirement.md
+comments: none
+explore: explore.md
+change: adopt-upstream-backendbackoff
+pr: { id: 48, url: https://github.com/david-garcia-garcia/traefik-modsecurity/pull/48 }

@@ -146,6 +146,7 @@ func TestNew_SharedHealthTracker(t *testing.T) {
 	cfg := testReuseConfig("http://127.0.0.1:1")
 	cfg.UnhealthyWafBackOffPeriodSecs = 30
 	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
 	ctx := context.Background()
 	a, err := New(ctx, testNextOK(), cfg, "waf")
 	if err != nil {
@@ -163,10 +164,10 @@ func TestNew_SharedHealthTracker(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://incoming.example/probe", nil)
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, req)
-	if !ra.IsUnhealthy() {
-		t.Fatal("first failure must trip the shared health tracker")
-	}
-	if !rb.IsUnhealthy() {
-		t.Fatal("second handler must observe the same unhealthy state")
+	second := httptest.NewRequest(http.MethodGet, "http://incoming.example/probe", nil)
+	secondRec := httptest.NewRecorder()
+	b.ServeHTTP(secondRec, second)
+	if got := second.Header.Get("X-Waf-Status"); got != "unhealthy" {
+		t.Fatalf("shared core follow-up status %q, want unhealthy", got)
 	}
 }

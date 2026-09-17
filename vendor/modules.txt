@@ -3,6 +3,7 @@
 github.com/davecgh/go-spew/spew
 # github.com/david-garcia-garcia/traefik-middleware-utilities v1.0.3
 ## explicit; go 1.21
+github.com/david-garcia-garcia/traefik-middleware-utilities/backendbackoff
 github.com/david-garcia-garcia/traefik-middleware-utilities/reclaim
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit

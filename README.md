@@ -221,17 +221,20 @@ http:
           # close: fail-close with empty HTTP 502; do not call next
           # Allowed values: open, close (case-insensitive). Other values fail plugin construction
           # Applies to sidecar transport errors (not inbound cancel), sidecar 5xx,
-          # and the already-unhealthy skip after the health tracker trips
+          # and the already-unhealthy skip after WAF backoff trips
           # Existing deploys that omit this field stay fail-open
 
           unhealthyWafBackOffPeriodSecs: 30
           # OPTIONAL: Backoff period in seconds when ModSecurity is unavailable
-          # Default: 0 (tracker unused; each WAF failure still follows failMode)
+          # Default: 0 (gate unused; each WAF failure still follows failMode)
           # When ModSecurity is down, this plugin fail-opens the current request unless failMode is close
           # Set to 30+ so later requests skip the sidecar for that backoff after threshold
+          # After cooldown the next request is one probe; other in-flight requests stay skipped
           # Set to 0 to disable unhealthy skip of later requests (each failure still follows failMode)
           # Omitted unhealthyWafFailureThreshold defaults to 5 (one error does not trip)
-          # Omitted unhealthyWafFailureWindowSecs defaults to 10 (tumbling window)
+          # Omitted unhealthyWafFailureWindowSecs defaults to 10 (kept for reclaim hash; unused by the gate)
+          # Omitted unhealthyWafFailureRatio uses the packaged 0.30 credit refill
+          # Omitted unhealthyWafMaxBackOffPeriodSecs equals unhealthyWafBackOffPeriodSecs (fixed cooldown)
           # Set unhealthyWafFailureThreshold: 1 to trip on the first sidecar error
           
           modSecurityStatusRequestHeader: "X-Waf-Status"

@@ -144,6 +144,8 @@ func TestPrepare_RejectsRemainingNegativeNumericFields(t *testing.T) {
 		{"unhealthyWafBackOffPeriodSecs", func(c *Config) { c.UnhealthyWafBackOffPeriodSecs = -1 }},
 		{"unhealthyWafFailureThreshold", func(c *Config) { c.UnhealthyWafFailureThreshold = -1 }},
 		{"unhealthyWafFailureWindowSecs", func(c *Config) { c.UnhealthyWafFailureWindowSecs = -1 }},
+		{"unhealthyWafFailureRatio", func(c *Config) { c.UnhealthyWafFailureRatio = -0.1 }},
+		{"unhealthyWafMaxBackOffPeriodSecs", func(c *Config) { c.UnhealthyWafMaxBackOffPeriodSecs = -1 }},
 		{"maxConnsPerHost", func(c *Config) { c.MaxConnsPerHost = -1 }},
 		{"maxIdleConnsPerHost", func(c *Config) { c.MaxIdleConnsPerHost = -1 }},
 		{"responseHeaderTimeoutMillis", func(c *Config) { c.ResponseHeaderTimeoutMillis = -1 }},
@@ -225,6 +227,34 @@ func TestPrepare_EmptyDenyVerbsWithBodyStaysEmpty(t *testing.T) {
 	}
 	if cfg.DenyVerbsWithBody == nil || len(cfg.DenyVerbsWithBody) != 0 {
 		t.Fatalf("empty denyVerbsWithBody = %v, want empty non-nil", cfg.DenyVerbsWithBody)
+	}
+}
+
+func TestPrepare_RejectsFailureRatioOne(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.UnhealthyWafFailureRatio = 1
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error for unhealthyWafFailureRatio=1")
+	}
+}
+
+func TestPrepare_AcceptsFailureRatioHalf(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.UnhealthyWafFailureRatio = 0.5
+	if err := Prepare(cfg, "t"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepare_RejectsMaxBackoffBelowBase(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = "http://waf"
+	cfg.UnhealthyWafBackOffPeriodSecs = 10
+	cfg.UnhealthyWafMaxBackOffPeriodSecs = 5
+	if err := Prepare(cfg, "t"); err == nil {
+		t.Fatal("expected error when max backoff is below base")
 	}
 }
 

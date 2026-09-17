@@ -15,7 +15,7 @@ priority: normal
 local: core_plugin_reclaim.md
 description: Process table that reuses one plugin core per middleware name and config.
 
-## Health tracker
+## WAF backoff gate
 priority: normal
-local: core_plugin_health.md
-description: Shared WAF failure backoff owned by one plugin core.
+local: core_plugin_waf-backoff.md
+description: Shared WAF admission gate owned by one plugin core.

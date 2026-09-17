@@ -11,16 +11,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/david-garcia-garcia/traefik-modsecurity/pkg/health"
+	"github.com/david-garcia-garcia/traefik-middleware-utilities/backendbackoff"
 )
 
-// Plugin is the shared core for one middleware name+config: WAF client, logger, health tracker, and body buffer pool.
+// wafGateKey is the single admission key on the Plugin's Gate.
+const wafGateKey = "waf"
+
+// Plugin is the shared core for one middleware name+config: WAF client, logger, admission gate, and body buffer pool.
 type Plugin struct {
 	modSecurityUrl                 string
 	name                           string
 	httpClient                     *http.Client
 	logger                         *slog.Logger
-	healthTracker                  *health.Tracker
+	wafGate                        *backendbackoff.Gate
 	bodyBufferPool                 bufferPool
 	modSecurityStatusRequestHeader string
 	maxBodySizeBytes               int64
@@ -79,11 +82,9 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 		transport.ExpectContinueTimeout = time.Duration(cfg.ExpectContinueTimeoutMillis) * time.Millisecond
 	}
 
-	var healthTracker *health.Tracker
-	if cfg.UnhealthyWafBackOffPeriodSecs > 0 {
-		backoff := time.Duration(cfg.UnhealthyWafBackOffPeriodSecs) * time.Second
-		window := time.Duration(cfg.UnhealthyWafFailureWindowSecs) * time.Second
-		healthTracker = health.New(backoff, window, cfg.UnhealthyWafFailureThreshold, logger)
+	wafGate, err := newWafGate(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	compiledBypass, err := compileBypassByMethod(cfg.BypassRules)
@@ -103,7 +104,7 @@ func New(name string, cfg *Config, logger *slog.Logger) (*Plugin, error) {
 			},
 		},
 		logger:                         logger,
-		healthTracker:                  healthTracker,
+		wafGate:                        wafGate,
 		bodyBufferPool:                 newBodyBufferPool(),
 		modSecurityStatusRequestHeader: cfg.ModSecurityStatusRequestHeader,
 		maxBodySizeBytes:               cfg.MaxBodySizeBytes,
@@ -124,12 +125,17 @@ func NewLogger(name string, cfg *Config) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})).With("middleware", name)
 }
 
-// Close releases idle HTTP connections when the reclaim incarnation ends.
+// Close releases the WAF admission gate and idle HTTP connections when the reclaim incarnation ends.
 func (p *Plugin) Close() {
-	if p == nil || p.httpClient == nil {
+	if p == nil {
 		return
 	}
-	p.httpClient.CloseIdleConnections()
+	if p.wafGate != nil {
+		p.wafGate.Close()
+	}
+	if p.httpClient != nil {
+		p.httpClient.CloseIdleConnections()
+	}
 }
 
 // HTTPClient is the shared WAF client. Tests compare identity across New calls.
@@ -140,12 +146,29 @@ func (p *Plugin) HTTPClient() *http.Client {
 	return p.httpClient
 }
 
-// IsUnhealthy reports whether the shared health tracker is in backoff.
-func (p *Plugin) IsUnhealthy() bool {
-	if p == nil || p.healthTracker == nil {
-		return false
+// newWafGate builds the upstream admission gate when backoff seconds are greater than zero.
+func newWafGate(cfg *Config) (*backendbackoff.Gate, error) {
+	if cfg.UnhealthyWafBackOffPeriodSecs <= 0 {
+		return nil, nil
 	}
-	return p.healthTracker.IsUnhealthy()
+	base := time.Duration(cfg.UnhealthyWafBackOffPeriodSecs) * time.Second
+	maxCooldown := base
+	if cfg.UnhealthyWafMaxBackOffPeriodSecs > 0 {
+		maxCooldown = time.Duration(cfg.UnhealthyWafMaxBackOffPeriodSecs) * time.Second
+	}
+	gateCfg := backendbackoff.Config{
+		TripFailures: cfg.UnhealthyWafFailureThreshold,
+		BaseCooldown: base,
+		MaxCooldown:  maxCooldown,
+	}
+	if cfg.UnhealthyWafFailureRatio > 0 {
+		gateCfg.FailureRatio = cfg.UnhealthyWafFailureRatio
+	}
+	gate, err := backendbackoff.New(gateCfg)
+	if err != nil {
+		return nil, fmt.Errorf("waf admission gate: %w", err)
+	}
+	return gate, nil
 }
 
 // createMethodSet converts HTTP methods to an uppercase set for O(1) lookup.
