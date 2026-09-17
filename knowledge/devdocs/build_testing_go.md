@@ -7,7 +7,7 @@ Go unit tests live next to the package they cover. They mock the WAF with `httpt
 ## How to use
 
 - Add root-plugin cases in `modsecurity_test.go` (`package traefik_modsecurity`). Add Plugin WAF backoff cases in `pkg/modsecurity/serve_test.go` (`package modsecurity`).
-- Name production-facing tests `Test<Type>_<Behavior>` (observed: `TestModsecurity_ServeHTTP`, `TestRecordFailure_WindowReset`). Name test-only helpers with `test` or `Test` in the identifier (`newChunkedReader` in `modsecurity_test.go`).
+- Name production-facing tests `Test<Type>_<Behavior>` (observed: `TestModsecurity_ServeHTTP`, `TestPlugin_FailOpenUnhealthySkipCallsNext`). Name test-only helpers with `test` or `Test` in the identifier (`newChunkedReader` in `modsecurity_test.go`).
 - Drive `New` + `ServeHTTP` with `httptest.NewServer` as the WAF and a stub `next` handler. Assert status, body, and optional `ModSecurityStatusRequestHeader`.
 - Run the suite with `go test -v ./...`. Match CI’s race check with `go test -race -v ./...`. Coverage: `go test -v -cover`. Benchmarks exist in README as `go test -bench=. -benchmem`; I did not find a `Benchmark*` function in this tree.
 - Agents: `openspec/project.md` says delegate runs to the `run-tests` agent (`run-tests go` or `run-tests go <TestFunctionName>`).
