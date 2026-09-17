@@ -7,3 +7,4 @@
 - updated knowledge/devdocs/core_plugin_middleware.md
 - updated knowledge/devdocs/core_plugin_reclaim.md
 - updated knowledge/devdocs/build_testing_go.md
+- updated knowledge/devdocs/build_testing_go.md (drop TestRecordFailure_WindowReset example)
