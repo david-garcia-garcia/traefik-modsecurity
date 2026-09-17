@@ -6,7 +6,7 @@ Go unit tests live next to the package they cover. They mock the WAF with `httpt
 
 ## How to use
 
-- Add root-plugin cases in `modsecurity_test.go` (`package traefik_modsecurity`). Add `pkg/health` cases in `pkg/health/tracker_test.go` (`package health`).
+- Add root-plugin cases in `modsecurity_test.go` (`package traefik_modsecurity`). Add Plugin WAF backoff cases in `pkg/modsecurity/serve_test.go` (`package modsecurity`).
 - Name production-facing tests `Test<Type>_<Behavior>` (observed: `TestModsecurity_ServeHTTP`, `TestRecordFailure_WindowReset`). Name test-only helpers with `test` or `Test` in the identifier (`newChunkedReader` in `modsecurity_test.go`).
 - Drive `New` + `ServeHTTP` with `httptest.NewServer` as the WAF and a stub `next` handler. Assert status, body, and optional `ModSecurityStatusRequestHeader`.
 - Run the suite with `go test -v ./...`. Match CI’s race check with `go test -race -v ./...`. Coverage: `go test -v -cover`. Benchmarks exist in README as `go test -bench=. -benchmem`; I did not find a `Benchmark*` function in this tree.
@@ -33,7 +33,7 @@ func TestModsecurity_ServeHTTP(t *testing.T) {
 
 - `modsecurity_test.go` — `ServeHTTP` pass/block, absolute-form URI, body-size cases.
 - `pkg/modsecurity/upstream_issue_13_test.go` — Authelia-shaped `POST /api/firstfactor`: allow is not 405; sidecar 405 is copied.
-- `pkg/health/tracker_test.go` — `Tracker` trip, window, backoff, concurrency.
+- `pkg/modsecurity/serve_test.go` — WAF backoff trip, skip, probe, cancel, 5xx.
 - `.github/workflows/go.yml` — `go test -race -v ./...`. `build.yml` — `go test -v ./...`.
 
 ## Gotchas

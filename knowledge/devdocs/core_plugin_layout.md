@@ -7,7 +7,7 @@ The Yaegi entry lives in the root Go package `traefik_modsecurity`. Isolated com
 ## How to use
 
 - Put Traefik catalog exports (`CreateConfig`, `New`, `Config` alias) in the root package so Yaegi can find them at the module root.
-- Put the Plugin core and health tracker in `pkg/<name>/`. Import them from the root package. Keep the reclaim table as the imported `traefik-middleware-utilities/reclaim` instance held in the root package.
+- Put the Plugin core in `pkg/<name>/`. Import it from the root package. Keep the reclaim table as the imported `traefik-middleware-utilities/reclaim` instance held in the root package. The WAF backoff gate is the imported `backendbackoff` instance held on the Plugin.
 - Do not import the root package from `pkg/`. `openspec/project.md` states that direction: root → `pkg/`, never the reverse.
 - Keep integration tests in `scripts/*.Tests.ps1` and helpers in `scripts/TestHelpers.ps1`. Do not place Pester files next to Go sources.
 - Keep vendored modules in `vendor/`. Do not delete that tree to “clean up” a local build.
@@ -17,7 +17,7 @@ The Yaegi entry lives in the root Go package `traefik_modsecurity`. Isolated com
 - `modsecurity.go` / `modsecurity_test.go` / `plugin_reuse_test.go` — root package.
 - `pkg/modsecurity/` — Plugin core and request path.
 - `vendor/github.com/david-garcia-garcia/traefik-middleware-utilities/reclaim/` — imported process table.
-- `pkg/health/` — WAF health tracker.
+- `pkg/modsecurity/` — Plugin core, ServeHTTP, and WAF backoff gate wiring.
 - `scripts/` — Pester suites and helpers.
 - `vendor/` — committed modules.
 - `openspec/` — project context and changes.

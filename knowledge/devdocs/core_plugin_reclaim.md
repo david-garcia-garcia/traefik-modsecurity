@@ -40,4 +40,4 @@ pluginInstance, err := reclaim.OpenTyped[*modsecurity.Plugin](ctx, pluginReclaim
 - A later `OpenTyped` for the same key during grace reclaims the value and stops the timer.
 - Zero grace disposes as soon as the last holder’s context is done.
 - `logger` is required. Pass the Plugin slog logger. Reclaim lines are Debug (`reclaim_put`, `reclaim_bind`, `reclaim_dispose`); they appear only when `logLevel` is `debug`.
-- Do not import a second utilities package (simpleredis, windowcounter, tokenbucket, backendbackoff, iplookup) unless a later change asks for it.
+- Do not import simpleredis, windowcounter, tokenbucket, or iplookup unless a later change asks for it. `backendbackoff` is owned by the Plugin core (`core_plugin_waf-backoff.md`).

@@ -19,7 +19,7 @@ Project-specific context for OpenSpec. When designing features or creating propo
 
 ## Architecture
 
-- **Package**: Root package `traefik_modsecurity` (plugin entry point). Isolated components live as subpackages under `pkg/<name>/` (e.g. `pkg/health/`).
+- **Package**: Root package `traefik_modsecurity` (plugin entry point). Isolated components live as subpackages under `pkg/<name>/` (e.g. `pkg/modsecurity/`).
 - **Flow**: Incoming `http.Request` → optional body read (size/verb limits) → proxy to `ModSecurityUrl` → on block: return 403 and optional status header; on pass: call `next.ServeHTTP`.
 - **Key types**:
   - `Config`: plugin configuration (YAML/JSON), created via `CreateConfig()` with documented defaults.
