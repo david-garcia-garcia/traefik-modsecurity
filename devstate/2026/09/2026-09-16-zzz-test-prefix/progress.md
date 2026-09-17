@@ -11,4 +11,4 @@ JobName: 2026-09-16-zzz-test-prefix
 | codereview | [x] | [x] | 2026-09-16T19:20:48.748Z |
 | devdocsimpact | [x] | [x] | 2026-09-16T19:24:40.817Z |
 | archive | [x] | [x] | 2026-09-17T04:14:53.180Z |
-| pullrequest | [ ] | [ ] | |
+| pullrequest | [x] | [x] | 2026-09-17T04:21:52.701Z |

@@ -38,3 +38,9 @@ findings: FindSpecHost new build_testing_go_test-file-prefix
 fixed: live spec + domains testing + archive move
 skipped: none
 
+## pullrequest (2026-09-17T04:21:52.701Z)
+phase: pullrequest
+findings: CI 6/6 success
+fixed: ready title; final card on pr-body
+skipped: none
+
