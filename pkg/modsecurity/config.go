@@ -33,41 +33,45 @@ type BypassRule struct {
 
 // Config is the Traefik plugin configuration Yaegi decodes.
 type Config struct {
-	TimeoutMillis                  int64        `json:"timeoutMillis,omitempty"`
-	ModSecurityUrl                 string       `json:"modSecurityUrl,omitempty"`
-	UnhealthyWafBackOffPeriodSecs  int          `json:"unhealthyWafBackOffPeriodSecs,omitempty"`
-	UnhealthyWafFailureThreshold   int          `json:"unhealthyWafFailureThreshold,omitempty"`
-	UnhealthyWafFailureWindowSecs  int          `json:"unhealthyWafFailureWindowSecs,omitempty"`
-	ModSecurityStatusRequestHeader string       `json:"modSecurityStatusRequestHeader,omitempty"`
-	MaxConnsPerHost                int          `json:"maxConnsPerHost,omitempty"`
-	MaxIdleConnsPerHost            int          `json:"maxIdleConnsPerHost,omitempty"`
-	ResponseHeaderTimeoutMillis    int64        `json:"responseHeaderTimeoutMillis,omitempty"`
-	ExpectContinueTimeoutMillis    int64        `json:"expectContinueTimeoutMillis,omitempty"`
-	MaxBodySizeBytes               int64        `json:"maxBodySizeBytes,omitempty"`
-	MaxBodySizeBytesForPool        int64        `json:"maxBodySizeBytesForPool,omitempty"`
-	DenyVerbsWithBody              []string     `json:"denyVerbsWithBody,omitempty"`
-	LogLevel                       string       `json:"logLevel,omitempty"`
-	BypassRules                    []BypassRule `json:"bypassRules,omitempty"`
-	FailMode                       string       `json:"failMode,omitempty"`
+	TimeoutMillis                    int64        `json:"timeoutMillis,omitempty"`
+	ModSecurityUrl                   string       `json:"modSecurityUrl,omitempty"`
+	UnhealthyWafBackOffPeriodSecs    int          `json:"unhealthyWafBackOffPeriodSecs,omitempty"`
+	UnhealthyWafFailureThreshold     int          `json:"unhealthyWafFailureThreshold,omitempty"`
+	UnhealthyWafFailureWindowSecs    int          `json:"unhealthyWafFailureWindowSecs,omitempty"`
+	UnhealthyWafFailureRatio         float64      `json:"unhealthyWafFailureRatio,omitempty"`
+	UnhealthyWafMaxBackOffPeriodSecs int          `json:"unhealthyWafMaxBackOffPeriodSecs,omitempty"`
+	ModSecurityStatusRequestHeader   string       `json:"modSecurityStatusRequestHeader,omitempty"`
+	MaxConnsPerHost                  int          `json:"maxConnsPerHost,omitempty"`
+	MaxIdleConnsPerHost              int          `json:"maxIdleConnsPerHost,omitempty"`
+	ResponseHeaderTimeoutMillis      int64        `json:"responseHeaderTimeoutMillis,omitempty"`
+	ExpectContinueTimeoutMillis      int64        `json:"expectContinueTimeoutMillis,omitempty"`
+	MaxBodySizeBytes                 int64        `json:"maxBodySizeBytes,omitempty"`
+	MaxBodySizeBytesForPool          int64        `json:"maxBodySizeBytesForPool,omitempty"`
+	DenyVerbsWithBody                []string     `json:"denyVerbsWithBody,omitempty"`
+	LogLevel                         string       `json:"logLevel,omitempty"`
+	BypassRules                      []BypassRule `json:"bypassRules,omitempty"`
+	FailMode                         string       `json:"failMode,omitempty"`
 }
 
 // CreateConfig returns default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		TimeoutMillis:                  2000,
-		UnhealthyWafBackOffPeriodSecs:  0,
-		UnhealthyWafFailureThreshold:   5,
-		UnhealthyWafFailureWindowSecs:  10,
-		ModSecurityStatusRequestHeader: "",
-		MaxConnsPerHost:                100,
-		MaxIdleConnsPerHost:            10,
-		ResponseHeaderTimeoutMillis:    0,
-		ExpectContinueTimeoutMillis:    1000,
-		MaxBodySizeBytes:               8 * 1024 * 1024,
-		MaxBodySizeBytesForPool:        5 * 1024 * 1024,
-		DenyVerbsWithBody:              []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
-		LogLevel:                       LogLevelInfo,
-		FailMode:                       FailModeOpen,
+		TimeoutMillis:                    2000,
+		UnhealthyWafBackOffPeriodSecs:    0,
+		UnhealthyWafFailureThreshold:     5,
+		UnhealthyWafFailureWindowSecs:    10,
+		UnhealthyWafFailureRatio:         0,
+		UnhealthyWafMaxBackOffPeriodSecs: 0,
+		ModSecurityStatusRequestHeader:   "",
+		MaxConnsPerHost:                  100,
+		MaxIdleConnsPerHost:              10,
+		ResponseHeaderTimeoutMillis:      0,
+		ExpectContinueTimeoutMillis:      1000,
+		MaxBodySizeBytes:                 8 * 1024 * 1024,
+		MaxBodySizeBytesForPool:          5 * 1024 * 1024,
+		DenyVerbsWithBody:                []string{"HEAD", "GET", "DELETE", "OPTIONS", "TRACE", "CONNECT"},
+		LogLevel:                         LogLevelInfo,
+		FailMode:                         FailModeOpen,
 	}
 }
 
@@ -120,6 +124,18 @@ func Prepare(cfg *Config, name string) error {
 	}
 	if err := rejectNegative("unhealthyWafFailureWindowSecs", int64(cfg.UnhealthyWafFailureWindowSecs)); err != nil {
 		return err
+	}
+	if cfg.UnhealthyWafFailureRatio < 0 {
+		return fmt.Errorf("unhealthyWafFailureRatio must not be negative")
+	}
+	if cfg.UnhealthyWafFailureRatio != 0 && cfg.UnhealthyWafFailureRatio >= 1 {
+		return fmt.Errorf("unhealthyWafFailureRatio must be in (0, 1) when set")
+	}
+	if err := rejectNegative("unhealthyWafMaxBackOffPeriodSecs", int64(cfg.UnhealthyWafMaxBackOffPeriodSecs)); err != nil {
+		return err
+	}
+	if cfg.UnhealthyWafMaxBackOffPeriodSecs > 0 && cfg.UnhealthyWafMaxBackOffPeriodSecs < cfg.UnhealthyWafBackOffPeriodSecs {
+		return fmt.Errorf("unhealthyWafMaxBackOffPeriodSecs must be at least unhealthyWafBackOffPeriodSecs")
 	}
 	if err := rejectNegative("maxConnsPerHost", int64(cfg.MaxConnsPerHost)); err != nil {
 		return err

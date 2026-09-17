@@ -37,11 +37,26 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 		}
 	}
 
-	// If the WAF is unhealthy skip the sidecar; fail-open to next or fail-close with 502.
-	if p.healthTracker != nil && p.healthTracker.IsUnhealthy() {
-		p.setStatusRequestHeader(req, "unhealthy")
-		p.serveFailClosedOrNext(rw, req, next)
-		return
+	// Admit one sidecar attempt; skip while the gate is open (fail-open or fail-close).
+	if p.wafGate != nil {
+		allowed, _, allowErr := p.wafGate.Allow(req.Context(), wafGateKey)
+		if allowErr != nil {
+			if errors.Is(allowErr, context.Canceled) || errors.Is(req.Context().Err(), context.Canceled) {
+				p.logger.Info("inbound request canceled; WAF call aborted", "error", allowErr, "inbound", req.Context().Err())
+				http.Error(rw, "", http.StatusBadGateway)
+				return
+			}
+			p.setStatusRequestHeader(req, "error")
+			p.logger.Error("fail to admit WAF request", "error", allowErr)
+			p.serveFailClosedOrNext(rw, req, next)
+			return
+		}
+		if !allowed {
+			p.setStatusRequestHeader(req, "unhealthy")
+			p.logger.Warn("skipping sidecar; waf backoff open")
+			p.serveFailClosedOrNext(rw, req, next)
+			return
+		}
 	}
 
 	// Read the inbound body for the sidecar and restore it for next.
@@ -84,6 +99,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 			http.Error(rw, "", http.StatusBadGateway)
 			return
 		}
+		p.reportWafOutcome(false)
 		p.recordWafFailure(req, err)
 		p.serveFailClosedOrNext(rw, req, next)
 		return
@@ -96,6 +112,7 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// Security block (3xx redirect, 4xx deny): copy the sidecar page, then we are done.
 	if resp.StatusCode >= 300 && resp.StatusCode < 500 {
+		p.reportWafOutcome(true)
 		p.setStatusRequestHeader(req, "blocked")
 		forwardResponse(resp, rw)
 		discardSidecarBody(resp.Body)
@@ -105,11 +122,13 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.
 
 	// Sidecar 5xx is a WAF failure, not a security block.
 	if resp.StatusCode >= 500 {
+		p.reportWafOutcome(false)
 		p.recordWafFailure(req, fmt.Errorf("waf status %d", resp.StatusCode))
 		p.serveFailClosedOrNext(rw, req, next)
 		return
 	}
 	// Sidecar allow: mark ok for access logs, then Traefik continues.
+	p.reportWafOutcome(true)
 	p.setStatusRequestHeader(req, "ok")
 	next.ServeHTTP(rw, req)
 }
@@ -151,15 +170,20 @@ func (p *Plugin) serveFailClosedOrNext(rw http.ResponseWriter, req *http.Request
 	next.ServeHTTP(rw, req)
 }
 
-// recordWafFailure records a WAF communication failure: status header, optional health tracker, and log.
+// reportWafOutcome records the admitted sidecar outcome on the gate. Denied Allow is not reported.
+func (p *Plugin) reportWafOutcome(success bool) {
+	if p.wafGate == nil {
+		return
+	}
+	if err := p.wafGate.Report(wafGateKey, success); err != nil {
+		p.logger.Error("fail to report WAF admission outcome", "error", err, "success", success)
+	}
+}
+
+// recordWafFailure writes the error status token and logs a WAF communication failure.
 // The caller then fail-opens to next or fail-closes with HTTP 502 according to failMode.
 func (p *Plugin) recordWafFailure(req *http.Request, cause error) {
 	p.setStatusRequestHeader(req, "error")
-
-	if p.healthTracker != nil {
-		p.healthTracker.RecordFailure()
-	}
-
 	p.logger.Error("fail to send HTTP request to modsec", "error", cause, "inbound", req.Context().Err())
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -400,6 +401,7 @@ func newTestHealthRoute(t *testing.T, name, wafURL string, timeoutMillis int64) 
 	cfg.TimeoutMillis = timeoutMillis
 	cfg.UnhealthyWafBackOffPeriodSecs = 30
 	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
 	plugin, err := New(name, cfg, NewLogger(name, cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -414,22 +416,49 @@ func newTestHealthRoute(t *testing.T, name, wafURL string, timeoutMillis int64) 
 	return plugin, route
 }
 
-// startTestBlockingWAF starts a sidecar that waits until its request context is done.
+// startTestBlockingWAF starts a sidecar that waits on the first request context, then answers 200.
 func startTestBlockingWAF(t *testing.T) (wafURL string, started <-chan struct{}) {
 	t.Helper()
 	ready := make(chan struct{})
-	waf := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		close(ready)
-		<-r.Context().Done()
+	var calls atomic.Int32
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(ready)
+			<-r.Context().Done()
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(waf.Close)
 	return waf.URL, ready
 }
 
+// assertFollowupUnhealthy checks the next request skips the sidecar after a trip.
+func assertFollowupUnhealthy(t *testing.T, route http.Handler) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if got := req.Header.Get("X-Waf-Status"); got != "unhealthy" {
+		t.Fatalf("follow-up status header %q, want unhealthy", got)
+	}
+}
+
+// assertFollowupNotUnhealthy checks the next request still reaches the sidecar.
+func assertFollowupNotUnhealthy(t *testing.T, route http.Handler) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	rec := httptest.NewRecorder()
+	route.ServeHTTP(rec, req)
+	if got := req.Header.Get("X-Waf-Status"); got == "unhealthy" {
+		t.Fatal("follow-up must still call the sidecar")
+	}
+}
+
 // TestPlugin_InboundCancelDoesNotTripHealth checks a client disconnect is not a WAF health failure.
 func TestPlugin_InboundCancelDoesNotTripHealth(t *testing.T) {
 	wafURL, started := startTestBlockingWAF(t)
-	plugin, route := newTestHealthRoute(t, "cancel-health", wafURL, 5000)
+	_, route := newTestHealthRoute(t, "cancel-health", wafURL, 5000)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
@@ -452,15 +481,16 @@ func TestPlugin_InboundCancelDoesNotTripHealth(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("ServeHTTP did not return after inbound cancel")
 	}
-	if plugin.IsUnhealthy() {
-		t.Fatal("inbound cancel must not mark the WAF unhealthy")
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("cancel status %d, want 502", rec.Code)
 	}
+	assertFollowupNotUnhealthy(t, route)
 }
 
 // TestPlugin_InboundDeadlineTripsHealth checks a request deadline while waiting on the sidecar counts as a WAF health failure.
 func TestPlugin_InboundDeadlineTripsHealth(t *testing.T) {
 	wafURL, started := startTestBlockingWAF(t)
-	plugin, route := newTestHealthRoute(t, "deadline-health", wafURL, 5000)
+	_, route := newTestHealthRoute(t, "deadline-health", wafURL, 5000)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	t.Cleanup(cancel)
@@ -483,9 +513,7 @@ func TestPlugin_InboundDeadlineTripsHealth(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("ServeHTTP did not return after inbound deadline")
 	}
-	if !plugin.IsUnhealthy() {
-		t.Fatal("inbound deadline must mark the WAF unhealthy")
-	}
+	assertFollowupUnhealthy(t, route)
 }
 
 // TestPlugin_ClientTimeoutTripsHealth checks timeoutMillis still counts as a WAF health failure.
@@ -494,25 +522,21 @@ func TestPlugin_ClientTimeoutTripsHealth(t *testing.T) {
 		time.Sleep(2 * time.Second)
 	}))
 	t.Cleanup(waf.Close)
-	plugin, route := newTestHealthRoute(t, "timeout-health", waf.URL, 150)
+	_, route := newTestHealthRoute(t, "timeout-health", waf.URL, 150)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
 	rec := httptest.NewRecorder()
 	route.ServeHTTP(rec, req)
-	if !plugin.IsUnhealthy() {
-		t.Fatal("client timeout must mark the WAF unhealthy")
-	}
+	assertFollowupUnhealthy(t, route)
 }
 
 // TestPlugin_UnreachableSidecarTripsHealth checks a live-inbound transport error still trips health.
 func TestPlugin_UnreachableSidecarTripsHealth(t *testing.T) {
-	plugin, route := newTestHealthRoute(t, "unreach-health", "http://127.0.0.1:1", 200)
+	_, route := newTestHealthRoute(t, "unreach-health", "http://127.0.0.1:1", 200)
 	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
 	rec := httptest.NewRecorder()
 	route.ServeHTTP(rec, req)
-	if !plugin.IsUnhealthy() {
-		t.Fatal("unreachable sidecar must mark the WAF unhealthy")
-	}
+	assertFollowupUnhealthy(t, route)
 }
 
 // TestPlugin_Sidecar413DoesNotTripHealth checks a sidecar oversize-body 413 is a block, not a WAF health failure.
@@ -522,7 +546,7 @@ func TestPlugin_Sidecar413DoesNotTripHealth(t *testing.T) {
 		_, _ = io.WriteString(w, "Request Entity Too Large")
 	}))
 	t.Cleanup(waf.Close)
-	plugin, route := newTestHealthRoute(t, "sidecar-413-health", waf.URL, 2000)
+	_, route := newTestHealthRoute(t, "sidecar-413-health", waf.URL, 2000)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
 	rec := httptest.NewRecorder()
@@ -533,9 +557,7 @@ func TestPlugin_Sidecar413DoesNotTripHealth(t *testing.T) {
 	if rec.Body.String() != "Request Entity Too Large" {
 		t.Fatalf("body %q, want sidecar 413 page", rec.Body.String())
 	}
-	if plugin.IsUnhealthy() {
-		t.Fatal("sidecar 413 must not mark the WAF unhealthy")
-	}
+	assertFollowupNotUnhealthy(t, route)
 }
 
 // TestPlugin_Sidecar5xxTripsHealth checks sidecar 5xx statuses count as WAF health failures.
@@ -554,7 +576,7 @@ func TestPlugin_Sidecar5xxTripsHealth(t *testing.T) {
 				_, _ = io.WriteString(w, "sidecar down")
 			}))
 			t.Cleanup(waf.Close)
-			plugin, route := newTestHealthRoute(t, "sidecar-5xx-health-"+tt.name, waf.URL, 2000)
+			_, route := newTestHealthRoute(t, "sidecar-5xx-health-"+tt.name, waf.URL, 2000)
 
 			req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
 			rec := httptest.NewRecorder()
@@ -562,9 +584,7 @@ func TestPlugin_Sidecar5xxTripsHealth(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d, want fail-open 200", rec.Code)
 			}
-			if !plugin.IsUnhealthy() {
-				t.Fatalf("sidecar %d must mark the WAF unhealthy", tt.status)
-			}
+			assertFollowupUnhealthy(t, route)
 		})
 	}
 }
@@ -582,6 +602,7 @@ func TestPlugin_Sidecar5xxFailOpenRestoresBody(t *testing.T) {
 	cfg.TimeoutMillis = 2000
 	cfg.UnhealthyWafBackOffPeriodSecs = 30
 	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
 	plugin, err := New("sidecar-5xx-restore-body", cfg, NewLogger("sidecar-5xx-restore-body", cfg))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -610,8 +631,112 @@ func TestPlugin_Sidecar5xxFailOpenRestoresBody(t *testing.T) {
 	if gotBody != inboundBody {
 		t.Fatalf("next body %q, want %q", gotBody, inboundBody)
 	}
-	if !plugin.IsUnhealthy() {
-		t.Fatal("sidecar 503 must mark the WAF unhealthy")
+	assertFollowupUnhealthy(t, route)
+}
+
+// TestPlugin_OneProbeAfterCooldown checks the first request after backoff reaches the sidecar again.
+func TestPlugin_OneProbeAfterCooldown(t *testing.T) {
+	var sidecarCalls atomic.Int32
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sidecarCalls.Add(1)
+		if sidecarCalls.Load() == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.UnhealthyWafBackOffPeriodSecs = 1
+	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("probe-after-cooldown", cfg, NewLogger("probe-after-cooldown", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	first := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	route.ServeHTTP(httptest.NewRecorder(), first)
+	assertFollowupUnhealthy(t, route)
+	if sidecarCalls.Load() != 1 {
+		t.Fatalf("sidecar calls %d, want 1 during cooldown", sidecarCalls.Load())
+	}
+	time.Sleep(1100 * time.Millisecond)
+	probe := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+	probeRec := httptest.NewRecorder()
+	route.ServeHTTP(probeRec, probe)
+	if sidecarCalls.Load() != 2 {
+		t.Fatalf("sidecar calls %d, want 2 after cooldown probe", sidecarCalls.Load())
+	}
+	if got := probe.Header.Get("X-Waf-Status"); got != "ok" {
+		t.Fatalf("probe status header %q, want ok", got)
+	}
+}
+
+// TestPlugin_ConcurrentRequestsDuringProbeStaySkipped checks only one sidecar call while a probe is in flight.
+func TestPlugin_ConcurrentRequestsDuringProbeStaySkipped(t *testing.T) {
+	var sidecarCalls atomic.Int32
+	release := make(chan struct{})
+	waf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := sidecarCalls.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(waf.Close)
+
+	cfg := CreateConfig()
+	cfg.ModSecurityUrl = waf.URL
+	cfg.UnhealthyWafBackOffPeriodSecs = 1
+	cfg.UnhealthyWafFailureThreshold = 1
+	cfg.ModSecurityStatusRequestHeader = "X-Waf-Status"
+	plugin, err := New("probe-concurrent", cfg, NewLogger("probe-concurrent", cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(plugin.Close)
+	route, err := plugin.ForRoute(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if err != nil {
+		t.Fatalf("ForRoute: %v", err)
+	}
+
+	route.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example/protected", nil))
+	time.Sleep(1100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		route.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example/protected", nil))
+	}()
+	time.Sleep(50 * time.Millisecond)
+	go func() {
+		defer wg.Done()
+		req := httptest.NewRequest(http.MethodGet, "http://example/protected", nil)
+		route.ServeHTTP(httptest.NewRecorder(), req)
+		if sidecarCalls.Load() != 2 {
+			t.Errorf("sidecar calls %d, want 2 while probe in flight", sidecarCalls.Load())
+		}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if sidecarCalls.Load() != 2 {
+		t.Fatalf("sidecar calls %d, want 2 (one trip + one probe)", sidecarCalls.Load())
 	}
 }
 
