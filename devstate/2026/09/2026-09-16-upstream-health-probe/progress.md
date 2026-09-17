@@ -11,4 +11,4 @@ JobName: 2026-09-16-upstream-health-probe
 | codereview | [x] | [x] | 2026-09-17T04:26:46Z |
 | devdocsimpact | [x] | [x] | 2026-09-17T04:28:34Z |
 | archive | [x] | [x] | 2026-09-17T04:31:43Z |
-| pullrequest | [ ] | [ ] | |
+| pullrequest | [x] | [x] | 2026-09-17T04:39:44Z |
