@@ -8,7 +8,7 @@ Fails plugin construction when a numeric middleware field is negative or `modSec
 
 ### Requirement: Negative numeric fields fail prepare
 
-Plugin construction SHALL fail when any of these middleware fields is negative: `timeoutMillis`, `unhealthyWafBackOffPeriodSecs`, `unhealthyWafFailureThreshold`, `unhealthyWafFailureWindowSecs`, `maxConnsPerHost`, `maxIdleConnsPerHost`, `responseHeaderTimeoutMillis`, `expectContinueTimeoutMillis`, `maxBodySizeBytes`, `maxBodySizeBytesForPool`. A zero value SHALL keep today’s meaning (CreateConfig default, or disabled when that field’s default is zero).
+Plugin construction SHALL fail when any of these middleware fields is negative: `timeoutMillis`, `unhealthyWafBackOffPeriodSecs`, `unhealthyWafFailureThreshold`, `unhealthyWafFailureWindowSecs`, `unhealthyWafFailureRatio`, `unhealthyWafMaxBackOffPeriodSecs`, `maxConnsPerHost`, `maxIdleConnsPerHost`, `responseHeaderTimeoutMillis`, `expectContinueTimeoutMillis`, `maxBodySizeBytes`, `maxBodySizeBytesForPool`. A zero value SHALL keep today’s meaning (CreateConfig default, or disabled when that field’s default is zero).
 
 #### Scenario: Negative maxBodySizeBytes is rejected
 
@@ -52,7 +52,7 @@ Plugin construction SHALL fail when `modSecurityUrl` is empty, cannot be parsed 
 
 ### Requirement: Remaining numeric fields fail prepare when negative
 
-Plugin construction SHALL fail when any of these middleware fields is negative, in addition to the `timeoutMillis` and `maxBodySizeBytes` cases already specified: `unhealthyWafBackOffPeriodSecs`, `unhealthyWafFailureThreshold`, `unhealthyWafFailureWindowSecs`, `maxConnsPerHost`, `maxIdleConnsPerHost`, `responseHeaderTimeoutMillis`, `expectContinueTimeoutMillis`, `maxBodySizeBytesForPool`.
+Plugin construction SHALL fail when any of these middleware fields is negative, in addition to the `timeoutMillis` and `maxBodySizeBytes` cases already specified: `unhealthyWafBackOffPeriodSecs`, `unhealthyWafFailureThreshold`, `unhealthyWafFailureWindowSecs`, `unhealthyWafFailureRatio`, `unhealthyWafMaxBackOffPeriodSecs`, `maxConnsPerHost`, `maxIdleConnsPerHost`, `responseHeaderTimeoutMillis`, `expectContinueTimeoutMillis`, `maxBodySizeBytesForPool`.
 
 #### Scenario: Negative unhealthyWafBackOffPeriodSecs is rejected
 
@@ -67,6 +67,16 @@ Plugin construction SHALL fail when any of these middleware fields is negative, 
 #### Scenario: Negative unhealthyWafFailureWindowSecs is rejected
 
 - **WHEN** an operator sets `unhealthyWafFailureWindowSecs` to a negative number
+- **THEN** plugin construction SHALL fail
+
+#### Scenario: Negative unhealthyWafFailureRatio is rejected
+
+- **WHEN** an operator sets `unhealthyWafFailureRatio` to a negative number
+- **THEN** plugin construction SHALL fail
+
+#### Scenario: Negative unhealthyWafMaxBackOffPeriodSecs is rejected
+
+- **WHEN** an operator sets `unhealthyWafMaxBackOffPeriodSecs` to a negative number
 - **THEN** plugin construction SHALL fail
 
 #### Scenario: Negative maxConnsPerHost is rejected
@@ -92,4 +102,28 @@ Plugin construction SHALL fail when any of these middleware fields is negative, 
 #### Scenario: Negative maxBodySizeBytesForPool is rejected
 
 - **WHEN** an operator sets `maxBodySizeBytesForPool` to a negative number
+- **THEN** plugin construction SHALL fail
+
+### Requirement: Explicit failure ratio must be in (0, 1)
+
+When `unhealthyWafFailureRatio` is set to a value other than zero, plugin construction SHALL fail unless that value is greater than 0 and less than 1. Zero SHALL mean the packaged default.
+
+#### Scenario: Ratio 1 is rejected
+
+- **WHEN** an operator sets `unhealthyWafFailureRatio` to 1
+- **THEN** plugin construction SHALL fail
+
+#### Scenario: Ratio 0.5 is accepted
+
+- **WHEN** an operator sets `unhealthyWafFailureRatio` to 0.5 and a valid `modSecurityUrl`
+- **THEN** plugin construction SHALL succeed
+
+### Requirement: Explicit max backoff must be at least the base
+
+When `unhealthyWafMaxBackOffPeriodSecs` is set to a value other than zero, plugin construction SHALL fail unless that value is greater than or equal to `unhealthyWafBackOffPeriodSecs`.
+
+#### Scenario: Max below base is rejected
+
+- **WHEN** the operator sets `unhealthyWafBackOffPeriodSecs` to 10
+- **AND** sets `unhealthyWafMaxBackOffPeriodSecs` to 5
 - **THEN** plugin construction SHALL fail
