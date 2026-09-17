@@ -21,3 +21,9 @@ phase: implement
 findings: pkg/health removed; Allow/Report wired; local go test passed
 fixed: backendbackoff gate, new knobs, plugin tests, usage packet rename
 skipped: go test -race (CGO unavailable on this host)
+
+## codereview (2026-09-17T04:26:46Z)
+phase: codereview
+findings: 7 axes clean; coverage 3 hard + 2 judgement
+fixed: TestPlugin_FailOpenUnhealthySkipCallsNext, TestPlugin_AlreadyCanceledAllowDoesNotTripHealth, TestPlugin_BackoffOffStillCallsSidecarLater
+skipped: judgement ratio/max ServeHTTP proof; judgement Allow error after Gate Close
