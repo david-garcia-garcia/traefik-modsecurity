@@ -32,3 +32,9 @@ findings: language-gap, stale-usage
 fixed: Language + How-to/Gotchas on knowledge/devdocs/build_testing_go.md
 skipped: none
 
+## archive (2026-09-17T04:14:53.180Z)
+phase: archive
+findings: FindSpecHost new build_testing_go_test-file-prefix
+fixed: live spec + domains testing + archive move
+skipped: none
+
