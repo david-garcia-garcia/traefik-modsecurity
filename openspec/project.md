@@ -53,5 +53,5 @@ Use the **`run-tests` agent** to run tests. Never run test commands directly —
 | Body size suite only | `run-tests integration bodysize` |
 | By Pester tag | `run-tests integration tag <TagName>` |
 
-**Go tests** (`modsecurity_test.go`): standard `go test`, no external deps, fast.
+**Go tests** (`zzz_modsecurity_test.go`): standard `go test`, no external deps, fast. Product unit test files use a `zzz_` filename prefix.
 **Integration tests** (`scripts/*.Tests.ps1`): Pester v5 + Docker Compose; starts Traefik + ModSecurity + whoami, then runs HTTP assertions. Requires Docker Desktop and PowerShell.

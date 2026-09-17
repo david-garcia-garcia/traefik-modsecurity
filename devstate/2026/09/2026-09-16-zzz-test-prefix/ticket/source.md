@@ -1,0 +1,1 @@
+Rename all Go test files (`*_test.go`) so their filenames are prefixed with `zzz_`. Example: `serve_test.go` becomes `zzz_serve_test.go`. Do not rename eval fixture tests under `.agents/`. Product test files only. Dest branch requested by the human was master; the real dest is main.
